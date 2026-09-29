@@ -248,3 +248,37 @@ async fn checksum_verified() {
 fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
+
+#[tokio::test]
+async fn resume_with_deleted_part_file_redownloads() {
+    let f = fx();
+    let s = TestServer::start(6 * MB, Faults { bytes_per_sec: Some(2 * MB), ..Default::default() }).await;
+    let id = add(&f, &s.url("/file"), 3).await;
+    let tok = CancellationToken::new();
+    let t2 = tok.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        t2.cancel();
+    });
+    assert!(matches!(run_download(&f.env, &id, tok).await, Outcome::Stopped));
+    let saved: u64 = f.env.store.get_chunks(&id).await.unwrap().iter().map(|c| c.written).sum();
+    assert!(saved > 0, "{saved}");
+    let rec = f.env.store.get_download(&id).await.unwrap().unwrap();
+    std::fs::remove_file(part_path(&rec)).unwrap();
+
+    let p = done(run_download(&f.env, &id, CancellationToken::new()).await);
+    assert_eq!(sha(&p), Sha256::digest(body(6 * MB)).to_vec());
+}
+
+#[tokio::test]
+async fn no_range_server_survives_repeated_drops() {
+    let f = fx();
+    let s = TestServer::start(
+        2 * MB,
+        Faults { no_ranges: true, drop_after: Some(300_000), drop_times: 3, ..Default::default() },
+    )
+    .await;
+    let id = add(&f, &s.url("/file"), 4).await;
+    let p = done(run_download(&f.env, &id, CancellationToken::new()).await);
+    assert_eq!(std::fs::read(p).unwrap(), body(2 * MB));
+}

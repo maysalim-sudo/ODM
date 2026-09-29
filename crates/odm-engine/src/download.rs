@@ -122,12 +122,27 @@ async fn load(env: &DownloadEnv, id: &str) -> Result<DownloadRecord, OdmError> {
 }
 
 async fn run_inner(env: &DownloadEnv, id: &str, cancel: &CancellationToken) -> Result<PathBuf, OdmError> {
-    let mut restarted = false;
+    let mut restarts: u32 = 0;
     loop {
         let mut rec = load(env, id).await?;
         let headers = header_map(&env.store.get_headers(id).await.map_err(store_err)?);
         let mut chunks = env.store.get_chunks(id).await.map_err(store_err)?;
         let mut require_partial = chunks.len() > 1;
+
+        let total_written: u64 = chunks.iter().map(|c| c.written).sum();
+        if total_written > 0 {
+            let len = std::fs::metadata(part_path(&rec)).ok().map(|m| m.len());
+            let bad = match (len, rec.size) {
+                (None, _) => true,
+                (Some(l), Some(size)) => l != size,
+                (Some(l), None) => l < total_written,
+            };
+            if bad {
+                tracing::warn!(%id, "part file missing or wrong size; discarding stored progress");
+                env.store.replace_chunks(id, Vec::new()).await.map_err(store_err)?;
+                continue;
+            }
+        }
 
         if chunks.is_empty() {
             transition(env, id, DownloadState::Probing, None).await;
@@ -175,19 +190,23 @@ async fn run_inner(env: &DownloadEnv, id: &str, cancel: &CancellationToken) -> R
         match transfer(env, &rec, Arc::new(file), &chunks, require_partial, cancel).await {
             Ok(()) => return finish(env, &rec, &part).await,
             Err(e)
-                if !restarted
+                if restarts < env.config.max_attempts
                     && !cancel.is_cancelled()
                     && matches!(e.kind, ErrorKind::RangeIgnored | ErrorKind::FileChanged) =>
             {
                 tracing::warn!(%id, "restarting from zero: {e}");
-                let _ = std::fs::remove_file(&part);
+                restarts += 1;
+                tokio::select! {
+                    _ = cancel.cancelled() => return Err(cancelled()),
+                    _ = tokio::time::sleep(backoff_delay(restarts, None)) => {}
+                }
                 let next = if e.kind == ErrorKind::RangeIgnored {
                     vec![ChunkRecord { idx: 0, start: 0, end: rec.size.map(|s| s - 1), written: 0 }]
                 } else {
                     Vec::new() // forces a fresh probe
                 };
                 env.store.replace_chunks(id, next).await.map_err(store_err)?;
-                restarted = true;
+                let _ = std::fs::remove_file(&part);
             }
             Err(e) => return Err(e),
         }
