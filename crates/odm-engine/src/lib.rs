@@ -4,3 +4,5 @@ pub mod limiter;
 pub mod retry;
 
 pub use limiter::SpeedLimiter;
+pub mod probe;
+pub use probe::{probe, ProbeResult};
