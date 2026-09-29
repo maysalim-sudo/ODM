@@ -174,23 +174,22 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
 
     let rate = f.bytes_per_sec;
     let inner = s.clone();
-    inner.in_flight.fetch_add(1, Ordering::SeqCst);
-    let cur = inner.in_flight.load(Ordering::SeqCst);
+    let cur = inner.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
     inner.max_in_flight.fetch_max(cur, Ordering::SeqCst);
+    let guard = InFlight(inner);
 
     let piece = 16 * 1024;
     let chunks: Vec<Bytes> = slice.chunks(piece).map(Bytes::copy_from_slice).collect();
     let total = chunks.len();
-    let st = stream::unfold((0usize, chunks, inner), move |(i, chunks, inner)| async move {
+    let st = stream::unfold((0usize, chunks, guard), move |(i, chunks, guard)| async move {
         if i == usize::MAX {
             return None; // error already emitted
         }
         if i >= total {
-            inner.in_flight.fetch_sub(1, Ordering::SeqCst);
             if dropping {
                 // Let hyper flush the head and the truncated body before the abort.
                 tokio::time::sleep(Duration::from_millis(20)).await;
-                return Some((Err(std::io::Error::other("dropped")), (usize::MAX, chunks, inner)));
+                return Some((Err(std::io::Error::other("dropped")), (usize::MAX, chunks, guard)));
             }
             return None;
         }
@@ -198,7 +197,17 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
             tokio::time::sleep(Duration::from_secs_f64(chunks[i].len() as f64 / r as f64)).await;
         }
         let c = chunks[i].clone();
-        Some((Ok::<_, std::io::Error>(c), (i + 1, chunks, inner)))
+        Some((Ok::<_, std::io::Error>(c), (i + 1, chunks, guard)))
     });
     b.body(Body::from_stream(st)).unwrap()
+}
+
+/// Decrements the in-flight counter when the response stream is dropped
+/// (finished, errored, or abandoned by a disconnecting client).
+struct InFlight(Arc<Inner>);
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        self.0.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
 }

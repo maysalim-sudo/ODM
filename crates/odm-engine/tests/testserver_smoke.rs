@@ -23,3 +23,32 @@ async fn serves_ranges_and_faults() {
     let r = c.get(s.url("/file")).send().await.unwrap();
     assert_eq!(r.bytes().await.unwrap().len(), 100_000);
 }
+
+#[tokio::test]
+async fn sequential_requests_peak_at_one_in_flight() {
+    let s = TestServer::start(50_000, Faults::default()).await;
+    let c = reqwest::Client::new();
+    for _ in 0..5 {
+        let r = c.get(s.url("/file")).send().await.unwrap();
+        assert_eq!(r.bytes().await.unwrap().len(), 50_000);
+    }
+    assert_eq!(s.max_concurrent(), 1);
+}
+
+#[tokio::test]
+async fn concurrent_throttled_requests_overlap() {
+    let s = TestServer::start(200_000, Faults { bytes_per_sec: Some(200_000), ..Default::default() }).await;
+    let c = reqwest::Client::new();
+    let mut tasks = Vec::new();
+    for _ in 0..3 {
+        let c = c.clone();
+        let u = s.url("/file");
+        tasks.push(tokio::spawn(async move {
+            c.get(u).send().await.unwrap().bytes().await.unwrap().len()
+        }));
+    }
+    for t in tasks {
+        assert_eq!(t.await.unwrap(), 200_000);
+    }
+    assert!(s.max_concurrent() >= 2, "got {}", s.max_concurrent());
+}
