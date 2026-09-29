@@ -1,0 +1,14 @@
+[package]
+name = "odm-store"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+odm-core.workspace = true
+rusqlite.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

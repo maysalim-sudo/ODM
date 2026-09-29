@@ -1,0 +1,175 @@
+use odm_core::DownloadState;
+use rusqlite::{params, Connection, OptionalExtension, Row};
+
+use crate::models::{now_ms, ChunkRecord, DownloadRecord, ProbeMeta};
+
+const COLS: &str = "id,url,final_url,filename,save_dir,size,mime,category,state,error_kind,error_msg,\
+priority,max_connections,speed_limit,etag,last_modified,checksum,kind,page_url,page_title,\
+filename_locked,created_at,started_at,finished_at";
+
+fn to_record(r: &Row) -> rusqlite::Result<DownloadRecord> {
+    let state: String = r.get(8)?;
+    Ok(DownloadRecord {
+        id: r.get(0)?,
+        url: r.get(1)?,
+        final_url: r.get(2)?,
+        filename: r.get(3)?,
+        save_dir: r.get(4)?,
+        size: r.get::<_, Option<i64>>(5)?.map(|v| v as u64),
+        mime: r.get(6)?,
+        category: r.get(7)?,
+        state: DownloadState::parse(&state).unwrap_or(DownloadState::Failed),
+        error_kind: r.get(9)?,
+        error_msg: r.get(10)?,
+        priority: r.get(11)?,
+        max_connections: r.get::<_, i64>(12)? as u32,
+        speed_limit: r.get::<_, Option<i64>>(13)?.map(|v| v as u64),
+        etag: r.get(14)?,
+        last_modified: r.get(15)?,
+        checksum: r.get(16)?,
+        kind: r.get(17)?,
+        page_url: r.get(18)?,
+        page_title: r.get(19)?,
+        filename_locked: r.get::<_, i64>(20)? != 0,
+        created_at: r.get(21)?,
+        started_at: r.get(22)?,
+        finished_at: r.get(23)?,
+    })
+}
+
+pub fn insert_download(c: &Connection, d: &DownloadRecord) -> rusqlite::Result<()> {
+    c.execute(
+        &format!(
+            "INSERT INTO downloads ({COLS}) VALUES \
+             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)"
+        ),
+        params![
+            d.id, d.url, d.final_url, d.filename, d.save_dir, d.size.map(|v| v as i64), d.mime,
+            d.category, d.state.as_str(), d.error_kind, d.error_msg, d.priority,
+            d.max_connections as i64, d.speed_limit.map(|v| v as i64), d.etag, d.last_modified,
+            d.checksum, d.kind, d.page_url, d.page_title, d.filename_locked as i64, d.created_at,
+            d.started_at, d.finished_at
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn get_download(c: &Connection, id: &str) -> rusqlite::Result<Option<DownloadRecord>> {
+    c.query_row(&format!("SELECT {COLS} FROM downloads WHERE id=?1"), [id], to_record).optional()
+}
+
+pub fn list_downloads(c: &Connection) -> rusqlite::Result<Vec<DownloadRecord>> {
+    let mut st = c.prepare(&format!("SELECT {COLS} FROM downloads ORDER BY created_at DESC, rowid DESC"))?;
+    let rows = st.query_map([], to_record)?;
+    rows.collect()
+}
+
+pub fn list_by_state(c: &Connection, s: DownloadState) -> rusqlite::Result<Vec<DownloadRecord>> {
+    let mut st = c.prepare(&format!(
+        "SELECT {COLS} FROM downloads WHERE state=?1 ORDER BY priority DESC, created_at ASC, rowid ASC"
+    ))?;
+    let rows = st.query_map([s.as_str()], to_record)?;
+    rows.collect()
+}
+
+pub fn set_state(c: &Connection, id: &str, s: DownloadState, err: Option<(String, String)>) -> rusqlite::Result<()> {
+    let (kind, msg) = match err {
+        Some((k, m)) => (Some(k), Some(m)),
+        None => (None, None),
+    };
+    c.execute(
+        "UPDATE downloads SET state=?2, error_kind=?3, error_msg=?4,
+            started_at = CASE WHEN ?2='downloading' AND started_at IS NULL THEN ?5 ELSE started_at END,
+            finished_at = CASE WHEN ?2 IN ('completed','failed','cancelled') THEN ?5
+                               WHEN ?2='queued' THEN NULL ELSE finished_at END
+         WHERE id=?1",
+        params![id, s.as_str(), kind, msg, now_ms()],
+    )?;
+    Ok(())
+}
+
+pub fn update_probe(c: &Connection, id: &str, m: &ProbeMeta) -> rusqlite::Result<()> {
+    c.execute(
+        "UPDATE downloads SET
+            final_url = COALESCE(?2, final_url),
+            size = COALESCE(?3, size),
+            mime = COALESCE(?4, mime),
+            etag = COALESCE(?5, etag),
+            last_modified = COALESCE(?6, last_modified),
+            filename = CASE WHEN filename_locked = 0 AND ?7 IS NOT NULL THEN ?7 ELSE filename END
+         WHERE id=?1",
+        params![id, m.final_url, m.size.map(|v| v as i64), m.mime, m.etag, m.last_modified, m.filename],
+    )?;
+    Ok(())
+}
+
+pub fn set_filename(c: &Connection, id: &str, name: &str) -> rusqlite::Result<()> {
+    c.execute("UPDATE downloads SET filename=?2 WHERE id=?1", params![id, name])?;
+    Ok(())
+}
+
+pub fn set_headers(c: &mut Connection, id: &str, h: &[(String, String)]) -> rusqlite::Result<()> {
+    let tx = c.transaction()?;
+    tx.execute("DELETE FROM download_headers WHERE download_id=?1", [id])?;
+    for (n, v) in h {
+        tx.execute(
+            "INSERT OR REPLACE INTO download_headers (download_id,name,value) VALUES (?1,?2,?3)",
+            params![id, n, v],
+        )?;
+    }
+    tx.commit()
+}
+
+pub fn get_headers(c: &Connection, id: &str) -> rusqlite::Result<Vec<(String, String)>> {
+    let mut st = c.prepare("SELECT name,value FROM download_headers WHERE download_id=?1 ORDER BY rowid")?;
+    let rows = st.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+pub fn replace_chunks(c: &mut Connection, id: &str, chunks: &[ChunkRecord]) -> rusqlite::Result<()> {
+    let tx = c.transaction()?;
+    tx.execute("DELETE FROM chunks WHERE download_id=?1", [id])?;
+    for ch in chunks {
+        tx.execute(
+            "INSERT INTO chunks (download_id,idx,start,end_incl,written) VALUES (?1,?2,?3,?4,?5)",
+            params![id, ch.idx, ch.start as i64, ch.end.map(|v| v as i64), ch.written as i64],
+        )?;
+    }
+    tx.commit()
+}
+
+pub fn save_progress(c: &mut Connection, id: &str, p: &[(u32, u64)]) -> rusqlite::Result<()> {
+    let tx = c.transaction()?;
+    for (idx, w) in p {
+        tx.execute(
+            "UPDATE chunks SET written=?3 WHERE download_id=?1 AND idx=?2",
+            params![id, idx, *w as i64],
+        )?;
+    }
+    tx.commit()
+}
+
+pub fn get_chunks(c: &Connection, id: &str) -> rusqlite::Result<Vec<ChunkRecord>> {
+    let mut st = c.prepare("SELECT idx,start,end_incl,written FROM chunks WHERE download_id=?1 ORDER BY start")?;
+    let rows = st.query_map([id], |r| {
+        Ok(ChunkRecord {
+            idx: r.get::<_, i64>(0)? as u32,
+            start: r.get::<_, i64>(1)? as u64,
+            end: r.get::<_, Option<i64>>(2)?.map(|v| v as u64),
+            written: r.get::<_, i64>(3)? as u64,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn delete_download(c: &Connection, id: &str) -> rusqlite::Result<()> {
+    c.execute("DELETE FROM downloads WHERE id=?1", [id])?;
+    Ok(())
+}
+
+pub fn reset_interrupted(c: &Connection) -> rusqlite::Result<usize> {
+    c.execute(
+        "UPDATE downloads SET state='queued' WHERE state IN ('probing','downloading','merging')",
+        [],
+    )
+}
