@@ -14,7 +14,7 @@ odm-engine = { path = "crates/odm-engine" }
 odm-testserver = { path = "crates/odm-testserver" }
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -27,6 +27,7 @@ futures-util = "0.3"
 axum = "0.8"
 bytes = "1"
 sha2 = "0.10"
+md-5 = "0.10"
 tempfile = "3"
 clap = { version = "4", features = ["derive"] }
 percent-encoding = "2"
