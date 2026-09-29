@@ -12,3 +12,4 @@ pub mod speed;
 
 pub use config::EngineConfig;
 pub use events::{ChunkView, EngineEvent, ProgressSnapshot};
+pub mod worker;
