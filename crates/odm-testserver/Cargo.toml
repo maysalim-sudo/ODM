@@ -1,0 +1,12 @@
+[package]
+name = "odm-testserver"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+axum.workspace = true
+tokio.workspace = true
+bytes.workspace = true
+futures-util.workspace = true

@@ -18,6 +18,6 @@ bytes.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
-# odm-testserver.workspace = true   # uncomment in Task 8
+odm-testserver.workspace = true
 tempfile.workspace = true
 sha2.workspace = true
