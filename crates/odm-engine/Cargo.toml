@@ -1,0 +1,23 @@
+[package]
+name = "odm-engine"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+odm-core.workspace = true
+odm-store.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+reqwest.workspace = true
+futures-util.workspace = true
+fastrand.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+bytes.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+# odm-testserver.workspace = true   # uncomment in Task 8
+tempfile.workspace = true
+sha2.workspace = true
