@@ -452,3 +452,31 @@ async fn no_range_server_survives_repeated_drops() {
     let p = done(run_download(&f.env, &id, CancellationToken::new()).await);
     assert_eq!(std::fs::read(p).unwrap(), body(2 * MB));
 }
+
+#[tokio::test]
+async fn cookies_are_not_replayed_to_a_cross_origin_redirect_target() {
+    // A (original URL) redirects to B on another origin. reqwest strips Cookie
+    // on that hop; the engine must not defeat that by requesting B directly.
+    let f = fx();
+    let b = TestServer::start(3 * MB, Faults::default()).await;
+    let a = TestServer::start(
+        0,
+        Faults {
+            redirect_to: Some(b.url("/file")),
+            ..Default::default()
+        },
+    )
+    .await;
+    let id = add(&f, &a.url("/file"), 4).await;
+    f.env
+        .store
+        .set_headers(&id, vec![("Cookie".into(), "session=secret".into())])
+        .await
+        .unwrap();
+    let p = done(run_download(&f.env, &id, CancellationToken::new()).await);
+    assert_eq!(std::fs::read(p).unwrap(), body(3 * MB));
+    assert!(a.cookie_requests() >= 1, "origin A never saw the cookie");
+    assert_eq!(b.cookie_requests(), 0, "cookie leaked to cross-origin B");
+    // Every chunk request starts at the original URL (probe + >= 1 worker).
+    assert!(a.requests.load(std::sync::atomic::Ordering::SeqCst) >= 2);
+}

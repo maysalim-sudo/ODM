@@ -302,7 +302,10 @@ async fn transfer(
     let session = Arc::new(AtomicU64::new(0));
     let ctx = ChunkCtx {
         client: env.client.clone(),
-        url: rec.final_url.clone().unwrap_or_else(|| rec.url.clone()),
+        // Always the ORIGINAL url: reqwest re-follows redirects on every request and
+        // strips Cookie/Authorization on cross-origin hops. `final_url` is display
+        // metadata only (and is often a short-lived signed CDN URL).
+        url: rec.url.clone(),
         headers: header_map(&env.store.get_headers(id).await.map_err(store_err)?),
         validator: validator_of(rec),
         file,

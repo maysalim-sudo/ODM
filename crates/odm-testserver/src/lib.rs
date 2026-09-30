@@ -29,12 +29,15 @@ pub struct Faults {
     pub wrong_range_start: bool,
     pub bytes_per_sec: Option<u64>,
     pub filename: Option<String>,
+    /// `/file` answers every request with a 302 to this absolute URL.
+    pub redirect_to: Option<String>,
 }
 
 struct Inner {
     data: Arc<Vec<u8>>,
     faults: Faults,
     requests: Arc<AtomicU32>,
+    cookie_requests: AtomicU32,
     in_flight: AtomicU32,
     max_in_flight: AtomicU32,
 }
@@ -52,6 +55,7 @@ impl TestServer {
             data: Arc::new(body(len)),
             faults,
             requests: requests.clone(),
+            cookie_requests: AtomicU32::new(0),
             in_flight: AtomicU32::new(0),
             max_in_flight: AtomicU32::new(0),
         });
@@ -86,6 +90,11 @@ impl TestServer {
     pub fn max_concurrent(&self) -> u32 {
         self.inner.max_in_flight.load(Ordering::SeqCst)
     }
+
+    /// Number of `/file` requests that carried a `Cookie` header.
+    pub fn cookie_requests(&self) -> u32 {
+        self.inner.cookie_requests.load(Ordering::SeqCst)
+    }
 }
 
 async fn empty() -> Response<Body> {
@@ -117,6 +126,16 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
     let n = s.requests.fetch_add(1, Ordering::SeqCst) + 1;
     let f = &s.faults;
     let len = s.data.len() as u64;
+    if h.contains_key(header::COOKIE) {
+        s.cookie_requests.fetch_add(1, Ordering::SeqCst);
+    }
+    if let Some(to) = &f.redirect_to {
+        return Response::builder()
+            .status(302)
+            .header(header::LOCATION, to.as_str())
+            .body(Body::empty())
+            .unwrap();
+    }
 
     if let Some(code) = f.fail_status {
         if n <= f.fail_times {
