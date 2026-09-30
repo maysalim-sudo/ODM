@@ -4,7 +4,11 @@ use std::sync::{Arc, Mutex};
 pub const MIN_CHUNK: u64 = 1 << 20;
 pub const MIN_SPLIT_REMAINING: u64 = 2 << 20;
 
-pub fn plan_chunks(size: Option<u64>, supports_range: bool, max_connections: u32) -> Vec<ChunkRecord> {
+pub fn plan_chunks(
+    size: Option<u64>,
+    supports_range: bool,
+    max_connections: u32,
+) -> Vec<ChunkRecord> {
     match size {
         Some(0) => Vec::new(),
         Some(size) if supports_range => {
@@ -13,13 +17,32 @@ pub fn plan_chunks(size: Option<u64>, supports_range: bool, max_connections: u32
             (0..n)
                 .map(|i| {
                     let start = i * base;
-                    let end = if i == n - 1 { size - 1 } else { start + base - 1 };
-                    ChunkRecord { idx: i as u32, start, end: Some(end), written: 0 }
+                    let end = if i == n - 1 {
+                        size - 1
+                    } else {
+                        start + base - 1
+                    };
+                    ChunkRecord {
+                        idx: i as u32,
+                        start,
+                        end: Some(end),
+                        written: 0,
+                    }
                 })
                 .collect()
         }
-        Some(size) => vec![ChunkRecord { idx: 0, start: 0, end: Some(size - 1), written: 0 }],
-        None => vec![ChunkRecord { idx: 0, start: 0, end: None, written: 0 }],
+        Some(size) => vec![ChunkRecord {
+            idx: 0,
+            start: 0,
+            end: Some(size - 1),
+            written: 0,
+        }],
+        None => vec![ChunkRecord {
+            idx: 0,
+            start: 0,
+            end: None,
+            written: 0,
+        }],
     }
 }
 
@@ -36,7 +59,8 @@ pub struct ChunkShared {
 
 impl ChunkShared {
     pub fn remaining(&self) -> Option<u64> {
-        self.end.map(|e| (e + 1).saturating_sub(self.start + self.claimed))
+        self.end
+            .map(|e| (e + 1).saturating_sub(self.start + self.claimed))
     }
 
     pub fn is_done(&self) -> bool {
@@ -67,7 +91,11 @@ impl ChunkTable {
             .iter()
             .map(|r| {
                 Arc::new(Mutex::new(ChunkShared {
-                    idx: r.idx, start: r.start, end: r.end, claimed: r.written, written: r.written,
+                    idx: r.idx,
+                    start: r.start,
+                    end: r.end,
+                    claimed: r.written,
+                    written: r.written,
                 }))
             })
             .collect();
@@ -79,11 +107,20 @@ impl ChunkTable {
     }
 
     pub fn pending(&self) -> Vec<ChunkRef> {
-        self.chunks.iter().filter(|c| !c.lock().unwrap().is_done()).cloned().collect()
+        self.chunks
+            .iter()
+            .filter(|c| !c.lock().unwrap().is_done())
+            .cloned()
+            .collect()
     }
 
     pub fn split_largest(&mut self) -> Option<ChunkRef> {
-        let next_idx = self.chunks.iter().map(|c| c.lock().unwrap().idx).max().map_or(0, |m| m + 1);
+        let next_idx = self
+            .chunks
+            .iter()
+            .map(|c| c.lock().unwrap().idx)
+            .max()
+            .map_or(0, |m| m + 1);
         let victim = self
             .chunks
             .iter()
@@ -98,7 +135,13 @@ impl ChunkTable {
         }
         let cur = v.start + v.claimed;
         let mid = cur + remaining / 2;
-        let new = ChunkShared { idx: next_idx, start: mid, end: v.end, claimed: 0, written: 0 };
+        let new = ChunkShared {
+            idx: next_idx,
+            start: mid,
+            end: v.end,
+            claimed: 0,
+            written: 0,
+        };
         v.end = Some(mid - 1);
         drop(v);
         let r = Arc::new(Mutex::new(new));
@@ -112,7 +155,12 @@ impl ChunkTable {
             .iter()
             .map(|c| {
                 let c = c.lock().unwrap();
-                ChunkRecord { idx: c.idx, start: c.start, end: c.end, written: c.written }
+                ChunkRecord {
+                    idx: c.idx,
+                    start: c.start,
+                    end: c.end,
+                    written: c.written,
+                }
             })
             .collect();
         v.sort_by_key(|c| c.start);
@@ -120,7 +168,13 @@ impl ChunkTable {
     }
 
     pub fn progress(&self) -> Vec<(u32, u64)> {
-        self.chunks.iter().map(|c| { let c = c.lock().unwrap(); (c.idx, c.written) }).collect()
+        self.chunks
+            .iter()
+            .map(|c| {
+                let c = c.lock().unwrap();
+                (c.idx, c.written)
+            })
+            .collect()
     }
 
     pub fn total_written(&self) -> u64 {
@@ -136,13 +190,29 @@ mod tests {
     #[test]
     fn plan_unknown_size_is_single_open_chunk() {
         let p = plan_chunks(None, true, 8);
-        assert_eq!(p, vec![ChunkRecord { idx: 0, start: 0, end: None, written: 0 }]);
+        assert_eq!(
+            p,
+            vec![ChunkRecord {
+                idx: 0,
+                start: 0,
+                end: None,
+                written: 0
+            }]
+        );
     }
 
     #[test]
     fn plan_no_range_is_single_chunk() {
         let p = plan_chunks(Some(100 * MB), false, 8);
-        assert_eq!(p, vec![ChunkRecord { idx: 0, start: 0, end: Some(100 * MB - 1), written: 0 }]);
+        assert_eq!(
+            p,
+            vec![ChunkRecord {
+                idx: 0,
+                start: 0,
+                end: Some(100 * MB - 1),
+                written: 0
+            }]
+        );
     }
 
     #[test]
@@ -170,7 +240,13 @@ mod tests {
 
     #[test]
     fn claim_stops_at_end() {
-        let mut c = ChunkShared { idx: 0, start: 100, end: Some(109), claimed: 0, written: 0 };
+        let mut c = ChunkShared {
+            idx: 0,
+            start: 100,
+            end: Some(109),
+            claimed: 0,
+            written: 0,
+        };
         assert_eq!(c.claim(4), (100, 4));
         assert_eq!(c.claim(100), (104, 6));
         assert_eq!(c.claim(8), (110, 0));
@@ -179,7 +255,13 @@ mod tests {
 
     #[test]
     fn claim_open_ended_is_unbounded() {
-        let mut c = ChunkShared { idx: 0, start: 0, end: None, claimed: 0, written: 0 };
+        let mut c = ChunkShared {
+            idx: 0,
+            start: 0,
+            end: None,
+            claimed: 0,
+            written: 0,
+        };
         assert_eq!(c.claim(8192), (0, 8192));
         assert_eq!(c.remaining(), None);
         assert!(!c.is_done());
@@ -188,8 +270,18 @@ mod tests {
     #[test]
     fn split_takes_upper_half_of_remaining() {
         let recs = vec![
-            ChunkRecord { idx: 0, start: 0, end: Some(10 * MB - 1), written: 0 },
-            ChunkRecord { idx: 1, start: 10 * MB, end: Some(11 * MB - 1), written: 0 },
+            ChunkRecord {
+                idx: 0,
+                start: 0,
+                end: Some(10 * MB - 1),
+                written: 0,
+            },
+            ChunkRecord {
+                idx: 1,
+                start: 10 * MB,
+                end: Some(11 * MB - 1),
+                written: 0,
+            },
         ];
         let mut t = ChunkTable::from_records(&recs);
         {
@@ -206,15 +298,30 @@ mod tests {
     #[test]
     fn split_refuses_small_or_open_chunks() {
         // Remaining exactly 2 MiB -> not strictly greater than MIN_SPLIT_REMAINING -> no split.
-        let mut t = ChunkTable::from_records(&[ChunkRecord { idx: 0, start: 0, end: Some(2 * MB - 1), written: 0 }]);
+        let mut t = ChunkTable::from_records(&[ChunkRecord {
+            idx: 0,
+            start: 0,
+            end: Some(2 * MB - 1),
+            written: 0,
+        }]);
         assert!(t.split_largest().is_none());
-        let mut t = ChunkTable::from_records(&[ChunkRecord { idx: 0, start: 0, end: None, written: 0 }]);
+        let mut t = ChunkTable::from_records(&[ChunkRecord {
+            idx: 0,
+            start: 0,
+            end: None,
+            written: 0,
+        }]);
         assert!(t.split_largest().is_none());
     }
 
     #[test]
     fn snapshot_uses_written_not_claimed() {
-        let mut t = ChunkTable::from_records(&[ChunkRecord { idx: 0, start: 0, end: Some(99), written: 10 }]);
+        let mut t = ChunkTable::from_records(&[ChunkRecord {
+            idx: 0,
+            start: 0,
+            end: Some(99),
+            written: 10,
+        }]);
         {
             let r = t.refs();
             let mut c = r[0].lock().unwrap();

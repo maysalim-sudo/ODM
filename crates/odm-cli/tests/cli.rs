@@ -23,7 +23,15 @@ async fn get_downloads_to_dir() {
 #[tokio::test(flavor = "multi_thread")]
 async fn get_reports_failure() {
     let d = tempfile::tempdir().unwrap();
-    let s = TestServer::start(10, Faults { fail_status: Some(404), fail_times: 99, ..Default::default() }).await;
+    let s = TestServer::start(
+        10,
+        Faults {
+            fail_status: Some(404),
+            fail_times: 99,
+            ..Default::default()
+        },
+    )
+    .await;
     let err = run_get(GetArgs {
         url: s.url("/file"),
         dir: Some(d.path().to_path_buf()),

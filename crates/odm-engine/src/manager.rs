@@ -29,7 +29,10 @@ pub struct AddRequest {
 
 impl AddRequest {
     pub fn new(url: impl Into<String>) -> Self {
-        Self { url: url.into(), ..Default::default() }
+        Self {
+            url: url.into(),
+            ..Default::default()
+        }
     }
 }
 
@@ -117,17 +120,27 @@ impl ManagerHandle {
         self.send(Cmd::Add(req, tx)).await?;
         rx.await.map_err(|_| closed())?
     }
-    pub async fn pause(&self, id: &str) -> Result<(), OdmError> { self.send(Cmd::Pause(id.into())).await }
-    pub async fn resume(&self, id: &str) -> Result<(), OdmError> { self.send(Cmd::Resume(id.into())).await }
+    pub async fn pause(&self, id: &str) -> Result<(), OdmError> {
+        self.send(Cmd::Pause(id.into())).await
+    }
+    pub async fn resume(&self, id: &str) -> Result<(), OdmError> {
+        self.send(Cmd::Resume(id.into())).await
+    }
     pub async fn cancel(&self, id: &str, delete_file: bool) -> Result<(), OdmError> {
         self.send(Cmd::Cancel(id.into(), delete_file)).await
     }
     pub async fn remove(&self, id: &str, delete_file: bool) -> Result<(), OdmError> {
         self.send(Cmd::Remove(id.into(), delete_file)).await
     }
-    pub async fn pause_all(&self) -> Result<(), OdmError> { self.send(Cmd::PauseAll).await }
-    pub async fn resume_all(&self) -> Result<(), OdmError> { self.send(Cmd::ResumeAll).await }
-    pub async fn set_speed_limit(&self, bps: u64) -> Result<(), OdmError> { self.send(Cmd::SetSpeedLimit(bps)).await }
+    pub async fn pause_all(&self) -> Result<(), OdmError> {
+        self.send(Cmd::PauseAll).await
+    }
+    pub async fn resume_all(&self) -> Result<(), OdmError> {
+        self.send(Cmd::ResumeAll).await
+    }
+    pub async fn set_speed_limit(&self, bps: u64) -> Result<(), OdmError> {
+        self.send(Cmd::SetSpeedLimit(bps)).await
+    }
     pub async fn set_max_concurrent(&self, n: usize) -> Result<(), OdmError> {
         self.send(Cmd::SetMaxConcurrent(n)).await
     }
@@ -162,12 +175,22 @@ impl Manager {
                 Cmd::Cancel(id, delete) => self.cancel(&id, delete).await,
                 Cmd::Remove(id, delete) => self.remove(&id, delete).await,
                 Cmd::PauseAll => {
-                    for id in self.ids_in(&[DownloadState::Queued]).await.into_iter().chain(self.active.keys().cloned().collect::<Vec<_>>()) {
+                    for id in self
+                        .ids_in(&[DownloadState::Queued])
+                        .await
+                        .into_iter()
+                        .chain(self.active.keys().cloned().collect::<Vec<_>>())
+                    {
                         self.pause(&id).await;
                     }
                 }
                 Cmd::ResumeAll => {
-                    for id in self.ids_in(&[DownloadState::Paused]).await.into_iter().chain(self.active.keys().cloned().collect::<Vec<_>>()) {
+                    for id in self
+                        .ids_in(&[DownloadState::Paused])
+                        .await
+                        .into_iter()
+                        .chain(self.active.keys().cloned().collect::<Vec<_>>())
+                    {
                         self.resume(&id).await;
                     }
                 }
@@ -215,12 +238,21 @@ impl Manager {
     }
 
     async fn state_of(&self, id: &str) -> Option<DownloadState> {
-        self.env.store.get_download(id).await.ok().flatten().map(|r| r.state)
+        self.env
+            .store
+            .get_download(id)
+            .await
+            .ok()
+            .flatten()
+            .map(|r| r.state)
     }
 
     async fn add(&mut self, req: AddRequest) -> Result<String, OdmError> {
         if !(req.url.starts_with("http://") || req.url.starts_with("https://")) {
-            return Err(OdmError::new(ErrorKind::Other, "only http(s) URLs are supported"));
+            return Err(OdmError::new(
+                ErrorKind::Other,
+                "only http(s) URLs are supported",
+            ));
         }
         let id = uuid::Uuid::new_v4().simple().to_string();
         let name = req
@@ -233,12 +265,18 @@ impl Manager {
             .category
             .clone()
             .unwrap_or_else(|| category::detect(&name, None).as_str().to_string());
-        let dir = req.save_dir.clone().unwrap_or_else(|| self.env.config.save_dir_for(&cat));
+        let dir = req
+            .save_dir
+            .clone()
+            .unwrap_or_else(|| self.env.config.save_dir_for(&cat));
 
         let mut rec = DownloadRecord::new_file(&id, &req.url, &name, &dir.to_string_lossy());
         rec.category = cat;
         rec.filename_locked = req.filename.is_some();
-        rec.max_connections = req.max_connections.unwrap_or(self.env.config.max_connections).clamp(1, 32);
+        rec.max_connections = req
+            .max_connections
+            .unwrap_or(self.env.config.max_connections)
+            .clamp(1, 32);
         rec.checksum = req.checksum;
         rec.page_url = req.page_url;
         rec.page_title = req.page_title;
@@ -247,9 +285,17 @@ impl Manager {
             rec.state = DownloadState::Paused;
         }
         let store_err = |e| OdmError::new(ErrorKind::Other, format!("store: {e}"));
-        self.env.store.insert_download(rec).await.map_err(store_err)?;
+        self.env
+            .store
+            .insert_download(rec)
+            .await
+            .map_err(store_err)?;
         if !req.headers.is_empty() {
-            self.env.store.set_headers(&id, req.headers).await.map_err(store_err)?;
+            self.env
+                .store
+                .set_headers(&id, req.headers)
+                .await
+                .map_err(store_err)?;
         }
         let _ = self.env.events.send(EngineEvent::Added { id: id.clone() });
         if !req.start_paused {
@@ -262,7 +308,8 @@ impl Manager {
         match self.active.get_mut(id) {
             Some(a) => {
                 // Remove/Cancel outrank Pause; never downgrade.
-                let keep = matches!(a.stop, Some(Stop::Remove { .. } | Stop::Cancel { .. })) && stop == Stop::Pause;
+                let keep = matches!(a.stop, Some(Stop::Remove { .. } | Stop::Cancel { .. }))
+                    && stop == Stop::Pause;
                 if !keep {
                     a.stop = Some(stop);
                 }
@@ -275,7 +322,9 @@ impl Manager {
 
     async fn pause(&mut self, id: &str) {
         self.resume_after.remove(id);
-        if !self.request_stop(id, Stop::Pause) && self.state_of(id).await == Some(DownloadState::Queued) {
+        if !self.request_stop(id, Stop::Pause)
+            && self.state_of(id).await == Some(DownloadState::Queued)
+        {
             transition(&self.env, id, DownloadState::Paused, None).await;
         }
     }
@@ -287,7 +336,10 @@ impl Manager {
             }
             return;
         }
-        if matches!(self.state_of(id).await, Some(DownloadState::Paused | DownloadState::Failed)) {
+        if matches!(
+            self.state_of(id).await,
+            Some(DownloadState::Paused | DownloadState::Failed)
+        ) {
             transition(&self.env, id, DownloadState::Queued, None).await;
             self.schedule().await;
         }
@@ -331,7 +383,10 @@ impl Manager {
             }
         }
         if self.env.store.delete_download(id).await.is_ok() {
-            let _ = self.env.events.send(EngineEvent::Removed { id: id.to_string() });
+            let _ = self
+                .env
+                .events
+                .send(EngineEvent::Removed { id: id.to_string() });
         }
     }
 
@@ -343,7 +398,9 @@ impl Manager {
                 self.delete_record(&id, delete).await;
             }
             (Some(Stop::Remove { delete }), _) => self.delete_record(&id, delete).await,
-            (_, Outcome::Completed { .. }) => transition(&self.env, &id, DownloadState::Completed, None).await,
+            (_, Outcome::Completed { .. }) => {
+                transition(&self.env, &id, DownloadState::Completed, None).await
+            }
             (Some(Stop::Pause), _) => transition(&self.env, &id, DownloadState::Paused, None).await,
             (Some(Stop::Cancel { delete }), _) => {
                 if delete {
@@ -351,14 +408,19 @@ impl Manager {
                 }
                 transition(&self.env, &id, DownloadState::Cancelled, None).await;
             }
-            (Some(Stop::Shutdown), _) => transition(&self.env, &id, DownloadState::Queued, None).await,
+            (Some(Stop::Shutdown), _) => {
+                transition(&self.env, &id, DownloadState::Queued, None).await
+            }
             (None, Outcome::Failed(e)) => {
                 tracing::warn!(%id, "download failed: {e}");
                 transition(&self.env, &id, DownloadState::Failed, Some(&e)).await;
             }
-            (None, Outcome::Stopped) => transition(&self.env, &id, DownloadState::Paused, None).await,
+            (None, Outcome::Stopped) => {
+                transition(&self.env, &id, DownloadState::Paused, None).await
+            }
         }
-        if self.resume_after.remove(&id) && self.state_of(&id).await == Some(DownloadState::Paused) {
+        if self.resume_after.remove(&id) && self.state_of(&id).await == Some(DownloadState::Paused)
+        {
             transition(&self.env, &id, DownloadState::Queued, None).await;
         }
         self.schedule().await;

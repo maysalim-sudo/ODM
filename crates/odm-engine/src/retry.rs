@@ -19,7 +19,10 @@ pub fn backoff_delay(attempt: u32, retry_after: Option<Duration>) -> Duration {
 }
 
 pub fn parse_retry_after(v: &str) -> Option<Duration> {
-    v.trim().parse::<u64>().ok().map(|s| Duration::from_secs(s.min(RETRY_AFTER_CAP)))
+    v.trim()
+        .parse::<u64>()
+        .ok()
+        .map(|s| Duration::from_secs(s.min(RETRY_AFTER_CAP)))
 }
 
 pub fn classify_status(status: u16, started: bool) -> ErrorKind {
@@ -87,7 +90,10 @@ mod tests {
 
     #[test]
     fn retry_after_wins_and_is_capped() {
-        assert_eq!(backoff_with_jitter(1, Some(Duration::from_secs(7)), 0.2), Duration::from_secs(7));
+        assert_eq!(
+            backoff_with_jitter(1, Some(Duration::from_secs(7)), 0.2),
+            Duration::from_secs(7)
+        );
         assert_eq!(parse_retry_after("12"), Some(Duration::from_secs(12)));
         assert_eq!(parse_retry_after("100000"), Some(Duration::from_secs(300)));
         assert_eq!(parse_retry_after("Wed, 21 Oct 2015 07:28:00 GMT"), None);
@@ -107,7 +113,10 @@ mod tests {
     #[test]
     fn io_classification() {
         use std::io::{Error, ErrorKind as K};
-        assert_eq!(classify_io(&Error::from(K::PermissionDenied)), PermissionDenied);
+        assert_eq!(
+            classify_io(&Error::from(K::PermissionDenied)),
+            PermissionDenied
+        );
         assert_eq!(classify_io(&Error::from(K::StorageFull)), DiskFull);
         assert_eq!(classify_io(&Error::from_raw_os_error(112)), DiskFull); // ERROR_DISK_FULL on Windows
         assert_eq!(classify_io(&Error::from(K::NotFound)), Io);

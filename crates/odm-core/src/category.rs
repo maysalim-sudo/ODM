@@ -57,7 +57,9 @@ fn by_ext(ext: &str) -> Option<Category> {
     Some(match ext {
         "mp4" | "mkv" | "avi" | "webm" | "mov" | "flv" | "m4v" | "ts" | "m3u8" => Video,
         "mp3" | "flac" | "wav" | "aac" | "ogg" | "wma" | "m4a" | "opus" => Audio,
-        "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "csv" | "epub" => Document,
+        "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "csv" | "epub" => {
+            Document
+        }
         "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz" | "iso" | "zst" => Compressed,
         "jpg" | "jpeg" | "png" | "gif" | "bmp" | "svg" | "webp" | "ico" | "tiff" => Image,
         "exe" | "msi" | "msix" | "appx" => Program,
@@ -67,22 +69,34 @@ fn by_ext(ext: &str) -> Option<Category> {
 
 fn by_mime(mime: &str) -> Option<Category> {
     use Category::*;
-    let m = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let m = mime
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
     Some(match m.as_str() {
         s if s.starts_with("video/") => Video,
         s if s.starts_with("audio/") => Audio,
         s if s.starts_with("image/") => Image,
         "application/pdf" => Document,
-        "application/zip" | "application/x-rar-compressed" | "application/vnd.rar"
-        | "application/x-7z-compressed" | "application/gzip" => Compressed,
-        "application/x-msdownload" | "application/x-msi" | "application/vnd.microsoft.portable-executable" => Program,
+        "application/zip"
+        | "application/x-rar-compressed"
+        | "application/vnd.rar"
+        | "application/x-7z-compressed"
+        | "application/gzip" => Compressed,
+        "application/x-msdownload"
+        | "application/x-msi"
+        | "application/vnd.microsoft.portable-executable" => Program,
         "application/vnd.apple.mpegurl" | "application/x-mpegurl" => Video,
         _ => return None,
     })
 }
 
 pub fn detect(filename: &str, mime: Option<&str>) -> Category {
-    let ext = filename.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
+    let ext = filename
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase());
     ext.as_deref()
         .and_then(by_ext)
         .or_else(|| mime.and_then(by_mime))
@@ -108,7 +122,10 @@ mod tests {
     fn by_mime_when_no_known_ext() {
         assert_eq!(detect("stream", Some("video/mp2t")), Category::Video);
         assert_eq!(detect("x", Some("application/zip")), Category::Compressed);
-        assert_eq!(detect("x", Some("application/x-msdownload")), Category::Program);
+        assert_eq!(
+            detect("x", Some("application/x-msdownload")),
+            Category::Program
+        );
         assert_eq!(detect("a.pdf", Some("video/mp4")), Category::Document); // extension wins
     }
 

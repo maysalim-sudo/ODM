@@ -57,7 +57,10 @@ mod tests {
     #[test]
     fn defaults_and_category_dirs() {
         let c = super::EngineConfig::default();
-        assert_eq!((c.max_concurrent, c.max_connections, c.max_attempts), (3, 8, 5));
+        assert_eq!(
+            (c.max_concurrent, c.max_connections, c.max_attempts),
+            (3, 8, 5)
+        );
         assert!(c.save_dir_for("video").ends_with("Videos"));
         assert_eq!(c.save_dir_for("general"), c.download_dir);
         assert_eq!(c.save_dir_for("unknown"), c.download_dir);

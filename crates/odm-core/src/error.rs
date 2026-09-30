@@ -25,7 +25,10 @@ pub enum ErrorKind {
 
 impl ErrorKind {
     pub fn is_transient(&self) -> bool {
-        matches!(self, Self::Timeout | Self::Connection | Self::Dns | Self::HttpTransient(_))
+        matches!(
+            self,
+            Self::Timeout | Self::Connection | Self::Dns | Self::HttpTransient(_)
+        )
     }
 
     pub fn code(&self) -> String {
@@ -55,7 +58,10 @@ pub struct OdmError {
 
 impl OdmError {
     pub fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
-        Self { kind, message: message.into() }
+        Self {
+            kind,
+            message: message.into(),
+        }
     }
 }
 
@@ -73,11 +79,27 @@ mod tests {
 
     #[test]
     fn transient_classification() {
-        for k in [Timeout, Connection, Dns, HttpTransient(503), HttpTransient(429)] {
+        for k in [
+            Timeout,
+            Connection,
+            Dns,
+            HttpTransient(503),
+            HttpTransient(429),
+        ] {
             assert!(k.is_transient(), "{k:?}");
         }
-        for k in [Http(404), DiskFull, PermissionDenied, RangeIgnored, ChecksumMismatch,
-                  LinkExpired, FileChanged, Io, Cancelled, Other] {
+        for k in [
+            Http(404),
+            DiskFull,
+            PermissionDenied,
+            RangeIgnored,
+            ChecksumMismatch,
+            LinkExpired,
+            FileChanged,
+            Io,
+            Cancelled,
+            Other,
+        ] {
             assert!(!k.is_transient(), "{k:?}");
         }
     }

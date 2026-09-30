@@ -36,8 +36,26 @@ async fn main() {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
         .init();
-    let Cmd::Get { url, dir, name, connections, limit, db, quiet } = Cli::parse().cmd;
-    match run_get(GetArgs { url, dir, name, connections, limit_bps: limit, db, quiet }).await {
+    let Cmd::Get {
+        url,
+        dir,
+        name,
+        connections,
+        limit,
+        db,
+        quiet,
+    } = Cli::parse().cmd;
+    match run_get(GetArgs {
+        url,
+        dir,
+        name,
+        connections,
+        limit_bps: limit,
+        db,
+        quiet,
+    })
+    .await
+    {
         Ok(p) => println!("saved {}", p.display()),
         Err(e) => {
             eprintln!("error: {e}");

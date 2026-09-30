@@ -38,12 +38,30 @@ pub struct DownloadRecord {
 impl DownloadRecord {
     pub fn new_file(id: &str, url: &str, filename: &str, save_dir: &str) -> Self {
         Self {
-            id: id.into(), url: url.into(), final_url: None, filename: filename.into(),
-            save_dir: save_dir.into(), size: None, mime: None, category: "general".into(),
-            state: DownloadState::Queued, error_kind: None, error_msg: None, priority: 0,
-            max_connections: 8, speed_limit: None, etag: None, last_modified: None,
-            checksum: None, kind: "file".into(), page_url: None, page_title: None,
-            filename_locked: false, created_at: now_ms(), started_at: None, finished_at: None,
+            id: id.into(),
+            url: url.into(),
+            final_url: None,
+            filename: filename.into(),
+            save_dir: save_dir.into(),
+            size: None,
+            mime: None,
+            category: "general".into(),
+            state: DownloadState::Queued,
+            error_kind: None,
+            error_msg: None,
+            priority: 0,
+            max_connections: 8,
+            speed_limit: None,
+            etag: None,
+            last_modified: None,
+            checksum: None,
+            kind: "file".into(),
+            page_url: None,
+            page_title: None,
+            filename_locked: false,
+            created_at: now_ms(),
+            started_at: None,
+            finished_at: None,
         }
     }
 }

@@ -15,7 +15,9 @@ pub struct GetArgs {
 }
 
 fn default_db() -> PathBuf {
-    let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    let base = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
     base.join(odm_core::ids::APP_DIR_NAME).join("odm-cli.db")
 }
 
@@ -48,7 +50,9 @@ pub(crate) fn engine_config(dir: Option<&Path>, limit_bps: u64) -> EngineConfig 
 pub async fn run_get(args: GetArgs) -> Result<PathBuf, String> {
     let store = Store::open(&args.db.unwrap_or_else(default_db)).map_err(|e| e.to_string())?;
     let cfg = engine_config(args.dir.as_deref(), args.limit_bps);
-    let m = ManagerHandle::start(cfg, store.clone()).await.map_err(|e| e.to_string())?;
+    let m = ManagerHandle::start(cfg, store.clone())
+        .await
+        .map_err(|e| e.to_string())?;
     let mut rx = m.subscribe();
     let mut req = AddRequest::new(args.url);
     req.filename = args.name;
@@ -60,12 +64,27 @@ pub async fn run_get(args: GetArgs) -> Result<PathBuf, String> {
         match rx.recv().await {
             Ok(EngineEvent::Progress(p)) if p.id == id && !args.quiet => {
                 let total = p.total.map(human).unwrap_or_else(|| "?".into());
-                print!("\r{} / {}  {}/s  {} conns   ", human(p.bytes), total, human(p.speed_bps), p.chunks.len());
+                print!(
+                    "\r{} / {}  {}/s  {} conns   ",
+                    human(p.bytes),
+                    total,
+                    human(p.speed_bps),
+                    p.chunks.len()
+                );
                 let _ = std::io::stdout().flush();
             }
-            Ok(EngineEvent::State { id: i, state, error_code, error_message }) if i == id => match state {
+            Ok(EngineEvent::State {
+                id: i,
+                state,
+                error_code,
+                error_message,
+            }) if i == id => match state {
                 DownloadState::Completed => {
-                    let r = store.get_download(&id).await.map_err(|e| e.to_string())?.ok_or("record vanished")?;
+                    let r = store
+                        .get_download(&id)
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .ok_or("record vanished")?;
                     break Ok(Path::new(&r.save_dir).join(&r.filename));
                 }
                 DownloadState::Failed | DownloadState::Cancelled => {

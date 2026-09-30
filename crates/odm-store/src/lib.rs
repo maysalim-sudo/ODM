@@ -83,7 +83,12 @@ impl Store {
     pub async fn list_by_state(&self, s: DownloadState) -> Result<Vec<DownloadRecord>, StoreError> {
         self.call(move |c| repo::list_by_state(c, s)).await
     }
-    pub async fn set_state(&self, id: &str, s: DownloadState, err: Option<(String, String)>) -> Result<(), StoreError> {
+    pub async fn set_state(
+        &self,
+        id: &str,
+        s: DownloadState,
+        err: Option<(String, String)>,
+    ) -> Result<(), StoreError> {
         let id = id.to_string();
         self.call(move |c| repo::set_state(c, &id, s, err)).await
     }

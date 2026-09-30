@@ -57,7 +57,10 @@ impl DownloadState {
             (self, to),
             (Queued, Probing | Paused | Cancelled)
                 | (Probing, Downloading | Paused | Failed | Cancelled | Queued)
-                | (Downloading, Merging | Completed | Paused | Failed | Cancelled | Queued)
+                | (
+                    Downloading,
+                    Merging | Completed | Paused | Failed | Cancelled | Queued
+                )
                 | (Merging, Completed | Failed | Cancelled)
                 | (Paused, Queued | Cancelled)
                 | (Failed, Queued | Cancelled)
@@ -72,7 +75,16 @@ mod tests {
 
     #[test]
     fn round_trips_strings() {
-        for s in [Queued, Probing, Downloading, Paused, Merging, Completed, Failed, Cancelled] {
+        for s in [
+            Queued,
+            Probing,
+            Downloading,
+            Paused,
+            Merging,
+            Completed,
+            Failed,
+            Cancelled,
+        ] {
             assert_eq!(DownloadState::parse(s.as_str()), Some(s));
         }
         assert_eq!(DownloadState::parse("error"), None);

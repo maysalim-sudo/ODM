@@ -56,7 +56,9 @@ pub fn from_content_disposition(value: &str) -> Option<String> {
     let mut plain: Option<String> = None;
     let mut star: Option<String> = None;
     for part in value.split(';').map(str::trim) {
-        let Some((k, v)) = part.split_once('=') else { continue };
+        let Some((k, v)) = part.split_once('=') else {
+            continue;
+        };
         let k = k.trim().to_ascii_lowercase();
         let v = v.trim();
         if k == "filename*" {
@@ -64,13 +66,19 @@ pub fn from_content_disposition(value: &str) -> Option<String> {
             let mut it = v.splitn(3, '\'');
             let (_charset, _lang, enc) = (it.next(), it.next(), it.next());
             if let Some(enc) = enc {
-                star = Some(percent_decode_str(enc.trim_matches('"')).decode_utf8_lossy().into_owned());
+                star = Some(
+                    percent_decode_str(enc.trim_matches('"'))
+                        .decode_utf8_lossy()
+                        .into_owned(),
+                );
             }
         } else if k == "filename" {
             plain = Some(v.trim_matches('"').to_string());
         }
     }
-    star.or(plain).filter(|s| !s.is_empty()).map(|s| sanitize(&s))
+    star.or(plain)
+        .filter(|s| !s.is_empty())
+        .map(|s| sanitize(&s))
 }
 
 pub fn unique_name(name: &str, exists: impl Fn(&str) -> bool) -> String {
@@ -93,7 +101,10 @@ mod tests {
 
     #[test]
     fn strips_illegal_chars_and_dots() {
-        assert_eq!(sanitize(r#"a<b>c:d"e/f\g|h?i*j.txt"#), "a_b_c_d_e_f_g_h_i_j.txt");
+        assert_eq!(
+            sanitize(r#"a<b>c:d"e/f\g|h?i*j.txt"#),
+            "a_b_c_d_e_f_g_h_i_j.txt"
+        );
         assert_eq!(sanitize("  ..name.txt.. "), "name.txt");
         assert_eq!(sanitize("tab\tnew\nline.bin"), "tab_new_line.bin");
     }
@@ -123,17 +134,29 @@ mod tests {
 
     #[test]
     fn from_url_basic() {
-        assert_eq!(from_url("https://x.com/a/b/file%20name.zip?token=1#f").as_deref(), Some("file name.zip"));
+        assert_eq!(
+            from_url("https://x.com/a/b/file%20name.zip?token=1#f").as_deref(),
+            Some("file name.zip")
+        );
         assert_eq!(from_url("https://x.com/").as_deref(), None);
         assert_eq!(from_url("not a url").as_deref(), None);
     }
 
     #[test]
     fn disposition_plain_and_star() {
-        assert_eq!(from_content_disposition(r#"attachment; filename="report.pdf""#).as_deref(), Some("report.pdf"));
-        assert_eq!(from_content_disposition("attachment; filename=plain.txt").as_deref(), Some("plain.txt"));
         assert_eq!(
-            from_content_disposition(r#"attachment; filename="fallback.txt"; filename*=UTF-8''na%C3%AFve%20file.txt"#).as_deref(),
+            from_content_disposition(r#"attachment; filename="report.pdf""#).as_deref(),
+            Some("report.pdf")
+        );
+        assert_eq!(
+            from_content_disposition("attachment; filename=plain.txt").as_deref(),
+            Some("plain.txt")
+        );
+        assert_eq!(
+            from_content_disposition(
+                r#"attachment; filename="fallback.txt"; filename*=UTF-8''na%C3%AFve%20file.txt"#
+            )
+            .as_deref(),
             Some("naïve file.txt")
         );
         assert_eq!(from_content_disposition("inline").as_deref(), None);

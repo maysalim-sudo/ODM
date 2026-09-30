@@ -21,7 +21,9 @@ pub struct ProgressSnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EngineEvent {
-    Added { id: String },
+    Added {
+        id: String,
+    },
     Progress(ProgressSnapshot),
     State {
         id: String,
@@ -29,5 +31,7 @@ pub enum EngineEvent {
         error_code: Option<String>,
         error_message: Option<String>,
     },
-    Removed { id: String },
+    Removed {
+        id: String,
+    },
 }

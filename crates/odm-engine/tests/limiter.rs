@@ -16,7 +16,10 @@ async fn request_larger_than_bucket_completes() {
     let t = Instant::now();
     l.acquire(15_000).await; // 10k burst, 5k debt -> ~0.5 s
     let e = t.elapsed();
-    assert!(e >= Duration::from_millis(350) && e < Duration::from_secs(2), "{e:?}");
+    assert!(
+        e >= Duration::from_millis(350) && e < Duration::from_secs(2),
+        "{e:?}"
+    );
 }
 
 #[tokio::test]
@@ -35,7 +38,10 @@ async fn sustained_rate_is_respected() {
         l.acquire(5_000).await; // 50k total, 20k burst -> ~1.5 s
     }
     let e = t.elapsed();
-    assert!(e >= Duration::from_millis(1_200) && e < Duration::from_millis(2_500), "{e:?}");
+    assert!(
+        e >= Duration::from_millis(1_200) && e < Duration::from_millis(2_500),
+        "{e:?}"
+    );
 }
 
 #[tokio::test]

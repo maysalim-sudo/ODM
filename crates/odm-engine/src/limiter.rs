@@ -15,7 +15,13 @@ pub struct SpeedLimiter {
 
 impl SpeedLimiter {
     pub fn new(rate_bps: u64) -> Self {
-        Self { inner: Mutex::new(Bucket { rate: rate_bps, tokens: rate_bps as f64, last: Instant::now() }) }
+        Self {
+            inner: Mutex::new(Bucket {
+                rate: rate_bps,
+                tokens: rate_bps as f64,
+                last: Instant::now(),
+            }),
+        }
     }
 
     pub fn rate(&self) -> u64 {
@@ -40,7 +46,11 @@ impl SpeedLimiter {
             b.tokens = (b.tokens + now.duration_since(b.last).as_secs_f64() * rate).min(rate);
             b.last = now;
             b.tokens -= n as f64;
-            if b.tokens < 0.0 { Duration::from_secs_f64(-b.tokens / rate) } else { Duration::ZERO }
+            if b.tokens < 0.0 {
+                Duration::from_secs_f64(-b.tokens / rate)
+            } else {
+                Duration::ZERO
+            }
         }; // lock released before sleeping
         if !wait.is_zero() {
             tokio::time::sleep(wait).await;

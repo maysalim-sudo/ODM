@@ -64,8 +64,15 @@ pub fn part_path(rec: &DownloadRecord) -> PathBuf {
 
 /// Headers that must not be replayed from a captured browser request: the engine
 /// sets its own Range, and reqwest computes the rest.
-const REPLAY_UNSAFE: [&str; 7] =
-    ["range", "if-range", "content-length", "host", "connection", "transfer-encoding", "accept-encoding"];
+const REPLAY_UNSAFE: [&str; 7] = [
+    "range",
+    "if-range",
+    "content-length",
+    "host",
+    "connection",
+    "transfer-encoding",
+    "accept-encoding",
+];
 
 pub fn header_map(h: &[(String, String)]) -> HeaderMap {
     let mut m = HeaderMap::new();
@@ -73,7 +80,10 @@ pub fn header_map(h: &[(String, String)]) -> HeaderMap {
         if REPLAY_UNSAFE.iter().any(|u| k.eq_ignore_ascii_case(u)) {
             continue;
         }
-        if let (Ok(k), Ok(v)) = (HeaderName::from_bytes(k.as_bytes()), HeaderValue::from_str(v)) {
+        if let (Ok(k), Ok(v)) = (
+            HeaderName::from_bytes(k.as_bytes()),
+            HeaderValue::from_str(v),
+        ) {
             m.append(k, v);
         }
     }
@@ -89,7 +99,10 @@ fn cancelled() -> OdmError {
 }
 
 fn validator_of(rec: &DownloadRecord) -> Option<String> {
-    rec.etag.clone().filter(|e| !e.starts_with("W/")).or_else(|| rec.last_modified.clone())
+    rec.etag
+        .clone()
+        .filter(|e| !e.starts_with("W/"))
+        .or_else(|| rec.last_modified.clone())
 }
 
 pub async fn transition(env: &DownloadEnv, id: &str, state: DownloadState, err: Option<&OdmError>) {
@@ -121,7 +134,11 @@ async fn load(env: &DownloadEnv, id: &str) -> Result<DownloadRecord, OdmError> {
         .ok_or_else(|| OdmError::new(ErrorKind::Other, "download not found"))
 }
 
-async fn run_inner(env: &DownloadEnv, id: &str, cancel: &CancellationToken) -> Result<PathBuf, OdmError> {
+async fn run_inner(
+    env: &DownloadEnv,
+    id: &str,
+    cancel: &CancellationToken,
+) -> Result<PathBuf, OdmError> {
     let mut restarts: u32 = 0;
     loop {
         let mut rec = load(env, id).await?;
@@ -139,7 +156,10 @@ async fn run_inner(env: &DownloadEnv, id: &str, cancel: &CancellationToken) -> R
             };
             if bad {
                 tracing::warn!(%id, "part file missing or wrong size; discarding stored progress");
-                env.store.replace_chunks(id, Vec::new()).await.map_err(store_err)?;
+                env.store
+                    .replace_chunks(id, Vec::new())
+                    .await
+                    .map_err(store_err)?;
                 continue;
             }
         }
@@ -148,20 +168,26 @@ async fn run_inner(env: &DownloadEnv, id: &str, cancel: &CancellationToken) -> R
             transition(env, id, DownloadState::Probing, None).await;
             let p = probe_with_retry(env, &rec.url, &headers, cancel).await?;
             env.store
-                .update_probe(id, ProbeMeta {
-                    final_url: Some(p.final_url.clone()),
-                    size: p.size,
-                    mime: p.mime.clone(),
-                    etag: p.etag.clone(),
-                    last_modified: p.last_modified.clone(),
-                    filename: p.filename.clone(),
-                })
+                .update_probe(
+                    id,
+                    ProbeMeta {
+                        final_url: Some(p.final_url.clone()),
+                        size: p.size,
+                        mime: p.mime.clone(),
+                        etag: p.etag.clone(),
+                        last_modified: p.last_modified.clone(),
+                        filename: p.filename.clone(),
+                    },
+                )
                 .await
                 .map_err(store_err)?;
             rec = load(env, id).await?;
             require_partial = p.supports_range && p.size.is_some();
             chunks = plan_chunks(p.size, require_partial, rec.max_connections);
-            env.store.replace_chunks(id, chunks.clone()).await.map_err(store_err)?;
+            env.store
+                .replace_chunks(id, chunks.clone())
+                .await
+                .map_err(store_err)?;
         }
 
         transition(env, id, DownloadState::Downloading, None).await;
@@ -201,11 +227,19 @@ async fn run_inner(env: &DownloadEnv, id: &str, cancel: &CancellationToken) -> R
                     _ = tokio::time::sleep(backoff_delay(restarts, None)) => {}
                 }
                 let next = if e.kind == ErrorKind::RangeIgnored {
-                    vec![ChunkRecord { idx: 0, start: 0, end: rec.size.map(|s| s - 1), written: 0 }]
+                    vec![ChunkRecord {
+                        idx: 0,
+                        start: 0,
+                        end: rec.size.map(|s| s - 1),
+                        written: 0,
+                    }]
                 } else {
                     Vec::new() // forces a fresh probe
                 };
-                env.store.replace_chunks(id, next).await.map_err(store_err)?;
+                env.store
+                    .replace_chunks(id, next)
+                    .await
+                    .map_err(store_err)?;
                 let _ = std::fs::remove_file(&part);
             }
             Err(e) => return Err(e),
@@ -287,7 +321,9 @@ async fn transfer(
     }
     if require_partial {
         while set.len() < max_conn {
-            let Some(c) = table.split_largest() else { break };
+            let Some(c) = table.split_largest() else {
+                break;
+            };
             layout_dirty = true;
             spawn_worker(&mut set, &ctx, c, Duration::ZERO);
         }
@@ -362,7 +398,10 @@ async fn transfer(
     if let Some(size) = rec.size {
         let total = table.total_written();
         if total != size {
-            return Err(OdmError::new(ErrorKind::Other, format!("incomplete: {total} of {size} bytes")));
+            return Err(OdmError::new(
+                ErrorKind::Other,
+                format!("incomplete: {total} of {size} bytes"),
+            ));
         }
     }
     Ok(())
@@ -385,14 +424,22 @@ async fn persist(
     let r = if *layout_dirty {
         env.store.replace_chunks(id, snap).await
     } else {
-        env.store.save_progress(id, snap.iter().map(|c| (c.idx, c.written)).collect()).await
+        env.store
+            .save_progress(id, snap.iter().map(|c| (c.idx, c.written)).collect())
+            .await
     };
     r.map_err(store_err)?;
     *layout_dirty = false;
     Ok(())
 }
 
-fn emit_progress(env: &DownloadEnv, rec: &DownloadRecord, table: &ChunkTable, meter: &mut SpeedMeter, session: &AtomicU64) {
+fn emit_progress(
+    env: &DownloadEnv,
+    rec: &DownloadRecord,
+    table: &ChunkTable,
+    meter: &mut SpeedMeter,
+    session: &AtomicU64,
+) {
     meter.record(Instant::now(), session.load(Ordering::Relaxed));
     let bytes = table.total_written();
     let speed = meter.bps();
@@ -405,7 +452,11 @@ fn emit_progress(env: &DownloadEnv, rec: &DownloadRecord, table: &ChunkTable, me
         chunks: table
             .snapshot()
             .into_iter()
-            .map(|c| ChunkView { start: c.start, end: c.end, written: c.written })
+            .map(|c| ChunkView {
+                start: c.start,
+                end: c.end,
+                written: c.written,
+            })
             .collect(),
     }));
 }
@@ -431,14 +482,22 @@ fn verify_checksum(path: &Path, spec: &str) -> Result<(), OdmError> {
     let got = match algo.to_ascii_lowercase().as_str() {
         "sha256" => file_digest::<Sha256>(path),
         "md5" => file_digest::<Md5>(path),
-        other => return Err(OdmError::new(ErrorKind::Other, format!("unsupported checksum {other}"))),
+        other => {
+            return Err(OdmError::new(
+                ErrorKind::Other,
+                format!("unsupported checksum {other}"),
+            ))
+        }
     }
     .map_err(io_err)?;
     let got_hex: String = got.iter().map(|b| format!("{b:02x}")).collect();
     if got_hex.eq_ignore_ascii_case(want.trim()) {
         Ok(())
     } else {
-        Err(OdmError::new(ErrorKind::ChecksumMismatch, format!("expected {want}, got {got_hex}")))
+        Err(OdmError::new(
+            ErrorKind::ChecksumMismatch,
+            format!("expected {want}, got {got_hex}"),
+        ))
     }
 }
 
@@ -460,12 +519,21 @@ async fn finish(env: &DownloadEnv, rec: &DownloadRecord, part: &Path) -> Result<
         (name, final_path)
     };
     if name != rec.filename {
-        env.store.set_filename(&rec.id, name).await.map_err(store_err)?;
+        env.store
+            .set_filename(&rec.id, name)
+            .await
+            .map_err(store_err)?;
     }
     if rec.size.is_none() {
         let len = std::fs::metadata(&final_path).map_err(io_err)?.len();
         env.store
-            .update_probe(&rec.id, ProbeMeta { size: Some(len), ..Default::default() })
+            .update_probe(
+                &rec.id,
+                ProbeMeta {
+                    size: Some(len),
+                    ..Default::default()
+                },
+            )
             .await
             .map_err(store_err)?;
     }
@@ -480,9 +548,16 @@ mod tests {
     #[test]
     fn header_map_drops_replay_unsafe_headers() {
         let pairs: Vec<(String, String)> = [
-            ("Range", "bytes=0-9"), ("If-Range", "x"), ("Content-Length", "5"), ("HOST", "h"),
-            ("connection", "close"), ("Transfer-Encoding", "chunked"), ("Accept-Encoding", "gzip"),
-            ("Cookie", "a=b"), ("Referer", "http://r/"), ("User-Agent", "ua"),
+            ("Range", "bytes=0-9"),
+            ("If-Range", "x"),
+            ("Content-Length", "5"),
+            ("HOST", "h"),
+            ("connection", "close"),
+            ("Transfer-Encoding", "chunked"),
+            ("Accept-Encoding", "gzip"),
+            ("Cookie", "a=b"),
+            ("Referer", "http://r/"),
+            ("User-Agent", "ua"),
         ]
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))

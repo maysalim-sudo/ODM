@@ -72,7 +72,11 @@ impl TestServer {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        TestServer { base: format!("http://{addr}"), requests, inner }
+        TestServer {
+            base: format!("http://{addr}"),
+            requests,
+            inner,
+        }
     }
 
     pub fn url(&self, path: &str) -> String {
@@ -101,7 +105,11 @@ fn parse_range(h: &HeaderMap, len: u64) -> Option<(u64, u64)> {
     let spec = v.strip_prefix("bytes=")?;
     let (a, b) = spec.split_once('-')?;
     let start: u64 = a.parse().ok()?;
-    let end: u64 = if b.is_empty() { len - 1 } else { b.parse::<u64>().ok()?.min(len - 1) };
+    let end: u64 = if b.is_empty() {
+        len - 1
+    } else {
+        b.parse::<u64>().ok()?.min(len - 1)
+    };
     (start <= end && start < len).then_some((start, end))
 }
 
@@ -132,7 +140,11 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
         .and_then(|v| v.to_str().ok())
         .is_none_or(|v| v == etag);
 
-    let range = if f.no_ranges || !if_range_ok { None } else { parse_range(&h, len) };
+    let range = if f.no_ranges || !if_range_ok {
+        None
+    } else {
+        parse_range(&h, len)
+    };
     if !f.no_ranges && h.contains_key(header::RANGE) && range.is_none() && if_range_ok {
         return Response::builder()
             .status(416)
@@ -145,7 +157,11 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
         Some((a, b)) => (StatusCode::PARTIAL_CONTENT, a, b),
         None => (StatusCode::OK, 0, len.saturating_sub(1)),
     };
-    let mut slice = if len == 0 { Vec::new() } else { s.data[start as usize..=end as usize].to_vec() };
+    let mut slice = if len == 0 {
+        Vec::new()
+    } else {
+        s.data[start as usize..=end as usize].to_vec()
+    };
     if let Some(k) = f.drop_after {
         if n <= f.drop_times {
             slice.truncate(k as usize);
@@ -161,7 +177,11 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
         b = b.header(header::ACCEPT_RANGES, "bytes");
     }
     if status == StatusCode::PARTIAL_CONTENT {
-        let shown = if f.wrong_range_start { start + 1 } else { start };
+        let shown = if f.wrong_range_start {
+            start + 1
+        } else {
+            start
+        };
         b = b.header(header::CONTENT_RANGE, format!("bytes {shown}-{end}/{len}"));
     }
     if !f.no_length {
@@ -169,7 +189,10 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
         b = b.header(header::CONTENT_LENGTH, (end - start + 1).to_string());
     }
     if let Some(name) = &f.filename {
-        b = b.header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\""));
+        b = b.header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{name}\""),
+        );
     }
 
     let rate = f.bytes_per_sec;
@@ -181,24 +204,31 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
     let piece = 16 * 1024;
     let chunks: Vec<Bytes> = slice.chunks(piece).map(Bytes::copy_from_slice).collect();
     let total = chunks.len();
-    let st = stream::unfold((0usize, chunks, guard), move |(i, chunks, guard)| async move {
-        if i == usize::MAX {
-            return None; // error already emitted
-        }
-        if i >= total {
-            if dropping {
-                // Let hyper flush the head and the truncated body before the abort.
-                tokio::time::sleep(Duration::from_millis(20)).await;
-                return Some((Err(std::io::Error::other("dropped")), (usize::MAX, chunks, guard)));
+    let st = stream::unfold(
+        (0usize, chunks, guard),
+        move |(i, chunks, guard)| async move {
+            if i == usize::MAX {
+                return None; // error already emitted
             }
-            return None;
-        }
-        if let Some(r) = rate {
-            tokio::time::sleep(Duration::from_secs_f64(chunks[i].len() as f64 / r as f64)).await;
-        }
-        let c = chunks[i].clone();
-        Some((Ok::<_, std::io::Error>(c), (i + 1, chunks, guard)))
-    });
+            if i >= total {
+                if dropping {
+                    // Let hyper flush the head and the truncated body before the abort.
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    return Some((
+                        Err(std::io::Error::other("dropped")),
+                        (usize::MAX, chunks, guard),
+                    ));
+                }
+                return None;
+            }
+            if let Some(r) = rate {
+                tokio::time::sleep(Duration::from_secs_f64(chunks[i].len() as f64 / r as f64))
+                    .await;
+            }
+            let c = chunks[i].clone();
+            Some((Ok::<_, std::io::Error>(c), (i + 1, chunks, guard)))
+        },
+    );
     b.body(Body::from_stream(st)).unwrap()
 }
 

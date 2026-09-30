@@ -21,11 +21,20 @@ fn cfg(dir: &Path) -> EngineConfig {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn many_downloads_many_connections_no_deadlock() {
     let d = tempfile::tempdir().unwrap();
-    let s = TestServer::start(8 * MB, Faults { bytes_per_sec: Some(MB), ..Default::default() }).await;
+    let s = TestServer::start(
+        8 * MB,
+        Faults {
+            bytes_per_sec: Some(MB),
+            ..Default::default()
+        },
+    )
+    .await;
     let mut c = cfg(d.path());
     c.max_concurrent = 10;
     c.max_connections = 32;
-    let m = ManagerHandle::start(c, Store::open_in_memory().unwrap()).await.unwrap();
+    let m = ManagerHandle::start(c, Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
     let mut ids = Vec::new();
     for _ in 0..32 {
         ids.push(m.add(AddRequest::new(s.url("/file"))).await.unwrap());
@@ -36,7 +45,10 @@ async fn many_downloads_many_connections_no_deadlock() {
             if all.iter().all(|r| r.state == DownloadState::Completed) {
                 break all;
             }
-            assert!(all.iter().all(|r| r.state != DownloadState::Failed), "a download failed");
+            assert!(
+                all.iter().all(|r| r.state != DownloadState::Failed),
+                "a download failed"
+            );
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     })
@@ -44,12 +56,16 @@ async fn many_downloads_many_connections_no_deadlock() {
     .expect("deadlock: downloads did not finish in 120 s");
     let want = Sha256::digest(body(8 * MB)).to_vec();
     for r in res {
-        let got = Sha256::digest(std::fs::read(Path::new(&r.save_dir).join(&r.filename)).unwrap()).to_vec();
+        let got = Sha256::digest(std::fs::read(Path::new(&r.save_dir).join(&r.filename)).unwrap())
+            .to_vec();
         assert_eq!(got, want, "{}", r.filename);
     }
     let peak = s.max_concurrent();
     println!("observed peak concurrent connections: {peak}");
-    assert!(peak > 32, "downloads did not overlap enough: peak {peak} connections (need > 32, the old pool size)");
+    assert!(
+        peak > 32,
+        "downloads did not overlap enough: peak {peak} connections (need > 32, the old pool size)"
+    );
     m.shutdown().await;
 }
 
@@ -62,17 +78,31 @@ fn crash_mid_download_then_resume_is_identical() {
 
     // Server lives in its own runtime so it survives the "crash".
     let server_rt = tokio::runtime::Runtime::new().unwrap();
-    let s = server_rt.block_on(TestServer::start(8 * MB, Faults { bytes_per_sec: Some(MB), ..Default::default() }));
+    let s = server_rt.block_on(TestServer::start(
+        8 * MB,
+        Faults {
+            bytes_per_sec: Some(MB),
+            ..Default::default()
+        },
+    ));
     let url = s.url("/file");
 
     // Runtime 1: start downloading, then drop it abruptly.
     let rt1 = tokio::runtime::Runtime::new().unwrap();
     let id = rt1.block_on(async {
-        let m = ManagerHandle::start(cfg(d.path()), store.clone()).await.unwrap();
+        let m = ManagerHandle::start(cfg(d.path()), store.clone())
+            .await
+            .unwrap();
         let id = m.add(AddRequest::new(url.clone())).await.unwrap();
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            let w: u64 = store.get_chunks(&id).await.unwrap().iter().map(|c| c.written).sum();
+            let w: u64 = store
+                .get_chunks(&id)
+                .await
+                .unwrap()
+                .iter()
+                .map(|c| c.written)
+                .sum();
             if w > MB {
                 break;
             }
@@ -86,7 +116,9 @@ fn crash_mid_download_then_resume_is_identical() {
     // Runtime 2: fresh manager over the same DB must finish with identical bytes.
     let rt2 = tokio::runtime::Runtime::new().unwrap();
     rt2.block_on(async {
-        let m = ManagerHandle::start(cfg(d.path()), store.clone()).await.unwrap();
+        let m = ManagerHandle::start(cfg(d.path()), store.clone())
+            .await
+            .unwrap();
         let deadline = Instant::now() + Duration::from_secs(60);
         let r = loop {
             let r = store.get_download(&id).await.unwrap().unwrap();
@@ -97,7 +129,8 @@ fn crash_mid_download_then_resume_is_identical() {
             assert!(Instant::now() < deadline);
             tokio::time::sleep(Duration::from_millis(50)).await;
         };
-        let got = Sha256::digest(std::fs::read(Path::new(&r.save_dir).join(&r.filename)).unwrap()).to_vec();
+        let got = Sha256::digest(std::fs::read(Path::new(&r.save_dir).join(&r.filename)).unwrap())
+            .to_vec();
         assert_eq!(got, Sha256::digest(body(8 * MB)).to_vec());
         m.shutdown().await;
     });
@@ -108,8 +141,17 @@ fn crash_mid_download_then_resume_is_identical() {
 #[tokio::test(flavor = "multi_thread")]
 async fn part_file_is_preallocated_to_full_size() {
     let d = tempfile::tempdir().unwrap();
-    let s = TestServer::start(8 * MB, Faults { bytes_per_sec: Some(MB), ..Default::default() }).await;
-    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap()).await.unwrap();
+    let s = TestServer::start(
+        8 * MB,
+        Faults {
+            bytes_per_sec: Some(MB),
+            ..Default::default()
+        },
+    )
+    .await;
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
     let id = m.add(AddRequest::new(s.url("/file"))).await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {

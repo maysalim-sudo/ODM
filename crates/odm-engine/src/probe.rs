@@ -31,10 +31,16 @@ pub fn parse_content_range_total(v: &str) -> Option<u64> {
 }
 
 fn header_str(h: &HeaderMap, name: header::HeaderName) -> Option<String> {
-    h.get(name).and_then(|v| v.to_str().ok()).map(str::to_string)
+    h.get(name)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
 }
 
-pub async fn probe(client: &reqwest::Client, url: &str, headers: &HeaderMap) -> Result<ProbeResult, OdmError> {
+pub async fn probe(
+    client: &reqwest::Client,
+    url: &str,
+    headers: &HeaderMap,
+) -> Result<ProbeResult, OdmError> {
     let resp = client
         .get(url)
         .headers(headers.clone())
@@ -48,13 +54,33 @@ pub async fn probe(client: &reqwest::Client, url: &str, headers: &HeaderMap) -> 
     drop(resp); // never read the body of a probe
 
     let (size, supports_range) = match status {
-        206 => (h.get(header::CONTENT_RANGE).and_then(|v| v.to_str().ok()).and_then(parse_content_range_total), true),
-        416 => (
-            Some(h.get(header::CONTENT_RANGE).and_then(|v| v.to_str().ok()).and_then(parse_content_range_total).unwrap_or(0)),
+        206 => (
+            h.get(header::CONTENT_RANGE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(parse_content_range_total),
             true,
         ),
-        200 => (h.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok()), false),
-        s => return Err(OdmError::new(classify_status(s, false), format!("probe returned HTTP {s}"))),
+        416 => (
+            Some(
+                h.get(header::CONTENT_RANGE)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(parse_content_range_total)
+                    .unwrap_or(0),
+            ),
+            true,
+        ),
+        200 => (
+            h.get(header::CONTENT_LENGTH)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse().ok()),
+            false,
+        ),
+        s => {
+            return Err(OdmError::new(
+                classify_status(s, false),
+                format!("probe returned HTTP {s}"),
+            ))
+        }
     };
 
     Ok(ProbeResult {
@@ -63,7 +89,9 @@ pub async fn probe(client: &reqwest::Client, url: &str, headers: &HeaderMap) -> 
         supports_range,
         etag: header_str(&h, header::ETAG),
         last_modified: header_str(&h, header::LAST_MODIFIED),
-        mime: header_str(&h, header::CONTENT_TYPE).map(|m| m.split(';').next().unwrap_or("").trim().to_string()),
-        filename: header_str(&h, header::CONTENT_DISPOSITION).and_then(|v| filename::from_content_disposition(&v)),
+        mime: header_str(&h, header::CONTENT_TYPE)
+            .map(|m| m.split(';').next().unwrap_or("").trim().to_string()),
+        filename: header_str(&h, header::CONTENT_DISPOSITION)
+            .and_then(|v| filename::from_content_disposition(&v)),
     })
 }

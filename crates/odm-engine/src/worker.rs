@@ -32,7 +32,10 @@ pub struct ChunkFailure {
 
 impl From<OdmError> for ChunkFailure {
     fn from(error: OdmError) -> Self {
-        Self { error, retry_after: None }
+        Self {
+            error,
+            retry_after: None,
+        }
     }
 }
 
@@ -100,11 +103,17 @@ pub async fn run_chunk(ctx: &ChunkCtx, chunk: &ChunkRef) -> Result<(), ChunkFail
     match status {
         206 => {
             if content_range_start(resp.headers()) != Some(offset) {
-                return Err(fail(ErrorKind::RangeIgnored, "206 with unexpected Content-Range"));
+                return Err(fail(
+                    ErrorKind::RangeIgnored,
+                    "206 with unexpected Content-Range",
+                ));
             }
         }
         200 if send_range && ctx.validator.is_some() => {
-            return Err(fail(ErrorKind::FileChanged, "server file changed (If-Range mismatch)"));
+            return Err(fail(
+                ErrorKind::FileChanged,
+                "server file changed (If-Range mismatch)",
+            ));
         }
         200 if send_range => return Err(fail(ErrorKind::RangeIgnored, "server ignored Range")),
         200 => {}
@@ -143,9 +152,11 @@ pub async fn run_chunk(ctx: &ChunkCtx, chunk: &ChunkRef) -> Result<(), ChunkFail
 
         let (off, allowed) = chunk.lock().unwrap().claim(data.len());
         if allowed > 0 {
-            write_at(&ctx.file, off, &data[..allowed]).map_err(|e| ChunkFailure::from(io_err(e)))?;
+            write_at(&ctx.file, off, &data[..allowed])
+                .map_err(|e| ChunkFailure::from(io_err(e)))?;
             chunk.lock().unwrap().written += allowed as u64;
-            ctx.session_bytes.fetch_add(allowed as u64, Ordering::Relaxed);
+            ctx.session_bytes
+                .fetch_add(allowed as u64, Ordering::Relaxed);
         }
         if allowed < data.len() {
             return Ok(()); // reached this chunk's end (possibly moved by a split)
@@ -161,6 +172,9 @@ pub async fn run_chunk(ctx: &ChunkCtx, chunk: &ChunkRef) -> Result<(), ChunkFail
             Ok(())
         }
         Some(_) if c.is_done() => Ok(()),
-        Some(_) => Err(fail(ErrorKind::Connection, "server closed the connection early")),
+        Some(_) => Err(fail(
+            ErrorKind::Connection,
+            "server closed the connection early",
+        )),
     }
 }
