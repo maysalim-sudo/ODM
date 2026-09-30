@@ -30,13 +30,24 @@ fn human(b: u64) -> String {
     format!("{v:.1} {}", U[i])
 }
 
+pub(crate) fn engine_config(dir: Option<&Path>, limit_bps: u64) -> EngineConfig {
+    let default_cfg = EngineConfig::default();
+    match dir {
+        Some(d) => EngineConfig {
+            speed_limit_bps: limit_bps,
+            download_dir: d.to_path_buf(),
+            ..default_cfg
+        },
+        None => EngineConfig {
+            speed_limit_bps: limit_bps,
+            ..default_cfg
+        },
+    }
+}
+
 pub async fn run_get(args: GetArgs) -> Result<PathBuf, String> {
     let store = Store::open(&args.db.unwrap_or_else(default_db)).map_err(|e| e.to_string())?;
-    let cfg = EngineConfig {
-        speed_limit_bps: args.limit_bps,
-        download_dir: args.dir.clone().unwrap_or_default(),
-        ..Default::default()
-    };
+    let cfg = engine_config(args.dir.as_deref(), args.limit_bps);
     let m = ManagerHandle::start(cfg, store.clone()).await.map_err(|e| e.to_string())?;
     let mut rx = m.subscribe();
     let mut req = AddRequest::new(args.url);
@@ -76,4 +87,30 @@ pub async fn run_get(args: GetArgs) -> Result<PathBuf, String> {
     }
     m.shutdown().await;
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn engine_config_with_no_dir_preserves_default() {
+        let cfg = engine_config(None, 0);
+        let default_cfg = EngineConfig::default();
+        assert_eq!(cfg.download_dir, default_cfg.download_dir);
+    }
+
+    #[test]
+    fn engine_config_with_dir_overrides() {
+        let test_dir = Path::new("/custom/path");
+        let cfg = engine_config(Some(test_dir), 0);
+        assert_eq!(cfg.download_dir, test_dir.to_path_buf());
+    }
+
+    #[test]
+    fn engine_config_preserves_speed_limit() {
+        let limit_bps = 1024 * 1024;
+        let cfg = engine_config(None, limit_bps);
+        assert_eq!(cfg.speed_limit_bps, limit_bps);
+    }
 }
