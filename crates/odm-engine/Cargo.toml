@@ -19,6 +19,9 @@ serde.workspace = true
 sha2.workspace = true
 md-5.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
 [dev-dependencies]
 odm-testserver.workspace = true
 tempfile.workspace = true

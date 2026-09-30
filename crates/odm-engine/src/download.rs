@@ -209,7 +209,7 @@ async fn run_inner(
             .map_err(io_err)?;
         if let Some(size) = rec.size {
             if file.metadata().map_err(io_err)?.len() != size {
-                file.set_len(size).map_err(io_err)?;
+                preallocate(&file, size).map_err(io_err)?;
             }
         }
 
@@ -244,6 +244,46 @@ async fn run_inner(
             }
             Err(e) => return Err(e),
         }
+    }
+}
+
+/// Sizes the part file to `size` before any chunk writes.
+///
+/// On Windows the file is first marked sparse: otherwise NTFS zero-fills up to
+/// the valid-data length synchronously on the first write at a high offset
+/// (seconds for multi-GB files). Failure to set sparse is not fatal.
+pub(crate) fn preallocate(file: &File, size: u64) -> std::io::Result<()> {
+    #[cfg(windows)]
+    if let Err(e) = set_sparse(file) {
+        tracing::debug!("could not mark part file sparse: {e}");
+    }
+    file.set_len(size)
+}
+
+#[cfg(windows)]
+fn set_sparse(file: &File) -> std::io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::Ioctl::FSCTL_SET_SPARSE;
+    use windows_sys::Win32::System::IO::DeviceIoControl;
+    let mut returned: u32 = 0;
+    // SAFETY: the handle is owned by `file` and valid for the call; a null
+    // input buffer means "set sparse"; no output buffer; synchronous I/O.
+    let ok = unsafe {
+        DeviceIoControl(
+            file.as_raw_handle(),
+            FSCTL_SET_SPARSE,
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+        )
+    };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
     }
 }
 
@@ -547,6 +587,30 @@ async fn finish(env: &DownloadEnv, rec: &DownloadRecord, part: &Path) -> Result<
 #[cfg(test)]
 mod tests {
     use super::header_map;
+
+    #[test]
+    fn preallocate_sets_full_size() {
+        let d = tempfile::tempdir().unwrap();
+        let f = std::fs::File::create(d.path().join("p")).unwrap();
+        super::preallocate(&f, 1 << 30).unwrap();
+        assert_eq!(f.metadata().unwrap().len(), 1 << 30);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn preallocate_marks_part_file_sparse_on_windows() {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_SPARSE_FILE: u32 = 0x200;
+        let d = tempfile::tempdir().unwrap();
+        let f = std::fs::File::create(d.path().join("p")).unwrap();
+        super::preallocate(&f, 1 << 30).unwrap();
+        let attrs = f.metadata().unwrap().file_attributes();
+        assert_ne!(
+            attrs & FILE_ATTRIBUTE_SPARSE_FILE,
+            0,
+            "part file is not sparse (attrs {attrs:#x}); NTFS will zero-fill"
+        );
+    }
 
     #[test]
     fn header_map_drops_replay_unsafe_headers() {

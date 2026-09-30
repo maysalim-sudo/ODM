@@ -152,8 +152,18 @@ pub async fn run_chunk(ctx: &ChunkCtx, chunk: &ChunkRef) -> Result<(), ChunkFail
 
         let (off, allowed) = chunk.lock().unwrap().claim(data.len());
         if allowed > 0 {
-            write_at(&ctx.file, off, &data[..allowed])
+            // Positioned writes can block (disk, NTFS valid-data extension), so run
+            // them off the async runtime. The write is awaited to completion rather
+            // than abandoned on cancel: an orphaned write could race a restart that
+            // removes and recreates the part file. Cancellation is re-checked on the
+            // next loop iteration, so its latency is bounded by one buffer write.
+            let file = ctx.file.clone();
+            let buf = data.slice(..allowed);
+            tokio::task::spawn_blocking(move || write_at(&file, off, &buf))
+                .await
+                .map_err(|e| fail(ErrorKind::Other, format!("write task failed: {e}")))?
                 .map_err(|e| ChunkFailure::from(io_err(e)))?;
+            // Count bytes only after their write returned Ok.
             chunk.lock().unwrap().written += allowed as u64;
             ctx.session_bytes
                 .fetch_add(allowed as u64, Ordering::Relaxed);

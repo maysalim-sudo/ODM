@@ -31,3 +31,4 @@ md-5 = "0.10"
 tempfile = "3"
 clap = { version = "4", features = ["derive"] }
 percent-encoding = "2"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Ioctl"] }
