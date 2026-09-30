@@ -164,6 +164,44 @@ async fn changed_file_is_detected_via_if_range() {
 }
 
 #[tokio::test]
+async fn full_body_with_same_etag_is_range_ignored() {
+    let s = TestServer::start(
+        50_000,
+        Faults {
+            only_probe_range: true,
+            ..Default::default()
+        },
+    )
+    .await;
+    let (_d, _p, f) = tmpfile(50_000);
+    let t = table(10_000, Some(49_999), 0);
+    let e = run_chunk(&ctx(s.url("/file"), f, true, Some("\"v1\"")), &t.refs()[0])
+        .await
+        .unwrap_err();
+    assert_eq!(e.error.kind, ErrorKind::RangeIgnored);
+}
+
+#[tokio::test]
+async fn full_body_without_matching_validator_kind_is_range_ignored() {
+    // Validator is a Last-Modified date; the 200 carries no Last-Modified at all.
+    let s = TestServer::start(
+        50_000,
+        Faults {
+            only_probe_range: true,
+            ..Default::default()
+        },
+    )
+    .await;
+    let (_d, _p, f) = tmpfile(50_000);
+    let t = table(10_000, Some(49_999), 0);
+    let date = "Wed, 21 Oct 2015 07:28:00 GMT";
+    let e = run_chunk(&ctx(s.url("/file"), f, true, Some(date)), &t.refs()[0])
+        .await
+        .unwrap_err();
+    assert_eq!(e.error.kind, ErrorKind::RangeIgnored);
+}
+
+#[tokio::test]
 async fn cancel_stops_promptly() {
     let s = TestServer::start(
         5_000_000,

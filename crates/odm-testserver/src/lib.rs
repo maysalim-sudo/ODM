@@ -31,6 +31,9 @@ pub struct Faults {
     pub filename: Option<String>,
     /// `/file` answers every request with a 302 to this absolute URL.
     pub redirect_to: Option<String>,
+    /// Answer `bytes=0-0` (the probe) with 206, but any other Range with a 200
+    /// full body carrying the same ETag.
+    pub only_probe_range: bool,
 }
 
 struct Inner {
@@ -159,12 +162,20 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
         .and_then(|v| v.to_str().ok())
         .is_none_or(|v| v == etag);
 
-    let range = if f.no_ranges || !if_range_ok {
+    let range_ignored = f.only_probe_range
+        && h.get(header::RANGE)
+            .is_some_and(|v| v.as_bytes() != b"bytes=0-0");
+    let range = if f.no_ranges || !if_range_ok || range_ignored {
         None
     } else {
         parse_range(&h, len)
     };
-    if !f.no_ranges && h.contains_key(header::RANGE) && range.is_none() && if_range_ok {
+    if !f.no_ranges
+        && !range_ignored
+        && h.contains_key(header::RANGE)
+        && range.is_none()
+        && if_range_ok
+    {
         return Response::builder()
             .status(416)
             .header(header::CONTENT_RANGE, format!("bytes */{len}"))

@@ -480,3 +480,22 @@ async fn cookies_are_not_replayed_to_a_cross_origin_redirect_target() {
     // Every chunk request starts at the original URL (probe + >= 1 worker).
     assert!(a.requests.load(std::sync::atomic::Ordering::SeqCst) >= 2);
 }
+
+#[tokio::test]
+async fn range_ignored_with_unchanged_etag_falls_back_to_single_connection() {
+    // The probe gets a 206, but every other Range gets a 200 full body with the
+    // SAME ETag: that is RangeIgnored (single-connection fallback), not FileChanged.
+    let f = fx();
+    let s = TestServer::start(
+        4 * MB,
+        Faults {
+            only_probe_range: true,
+            ..Default::default()
+        },
+    )
+    .await;
+    let id = add(&f, &s.url("/file"), 4).await;
+    let p = done(run_download(&f.env, &id, CancellationToken::new()).await);
+    assert_eq!(std::fs::read(p).unwrap(), body(4 * MB));
+    assert_eq!(f.env.store.get_chunks(&id).await.unwrap().len(), 1);
+}

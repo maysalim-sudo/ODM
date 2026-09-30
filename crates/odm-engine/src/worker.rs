@@ -71,6 +71,27 @@ fn content_range_start(h: &HeaderMap) -> Option<u64> {
     rest.split('-').next()?.trim().parse().ok()
 }
 
+/// Whether a 200 reply to a ranged request proves the file changed: it carries
+/// a validator of the same kind as ours (ETag if ours is quoted, else
+/// Last-Modified) and that validator differs. A missing validator is not proof.
+fn validator_changed(ours: &str, h: &HeaderMap) -> bool {
+    let is_etag = ours.starts_with('"') || !ours.trim_end().ends_with("GMT");
+    let name = if is_etag {
+        header::ETAG
+    } else {
+        header::LAST_MODIFIED
+    };
+    let Some(theirs) = h.get(name).and_then(|v| v.to_str().ok()) else {
+        return false;
+    };
+    if is_etag {
+        // Weak comparison: a W/ prefix on an otherwise equal tag is the same file.
+        theirs.trim().trim_start_matches("W/") != ours.trim().trim_start_matches("W/")
+    } else {
+        theirs.trim() != ours.trim()
+    }
+}
+
 pub async fn run_chunk(ctx: &ChunkCtx, chunk: &ChunkRef) -> Result<(), ChunkFailure> {
     let (offset, end) = {
         let mut c = chunk.lock().unwrap();
@@ -109,13 +130,20 @@ pub async fn run_chunk(ctx: &ChunkCtx, chunk: &ChunkRef) -> Result<(), ChunkFail
                 ));
             }
         }
-        200 if send_range && ctx.validator.is_some() => {
-            return Err(fail(
-                ErrorKind::FileChanged,
-                "server file changed (If-Range mismatch)",
-            ));
+        200 if send_range => {
+            let changed = ctx
+                .validator
+                .as_deref()
+                .is_some_and(|v| validator_changed(v, resp.headers()));
+            return Err(if changed {
+                fail(
+                    ErrorKind::FileChanged,
+                    "server file changed (If-Range mismatch)",
+                )
+            } else {
+                fail(ErrorKind::RangeIgnored, "server ignored Range")
+            });
         }
-        200 if send_range => return Err(fail(ErrorKind::RangeIgnored, "server ignored Range")),
         200 => {}
         s => {
             let retry_after = resp
