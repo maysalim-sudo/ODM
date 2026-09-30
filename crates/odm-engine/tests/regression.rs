@@ -21,7 +21,7 @@ fn cfg(dir: &Path) -> EngineConfig {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn many_downloads_many_connections_no_deadlock() {
     let d = tempfile::tempdir().unwrap();
-    let s = TestServer::start(8 * MB, Faults::default()).await;
+    let s = TestServer::start(8 * MB, Faults { bytes_per_sec: Some(MB), ..Default::default() }).await;
     let mut c = cfg(d.path());
     c.max_concurrent = 10;
     c.max_connections = 32;
@@ -47,6 +47,10 @@ async fn many_downloads_many_connections_no_deadlock() {
         let got = Sha256::digest(std::fs::read(Path::new(&r.save_dir).join(&r.filename)).unwrap()).to_vec();
         assert_eq!(got, want, "{}", r.filename);
     }
+    let peak = s.max_concurrent();
+    println!("observed peak concurrent connections: {peak}");
+    assert!(peak > 32, "downloads did not overlap enough: peak {peak} connections (need > 32, the old pool size)");
+    m.shutdown().await;
 }
 
 /// Regression: kill the process mid-download (no graceful persist), restart, compare hashes.
