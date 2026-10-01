@@ -458,7 +458,19 @@ impl Manager {
         let tx = self.tx.clone();
         let (task_id, task_cancel) = (id.clone(), cancel.clone());
         tokio::spawn(async move {
-            let out = run_download(&env, &task_id, task_cancel).await;
+            // Run the download as its own task so a panic surfaces as a JoinError
+            // here instead of skipping `Finished` and wedging the id in `active`.
+            let inner_id = task_id.clone();
+            let out =
+                match tokio::spawn(async move { run_download(&env, &inner_id, task_cancel).await })
+                    .await
+                {
+                    Ok(out) => out,
+                    Err(e) => {
+                        tracing::error!(id = %task_id, "download task panicked: {e}");
+                        Outcome::Failed(OdmError::new(ErrorKind::Other, "internal error"))
+                    }
+                };
             let _ = tx.send(Cmd::Finished(task_id, out)).await;
         });
         self.active.insert(id, Active { cancel, stop: None });
