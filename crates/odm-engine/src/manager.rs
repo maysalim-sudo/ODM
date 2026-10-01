@@ -152,6 +152,12 @@ impl ManagerHandle {
         }
     }
 
+    /// Subscribes to engine events.
+    ///
+    /// Events share one bounded broadcast channel. A slow subscriber gets
+    /// `RecvError::Lagged(n)` when it falls behind; on `Lagged` it must resync
+    /// its view from the store, because `State` events can be dropped along
+    /// with `Progress` events.
     pub fn subscribe(&self) -> broadcast::Receiver<EngineEvent> {
         self.events.subscribe()
     }
