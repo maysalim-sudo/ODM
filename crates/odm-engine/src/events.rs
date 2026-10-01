@@ -1,11 +1,29 @@
 use odm_core::DownloadState;
 use serde::Serialize;
 
+/// Per-chunk state for the UI chunk map (spec 5.7, 9). Not persisted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChunkViewState {
+    /// Not running (not started yet, or stopped by a pause/cancel).
+    Pending,
+    /// A worker is transferring it.
+    Active,
+    /// Waiting out a backoff delay before its next attempt.
+    Retrying,
+    /// Every byte written.
+    Done,
+    /// Retries exhausted or a permanent error.
+    Failed,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ChunkView {
+    pub idx: u32,
     pub start: u64,
     pub end: Option<u64>,
     pub written: u64,
+    pub state: ChunkViewState,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -34,4 +52,84 @@ pub enum EngineEvent {
     Removed {
         id: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn json(e: &EngineEvent) -> String {
+        serde_json::to_string(e).unwrap()
+    }
+
+    #[test]
+    fn event_json_shape_is_pinned() {
+        assert_eq!(
+            json(&EngineEvent::Added { id: "a1".into() }),
+            r#"{"type":"added","id":"a1"}"#
+        );
+        assert_eq!(
+            json(&EngineEvent::Progress(ProgressSnapshot {
+                id: "a1".into(),
+                bytes: 10,
+                total: Some(100),
+                speed_bps: 5,
+                eta_s: Some(18),
+                chunks: vec![ChunkView {
+                    idx: 0,
+                    start: 0,
+                    end: Some(99),
+                    written: 10,
+                    state: ChunkViewState::Active,
+                }],
+            })),
+            r#"{"type":"progress","id":"a1","bytes":10,"total":100,"speed_bps":5,"eta_s":18,"chunks":[{"idx":0,"start":0,"end":99,"written":10,"state":"active"}]}"#
+        );
+        assert_eq!(
+            json(&EngineEvent::State {
+                id: "a1".into(),
+                state: DownloadState::Downloading,
+                error_code: None,
+                error_message: None,
+            }),
+            r#"{"type":"state","id":"a1","state":"downloading","error_code":null,"error_message":null}"#
+        );
+        assert_eq!(
+            json(&EngineEvent::State {
+                id: "a1".into(),
+                state: DownloadState::Failed,
+                error_code: Some("link_expired".into()),
+                error_message: Some("HTTP 403".into()),
+            }),
+            r#"{"type":"state","id":"a1","state":"failed","error_code":"link_expired","error_message":"HTTP 403"}"#
+        );
+        assert_eq!(
+            json(&EngineEvent::Removed { id: "a1".into() }),
+            r#"{"type":"removed","id":"a1"}"#
+        );
+    }
+
+    #[test]
+    fn chunk_state_json_names() {
+        let names: Vec<String> = [
+            ChunkViewState::Pending,
+            ChunkViewState::Active,
+            ChunkViewState::Retrying,
+            ChunkViewState::Done,
+            ChunkViewState::Failed,
+        ]
+        .iter()
+        .map(|s| serde_json::to_string(s).unwrap())
+        .collect();
+        assert_eq!(
+            names,
+            [
+                r#""pending""#,
+                r#""active""#,
+                r#""retrying""#,
+                r#""done""#,
+                r#""failed""#
+            ]
+        );
+    }
 }

@@ -1,6 +1,8 @@
 use odm_store::ChunkRecord;
 use std::sync::{Arc, Mutex};
 
+use crate::events::{ChunkView, ChunkViewState};
+
 pub const MIN_CHUNK: u64 = 1 << 20;
 pub const MIN_SPLIT_REMAINING: u64 = 2 << 20;
 
@@ -55,6 +57,8 @@ pub struct ChunkShared {
     pub claimed: u64,
     /// Bytes written AND flushed-eligible; the only value persisted.
     pub written: u64,
+    /// UI-only state, set by the transfer loop; never persisted.
+    pub state: ChunkViewState,
 }
 
 impl ChunkShared {
@@ -90,13 +94,18 @@ impl ChunkTable {
         let chunks = recs
             .iter()
             .map(|r| {
-                Arc::new(Mutex::new(ChunkShared {
+                let mut c = ChunkShared {
                     idx: r.idx,
                     start: r.start,
                     end: r.end,
                     claimed: r.written,
                     written: r.written,
-                }))
+                    state: ChunkViewState::Pending,
+                };
+                if c.is_done() {
+                    c.state = ChunkViewState::Done; // completed in an earlier session
+                }
+                Arc::new(Mutex::new(c))
             })
             .collect();
         Self { chunks }
@@ -141,6 +150,7 @@ impl ChunkTable {
             end: v.end,
             claimed: 0,
             written: 0,
+            state: ChunkViewState::Pending,
         };
         v.end = Some(mid - 1);
         drop(v);
@@ -160,6 +170,26 @@ impl ChunkTable {
                     start: c.start,
                     end: c.end,
                     written: c.written,
+                }
+            })
+            .collect();
+        v.sort_by_key(|c| c.start);
+        v
+    }
+
+    /// UI view of every chunk, ordered by start offset.
+    pub fn views(&self) -> Vec<ChunkView> {
+        let mut v: Vec<ChunkView> = self
+            .chunks
+            .iter()
+            .map(|c| {
+                let c = c.lock().unwrap();
+                ChunkView {
+                    idx: c.idx,
+                    start: c.start,
+                    end: c.end,
+                    written: c.written,
+                    state: c.state,
                 }
             })
             .collect();
@@ -246,6 +276,7 @@ mod tests {
             end: Some(109),
             claimed: 0,
             written: 0,
+            state: ChunkViewState::Pending,
         };
         assert_eq!(c.claim(4), (100, 4));
         assert_eq!(c.claim(100), (104, 6));
@@ -261,6 +292,7 @@ mod tests {
             end: None,
             claimed: 0,
             written: 0,
+            state: ChunkViewState::Pending,
         };
         assert_eq!(c.claim(8192), (0, 8192));
         assert_eq!(c.remaining(), None);

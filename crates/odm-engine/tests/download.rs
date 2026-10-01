@@ -499,3 +499,26 @@ async fn range_ignored_with_unchanged_etag_falls_back_to_single_connection() {
     assert_eq!(std::fs::read(p).unwrap(), body(4 * MB));
     assert_eq!(f.env.store.get_chunks(&id).await.unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn final_progress_event_reports_every_chunk_done() {
+    use odm_engine::{ChunkViewState, EngineEvent};
+    let f = fx();
+    let mut rx = f.env.events.subscribe();
+    let s = TestServer::start(4 * MB, Faults::default()).await;
+    let id = add(&f, &s.url("/file"), 4).await;
+    done(run_download(&f.env, &id, CancellationToken::new()).await);
+    let mut last = None;
+    while let Ok(ev) = rx.try_recv() {
+        if let EngineEvent::Progress(p) = ev {
+            last = Some(p);
+        }
+    }
+    let p = last.expect("no progress event");
+    assert!(p.chunks.len() > 1);
+    assert!(p.chunks.iter().all(|c| c.state == ChunkViewState::Done));
+    let mut idxs: Vec<u32> = p.chunks.iter().map(|c| c.idx).collect();
+    idxs.sort_unstable();
+    idxs.dedup();
+    assert_eq!(idxs.len(), p.chunks.len(), "chunk idx must be unique");
+}

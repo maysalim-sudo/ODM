@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::chunks::{plan_chunks, ChunkRef, ChunkTable};
 use crate::config::EngineConfig;
-use crate::events::{ChunkView, EngineEvent, ProgressSnapshot};
+use crate::events::{ChunkViewState, EngineEvent, ProgressSnapshot};
 use crate::probe::{probe, ProbeResult};
 use crate::retry::{backoff_delay, io_err};
 use crate::speed::{eta, SpeedMeter};
@@ -313,14 +313,27 @@ async fn probe_with_retry(
     }
 }
 
+fn set_chunk_state(chunk: &ChunkRef, state: ChunkViewState) {
+    chunk.lock().unwrap().state = state;
+}
+
 fn spawn_worker(set: &mut JoinSet<Joined>, ctx: &ChunkCtx, chunk: ChunkRef, delay: Duration) {
     let ctx = ctx.clone();
+    set_chunk_state(
+        &chunk,
+        if delay.is_zero() {
+            ChunkViewState::Active
+        } else {
+            ChunkViewState::Retrying
+        },
+    );
     set.spawn(async move {
         if !delay.is_zero() {
             tokio::select! {
                 _ = ctx.cancel.cancelled() => return (chunk, Err(cancelled().into())),
                 _ = tokio::time::sleep(delay) => {}
             }
+            set_chunk_state(&chunk, ChunkViewState::Active);
         }
         let r = run_chunk(&ctx, &chunk).await;
         (chunk, r)
@@ -394,6 +407,7 @@ async fn transfer(
                     .map_err(|e| OdmError::new(ErrorKind::Other, format!("worker panicked: {e}")))?;
                 match res {
                     Ok(()) => {
+                        set_chunk_state(&chunk, ChunkViewState::Done);
                         if require_partial && !work.is_cancelled() && set.len() < max_conn {
                             if let Some(c) = table.split_largest() {
                                 layout_dirty = true;
@@ -401,7 +415,9 @@ async fn transfer(
                             }
                         }
                     }
-                    Err(f) if f.error.kind == ErrorKind::Cancelled => {}
+                    Err(f) if f.error.kind == ErrorKind::Cancelled => {
+                        set_chunk_state(&chunk, ChunkViewState::Pending);
+                    }
                     Err(f) if f.error.kind.is_transient() && fatal.is_none() => {
                         let (idx, written) = { let c = chunk.lock().unwrap(); (c.idx, c.written) };
                         let entry = attempts.entry(idx).or_insert((0, written));
@@ -413,13 +429,18 @@ async fn transfer(
                             tracing::debug!(%id, idx, attempt = entry.0, "retrying chunk: {}", f.error);
                             spawn_worker(&mut set, &ctx, chunk, backoff_delay(entry.0, f.retry_after));
                         } else {
+                            set_chunk_state(&chunk, ChunkViewState::Failed);
                             fatal = Some(f.error);
                             work.cancel();
                         }
                     }
                     Err(f) => {
                         if fatal.is_none() {
+                            set_chunk_state(&chunk, ChunkViewState::Failed);
                             fatal = Some(f.error);
+                        } else {
+                            // Collateral of an earlier fatal error: just stopped.
+                            set_chunk_state(&chunk, ChunkViewState::Pending);
                         }
                         work.cancel();
                     }
@@ -492,15 +513,7 @@ fn emit_progress(
         total: rec.size,
         speed_bps: speed,
         eta_s: eta(rec.size, bytes, speed),
-        chunks: table
-            .snapshot()
-            .into_iter()
-            .map(|c| ChunkView {
-                start: c.start,
-                end: c.end,
-                written: c.written,
-            })
-            .collect(),
+        chunks: table.views(),
     }));
 }
 
