@@ -1,3 +1,4 @@
+use crate::StoreError;
 use rusqlite::Connection;
 
 const V1: &str = r#"
@@ -64,11 +65,20 @@ CREATE TABLE hls_meta (
 );
 "#;
 
-/// Ordered; index i migrates to user_version i+1. Append only — never edit a shipped entry.
-const MIGRATIONS: &[&str] = &[V1];
+const V2: &str = "ALTER TABLE downloads ADD COLUMN auto_place INTEGER NOT NULL DEFAULT 0;";
 
-pub fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
+/// Ordered; index i migrates to user_version i+1. Append only — never edit a shipped entry.
+const MIGRATIONS: &[&str] = &[V1, V2];
+
+pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    let supported = MIGRATIONS.len() as i64;
+    if current > supported || current < 0 {
+        return Err(StoreError::NewerSchema {
+            found: current,
+            supported,
+        });
+    }
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(current as usize) {
         let tx = conn.transaction()?;
         tx.execute_batch(sql)?;

@@ -6,7 +6,7 @@ use crate::models::{now_ms, ChunkRecord, DownloadRecord, ProbeMeta};
 const COLS: &str =
     "id,url,final_url,filename,save_dir,size,mime,category,state,error_kind,error_msg,\
 priority,max_connections,speed_limit,etag,last_modified,checksum,kind,page_url,page_title,\
-filename_locked,created_at,started_at,finished_at";
+filename_locked,created_at,started_at,finished_at,auto_place";
 
 fn to_record(r: &Row) -> rusqlite::Result<DownloadRecord> {
     let state: String = r.get(8)?;
@@ -35,6 +35,7 @@ fn to_record(r: &Row) -> rusqlite::Result<DownloadRecord> {
         created_at: r.get(21)?,
         started_at: r.get(22)?,
         finished_at: r.get(23)?,
+        auto_place: r.get::<_, i64>(24)? != 0,
     })
 }
 
@@ -42,14 +43,14 @@ pub fn insert_download(c: &Connection, d: &DownloadRecord) -> rusqlite::Result<(
     c.execute(
         &format!(
             "INSERT INTO downloads ({COLS}) VALUES \
-             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)"
+             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)"
         ),
         params![
             d.id, d.url, d.final_url, d.filename, d.save_dir, d.size.map(|v| v as i64), d.mime,
             d.category, d.state.as_str(), d.error_kind, d.error_msg, d.priority,
             d.max_connections as i64, d.speed_limit.map(|v| v as i64), d.etag, d.last_modified,
             d.checksum, d.kind, d.page_url, d.page_title, d.filename_locked as i64, d.created_at,
-            d.started_at, d.finished_at
+            d.started_at, d.finished_at, d.auto_place as i64
         ],
     )?;
     Ok(())
@@ -209,4 +210,53 @@ pub fn reset_interrupted(c: &Connection) -> rusqlite::Result<usize> {
         "UPDATE downloads SET state='queued' WHERE state IN ('probing','downloading','merging')",
         [],
     )
+}
+
+const BYTES: &str =
+    "COALESCE((SELECT SUM(written) FROM chunks WHERE download_id = downloads.id), 0)";
+
+pub fn insert_download_with_headers(
+    c: &mut Connection,
+    d: &DownloadRecord,
+    h: &[(String, String)],
+) -> rusqlite::Result<()> {
+    let tx = c.transaction()?;
+    insert_download(&tx, d)?;
+    for (n, v) in h {
+        tx.execute(
+            "INSERT OR REPLACE INTO download_headers (download_id,name,value) VALUES (?1,?2,?3)",
+            params![d.id, n, v],
+        )?;
+    }
+    tx.commit()
+}
+
+pub fn list_with_bytes(c: &Connection) -> rusqlite::Result<Vec<(DownloadRecord, u64)>> {
+    let mut st = c.prepare(&format!(
+        "SELECT {COLS}, {BYTES} FROM downloads ORDER BY created_at DESC, rowid DESC"
+    ))?;
+    let rows = st.query_map([], |r| Ok((to_record(r)?, r.get::<_, i64>(25)? as u64)))?;
+    rows.collect()
+}
+
+pub fn get_with_bytes(c: &Connection, id: &str) -> rusqlite::Result<Option<(DownloadRecord, u64)>> {
+    c.query_row(
+        &format!("SELECT {COLS}, {BYTES} FROM downloads WHERE id=?1"),
+        [id],
+        |r| Ok((to_record(r)?, r.get::<_, i64>(25)? as u64)),
+    )
+    .optional()
+}
+
+pub fn set_placement(
+    c: &Connection,
+    id: &str,
+    category: &str,
+    save_dir: &str,
+) -> rusqlite::Result<()> {
+    c.execute(
+        "UPDATE downloads SET category=?2, save_dir=?3 WHERE id=?1",
+        params![id, category, save_dir],
+    )?;
+    Ok(())
 }

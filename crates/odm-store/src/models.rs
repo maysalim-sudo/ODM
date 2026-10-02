@@ -33,6 +33,7 @@ pub struct DownloadRecord {
     pub created_at: i64,
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
+    pub auto_place: bool,
 }
 
 impl DownloadRecord {
@@ -62,6 +63,7 @@ impl DownloadRecord {
             created_at: now_ms(),
             started_at: None,
             finished_at: None,
+            auto_place: false,
         }
     }
 }

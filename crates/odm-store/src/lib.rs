@@ -17,6 +17,8 @@ pub enum StoreError {
     Sql(#[from] rusqlite::Error),
     #[error("store thread closed")]
     Closed,
+    #[error("database schema {found} is newer than this app supports ({supported})")]
+    NewerSchema { found: i64, supported: i64 },
 }
 
 type Job = Box<dyn FnOnce(&mut Connection) + Send>;
@@ -126,5 +128,33 @@ impl Store {
     }
     pub async fn reset_interrupted(&self) -> Result<usize, StoreError> {
         self.call(|c| repo::reset_interrupted(c)).await
+    }
+    pub async fn insert_download_with_headers(
+        &self,
+        d: DownloadRecord,
+        h: Vec<(String, String)>,
+    ) -> Result<(), StoreError> {
+        self.call(move |c| repo::insert_download_with_headers(c, &d, &h))
+            .await
+    }
+    pub async fn list_with_bytes(&self) -> Result<Vec<(DownloadRecord, u64)>, StoreError> {
+        self.call(|c| repo::list_with_bytes(c)).await
+    }
+    pub async fn get_with_bytes(
+        &self,
+        id: &str,
+    ) -> Result<Option<(DownloadRecord, u64)>, StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::get_with_bytes(c, &id)).await
+    }
+    pub async fn set_placement(
+        &self,
+        id: &str,
+        category: String,
+        save_dir: String,
+    ) -> Result<(), StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::set_placement(c, &id, &category, &save_dir))
+            .await
     }
 }

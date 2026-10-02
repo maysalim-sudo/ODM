@@ -15,7 +15,7 @@ async fn fresh_db_is_migrated_and_reopen_is_idempotent() {
             .call(|c| c.query_row("PRAGMA user_version", [], |r| r.get(0)))
             .await
             .unwrap();
-        assert_eq!(v, 1);
+        assert_eq!(v, 2);
         s.insert_download(rec("a")).await.unwrap();
     }
     let s = Store::open(&path).unwrap();
@@ -231,4 +231,115 @@ async fn concurrent_callers_are_serialized() {
         .unwrap()
         .iter()
         .all(|c| c.written == 10));
+}
+
+#[tokio::test]
+async fn newer_schema_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("odm.db");
+    {
+        let s = Store::open(&path).unwrap();
+        s.call(|c| c.pragma_update(None, "user_version", 99))
+            .await
+            .unwrap();
+    }
+    match Store::open(&path) {
+        Err(odm_store::StoreError::NewerSchema { found, supported }) => {
+            assert_eq!(found, 99);
+            assert_eq!(supported, 2);
+        }
+        Err(e) => panic!("wrong error: {e}"),
+        Ok(_) => panic!("opened a newer schema"),
+    }
+}
+
+#[tokio::test]
+async fn v1_database_is_migrated_to_v2() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("odm.db");
+    {
+        let s = Store::open(&path).unwrap();
+        s.insert_download(rec("a")).await.unwrap();
+        // Rewind to a V1-shaped database: drop the V2 column and the version.
+        s.call(|c| {
+            c.execute_batch("ALTER TABLE downloads DROP COLUMN auto_place;")?;
+            c.pragma_update(None, "user_version", 1)
+        })
+        .await
+        .unwrap();
+    }
+    let s = Store::open(&path).unwrap();
+    let got = s.get_download("a").await.unwrap().unwrap();
+    assert!(!got.auto_place);
+    let v: i64 = s
+        .call(|c| c.query_row("PRAGMA user_version", [], |r| r.get(0)))
+        .await
+        .unwrap();
+    assert_eq!(v, 2);
+}
+
+#[tokio::test]
+async fn insert_with_headers_is_atomic() {
+    let s = Store::open_in_memory().unwrap();
+    let mut r = rec("a");
+    r.auto_place = true;
+    s.insert_download_with_headers(r, vec![("Cookie".into(), "x=1".into())])
+        .await
+        .unwrap();
+    assert!(s.get_download("a").await.unwrap().unwrap().auto_place);
+    assert_eq!(s.get_headers("a").await.unwrap().len(), 1);
+
+    // Second insert with the same id fails as a whole: no extra header rows appear.
+    let err = s
+        .insert_download_with_headers(rec("a"), vec![("Referer".into(), "r".into())])
+        .await;
+    assert!(err.is_err());
+    assert_eq!(s.get_headers("a").await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn bytes_come_from_chunks() {
+    let s = Store::open_in_memory().unwrap();
+    s.insert_download(rec("a")).await.unwrap();
+    s.insert_download(rec("b")).await.unwrap();
+    s.replace_chunks(
+        "a",
+        vec![
+            ChunkRecord {
+                idx: 0,
+                start: 0,
+                end: Some(99),
+                written: 40,
+            },
+            ChunkRecord {
+                idx: 1,
+                start: 100,
+                end: Some(199),
+                written: 2,
+            },
+        ],
+    )
+    .await
+    .unwrap();
+    let (ra, bytes_a) = s.get_with_bytes("a").await.unwrap().unwrap();
+    assert_eq!((ra.id.as_str(), bytes_a), ("a", 42));
+    assert_eq!(s.get_with_bytes("b").await.unwrap().unwrap().1, 0);
+    assert!(s.get_with_bytes("nope").await.unwrap().is_none());
+    let all = s.list_with_bytes().await.unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(all.iter().find(|(r, _)| r.id == "a").unwrap().1, 42);
+}
+
+#[tokio::test]
+async fn set_placement_updates_category_and_dir() {
+    let s = Store::open_in_memory().unwrap();
+    s.insert_download(rec("a")).await.unwrap();
+    s.set_placement("a", "video".into(), "C:/dl/Videos".into())
+        .await
+        .unwrap();
+    let r = s.get_download("a").await.unwrap().unwrap();
+    assert_eq!(
+        (r.category.as_str(), r.save_dir.as_str()),
+        ("video", "C:/dl/Videos")
+    );
 }
