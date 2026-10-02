@@ -224,3 +224,21 @@ export function keepVisible(selected: Set<string>, visible: Row[]): Set<string> 
   const kept = [...selected].filter((id) => shown.has(id));
   return kept.length === selected.size ? selected : new Set(kept);
 }
+
+/**
+ * Table column widths in px. Keep in sync with DownloadTable.svelte (CSS repeats these numbers).
+ * Always shown: size + progress + status = 396, so the table minimum is 396 + NAME_MIN = 616.
+ * Speed shows from 616 + 96 = 712, time left from 712 + 96 = 808, added from 808 + 132 = 940.
+ */
+export const NAME_MIN = 220;
+export const COL = { size: 96, progress: 190, status: 110, speed: 96, eta: 96, added: 132 } as const;
+const BASE = COL.size + COL.progress + COL.status;
+export const TABLE_MIN = BASE + NAME_MIN;
+const SPEED_AT = TABLE_MIN + COL.speed;
+const ETA_AT = SPEED_AT + COL.eta;
+const ADDED_AT = ETA_AT + COL.added;
+
+/** Which optional columns fit at this table width while the name keeps NAME_MIN. */
+export function visibleColumns(width: number): { added: boolean; eta: boolean; speed: boolean } {
+  return { added: width >= ADDED_AT, eta: width >= ETA_AT, speed: width >= SPEED_AT };
+}

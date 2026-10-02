@@ -47,19 +47,19 @@ class DownloadsStore {
     const r = applyEvent(this.rows, ev);
     this.rows = r.rows;
     if (r.resync) void this.reload();
-    if (ev.type === "removed") this.pruneSelection();
+    this.pruneSelection();
   }
 
+  /** Drop selected rows that are gone or hidden by the current filter. */
   private pruneSelection(): void {
-    const kept = [...this.selected].filter((id) => this.rows.has(id));
-    if (kept.length !== this.selected.size) this.selected = new Set(kept);
+    const kept = keepVisible(this.selected, this.visible);
+    if (kept !== this.selected) this.selected = kept;
   }
 
   /** Change the filter; rows it hides drop out of the selection. */
   setFilter(f: Filter): void {
     this.filter = f;
-    const kept = keepVisible(this.selected, this.visible);
-    if (kept !== this.selected) this.selected = kept;
+    this.pruneSelection();
   }
 
   /** Plain click selects one; ctrl toggles; shift extends from the last selected row. */

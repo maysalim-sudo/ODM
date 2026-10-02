@@ -6,6 +6,8 @@ import {
   canPause,
   canResume,
   counts,
+  COL,
+  NAME_MIN,
   keepVisible,
   matches,
   mergeList,
@@ -14,6 +16,7 @@ import {
   segments,
   toRow,
   visible,
+  visibleColumns,
 } from "./model";
 import type { Download } from "./types";
 
@@ -259,5 +262,25 @@ describe("keepVisible", () => {
     const out = keepVisible(sel, rows);
     expect(out).not.toBe(sel);
     expect([...out]).toEqual(["a"]);
+  });
+});
+
+describe("visibleColumns", () => {
+  const nameWidth = (w: number) => {
+    const c = visibleColumns(w);
+    return w - COL.size - COL.progress - COL.status - (c.speed ? COL.speed : 0) - (c.eta ? COL.eta : 0) - (c.added ? COL.added : 0);
+  };
+
+  it("keeps the name column at least NAME_MIN wide at every width from the table minimum up", () => {
+    for (let w = 616; w <= 1400; w++) expect(nameWidth(w), `width ${w}`).toBeGreaterThanOrEqual(NAME_MIN);
+  });
+
+  it("switches columns on at exactly 712, 808 and 940", () => {
+    expect(visibleColumns(711)).toEqual({ added: false, eta: false, speed: false });
+    expect(visibleColumns(712)).toEqual({ added: false, eta: false, speed: true });
+    expect(visibleColumns(807)).toEqual({ added: false, eta: false, speed: true });
+    expect(visibleColumns(808)).toEqual({ added: false, eta: true, speed: true });
+    expect(visibleColumns(939)).toEqual({ added: false, eta: true, speed: true });
+    expect(visibleColumns(940)).toEqual({ added: true, eta: true, speed: true });
   });
 });

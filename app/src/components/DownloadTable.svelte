@@ -100,7 +100,7 @@
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
-    min-width: 560px;
+    min-width: 616px;
   }
   th {
     position: sticky;
@@ -147,22 +147,26 @@
   }
   .name {
     width: auto;
-    min-width: 220px;
   }
   .num.added {
     width: 132px;
   }
-  @container (max-width: 859px) {
+  /*
+   * Column widths and breakpoints, mirrored from COL / visibleColumns in lib/model.ts:
+   * always shown 96 + 190 + 110 = 396; plus name 220 = 616 (table min-width);
+   * speed +96 = 712, time left +96 = 808, added +132 = 940. The hide rules are max-width = threshold - 1.
+   */
+  @container (max-width: 939px) {
     .c-added {
       display: none;
     }
   }
-  @container (max-width: 759px) {
+  @container (max-width: 807px) {
     .c-eta {
       display: none;
     }
   }
-  @container (max-width: 659px) {
+  @container (max-width: 711px) {
     .c-speed {
       display: none;
     }
