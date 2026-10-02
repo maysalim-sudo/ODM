@@ -89,3 +89,36 @@ async fn concurrent_throttled_requests_overlap() {
     }
     assert!(s.max_concurrent() >= 2, "got {}", s.max_concurrent());
 }
+
+#[tokio::test]
+async fn max_parallel_refuses_extra_requests_but_not_the_probe() {
+    let s = TestServer::start(
+        200_000,
+        Faults {
+            max_parallel: Some(1),
+            bytes_per_sec: Some(100_000),
+            ..Default::default()
+        },
+    )
+    .await;
+    let c = reqwest::Client::new();
+    // Hold one body in flight: headers arrive, the body is still streaming.
+    let first = c.get(s.url("/file")).send().await.unwrap();
+    assert_eq!(first.status(), 200);
+
+    let second = c.get(s.url("/file")).send().await.unwrap();
+    assert_eq!(second.status(), 429);
+    assert_eq!(second.headers()["retry-after"], "1");
+    assert!(second.bytes().await.unwrap().is_empty());
+
+    let probe = c
+        .get(s.url("/file"))
+        .header("Range", "bytes=0-0")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(probe.status(), 206);
+
+    assert_eq!(first.bytes().await.unwrap().len(), 200_000);
+    assert!(s.max_concurrent() <= 2, "got {}", s.max_concurrent());
+}

@@ -3,7 +3,7 @@ use odm_core::{filename, DownloadState, ErrorKind, OdmError};
 use odm_store::{ChunkRecord, DownloadRecord, ProbeMeta, Store, StoreError};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -379,7 +379,7 @@ async fn transfer(
         require_partial,
         session_bytes: session.clone(),
     };
-    let max_conn = rec.max_connections.clamp(1, 32) as usize;
+    let mut max_conn = rec.max_connections.clamp(1, 32) as usize;
 
     let mut set: JoinSet<Joined> = JoinSet::new();
     let mut layout_dirty = false;
@@ -396,8 +396,12 @@ async fn transfer(
         }
     }
 
-    // idx -> (failures since last progress, written at last failure)
-    let mut attempts: HashMap<u32, (u32, u64)> = HashMap::new();
+    // idx -> (failures since last progress, chunk written at its last failure,
+    //         whole-download written at its last failure)
+    let mut attempts: HashMap<u32, (u32, u64, u64)> = HashMap::new();
+    // Chunks the server refused (429/503) while other connections were working.
+    // They wait, in order, for a free connection instead of burning retries.
+    let mut parked: VecDeque<ChunkRef> = VecDeque::new();
     let mut meter = SpeedMeter::new(Duration::from_secs(5));
     let mut tick = tokio::time::interval(cfg.progress_interval);
     let mut last_persist = Instant::now();
@@ -419,22 +423,43 @@ async fn transfer(
                 match res {
                     Ok(()) => {
                         set_chunk_state(&chunk, ChunkViewState::Done);
-                        if require_partial && !work.is_cancelled() && set.len() < max_conn {
-                            if let Some(c) = table.split_largest() {
-                                layout_dirty = true;
+                        if !work.is_cancelled() && set.len() < max_conn {
+                            if let Some(c) = parked.pop_front() {
                                 spawn_worker(&mut set, &ctx, c, Duration::ZERO);
+                            } else if require_partial {
+                                if let Some(c) = table.split_largest() {
+                                    layout_dirty = true;
+                                    spawn_worker(&mut set, &ctx, c, Duration::ZERO);
+                                }
                             }
                         }
                     }
                     Err(f) if f.error.kind == ErrorKind::Cancelled => {
                         set_chunk_state(&chunk, ChunkViewState::Pending);
                     }
+                    Err(f)
+                        if matches!(f.error.kind, ErrorKind::HttpTransient(429 | 503))
+                            && fatal.is_none()
+                            && !work.is_cancelled()
+                            && !set.is_empty() =>
+                    {
+                        // The server is refusing this connection while others work:
+                        // it limits parallel connections. Wait for a free one and
+                        // never ask for more than are working now.
+                        tracing::debug!(%id, "server refused a connection ({}); parking chunk", f.error);
+                        set_chunk_state(&chunk, ChunkViewState::Pending);
+                        parked.push_back(chunk);
+                        max_conn = max_conn.min(set.len().max(1));
+                    }
                     Err(f) if f.error.kind.is_transient() && fatal.is_none() => {
                         let (idx, written) = { let c = chunk.lock().unwrap(); (c.idx, c.written) };
-                        let entry = attempts.entry(idx).or_insert((0, written));
-                        if written > entry.1 {
-                            *entry = (0, written); // made progress: reset the budget
+                        let total = table.total_written();
+                        let entry = attempts.entry(idx).or_insert((0, written, total));
+                        if written > entry.1 || total > entry.2 {
+                            entry.0 = 0; // the chunk or the whole download progressed
                         }
+                        entry.1 = written;
+                        entry.2 = total;
                         entry.0 += 1;
                         if entry.0 < cfg.max_attempts {
                             tracing::debug!(%id, idx, attempt = entry.0, "retrying chunk: {}", f.error);
@@ -456,9 +481,19 @@ async fn transfer(
                         work.cancel();
                     }
                 }
+                // Never leave work parked with nothing running.
+                if set.is_empty() && fatal.is_none() && !work.is_cancelled() {
+                    if let Some(c) = parked.pop_front() {
+                        spawn_worker(&mut set, &ctx, c, backoff_delay(1, None));
+                    }
+                }
             }
         }
     }
+    debug_assert!(
+        parked.is_empty() || fatal.is_some() || work.is_cancelled(),
+        "transfer ended with chunks still parked"
+    );
 
     let mut force = true;
     persist(env, id, &ctx.file, &table, &mut force).await?;

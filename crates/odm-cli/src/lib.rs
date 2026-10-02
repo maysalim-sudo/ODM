@@ -1,5 +1,5 @@
 use odm_core::DownloadState;
-use odm_engine::{AddRequest, EngineConfig, EngineEvent, ManagerHandle};
+use odm_engine::{AddRequest, ChunkView, ChunkViewState, EngineConfig, EngineEvent, ManagerHandle};
 use odm_store::Store;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -30,6 +30,19 @@ fn human(b: u64) -> String {
         i += 1;
     }
     format!("{v:.1} {}", U[i])
+}
+
+/// "1 connection" / "3 connections": chunks with a worker transferring them.
+fn connections_label(chunks: &[ChunkView]) -> String {
+    let n = chunks
+        .iter()
+        .filter(|c| c.state == ChunkViewState::Active)
+        .count();
+    if n == 1 {
+        "1 connection".to_string()
+    } else {
+        format!("{n} connections")
+    }
 }
 
 pub(crate) fn engine_config(dir: Option<&Path>, limit_bps: u64) -> EngineConfig {
@@ -69,7 +82,7 @@ pub async fn run_get(args: GetArgs) -> Result<PathBuf, String> {
                     human(p.bytes),
                     total,
                     human(p.speed_bps),
-                    p.chunks.len()
+                    connections_label(&p.chunks)
                 );
                 let _ = std::io::stdout().flush();
             }
@@ -111,6 +124,39 @@ pub async fn run_get(args: GetArgs) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn view(idx: u32, state: ChunkViewState) -> ChunkView {
+        ChunkView {
+            idx,
+            start: 0,
+            end: None,
+            written: 0,
+            state,
+        }
+    }
+
+    #[test]
+    fn connections_label_counts_only_active_chunks() {
+        use ChunkViewState::*;
+        assert_eq!(connections_label(&[]), "0 connections");
+        assert_eq!(
+            connections_label(&[view(0, Done), view(1, Pending), view(2, Retrying)]),
+            "0 connections"
+        );
+        assert_eq!(
+            connections_label(&[view(0, Active), view(1, Done), view(2, Pending)]),
+            "1 connection"
+        );
+        assert_eq!(
+            connections_label(&[
+                view(0, Active),
+                view(1, Active),
+                view(2, Active),
+                view(3, Done)
+            ]),
+            "3 connections"
+        );
+    }
 
     #[test]
     fn engine_config_with_no_dir_preserves_default() {

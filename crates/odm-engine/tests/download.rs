@@ -188,6 +188,48 @@ async fn persistent_transient_error_fails_after_attempts() {
 }
 
 #[tokio::test]
+async fn connection_limited_server_still_completes() {
+    // The server allows 3 parallel bodies; the download asks for 8 connections.
+    let f = fx();
+    let s = TestServer::start(
+        12 * MB,
+        Faults {
+            max_parallel: Some(3),
+            bytes_per_sec: Some(2 * MB),
+            ..Default::default()
+        },
+    )
+    .await;
+    let id = add(&f, &s.url("/file"), 8).await;
+    let p = done(run_download(&f.env, &id, CancellationToken::new()).await);
+    assert_eq!(sha(&p), Sha256::digest(body(12 * MB)).to_vec());
+    assert!(
+        s.max_concurrent() <= 3,
+        "server saw {} parallel bodies",
+        s.max_concurrent()
+    );
+}
+
+#[tokio::test]
+async fn refused_connections_do_not_use_up_the_retry_budget() {
+    // With max_attempts = 2 the old engine failed here within seconds.
+    let mut f = fx();
+    f.env.config.max_attempts = 2;
+    let s = TestServer::start(
+        8 * MB,
+        Faults {
+            max_parallel: Some(1),
+            bytes_per_sec: Some(4 * MB),
+            ..Default::default()
+        },
+    )
+    .await;
+    let id = add(&f, &s.url("/file"), 8).await;
+    let p = done(run_download(&f.env, &id, CancellationToken::new()).await);
+    assert_eq!(std::fs::read(p).unwrap(), body(8 * MB));
+}
+
+#[tokio::test]
 async fn expired_link_fails_without_retry() {
     let f = fx();
     let s = TestServer::start(

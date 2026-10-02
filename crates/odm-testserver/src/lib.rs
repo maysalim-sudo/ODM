@@ -36,6 +36,10 @@ pub struct Faults {
     pub only_probe_range: bool,
     /// Content-Type of `/file` answers; `None` means `application/octet-stream`.
     pub content_type: Option<String>,
+    /// A `/file` request arriving while this many response bodies are already in
+    /// flight gets `429` + `Retry-After: 1`. The probe (`Range: bytes=0-0`) is
+    /// never refused.
+    pub max_parallel: Option<u32>,
 }
 
 struct Inner {
@@ -234,7 +238,29 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
 
     let rate = f.bytes_per_sec;
     let inner = s.clone();
-    let cur = inner.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+    let is_probe = h
+        .get(header::RANGE)
+        .is_some_and(|v| v.as_bytes() == b"bytes=0-0");
+    let cur = match f.max_parallel {
+        // Reserve a slot atomically; a refused request is never counted.
+        Some(limit) if !is_probe => {
+            match inner
+                .in_flight
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |c| {
+                    (c < limit).then_some(c + 1)
+                }) {
+                Ok(prev) => prev + 1,
+                Err(_) => {
+                    return Response::builder()
+                        .status(429)
+                        .header(header::RETRY_AFTER, "1")
+                        .body(Body::empty())
+                        .unwrap();
+                }
+            }
+        }
+        _ => inner.in_flight.fetch_add(1, Ordering::SeqCst) + 1,
+    };
     inner.max_in_flight.fetch_max(cur, Ordering::SeqCst);
     let guard = InFlight(inner);
 
