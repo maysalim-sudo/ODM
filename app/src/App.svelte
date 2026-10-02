@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import DetailPanel from "./components/DetailPanel.svelte";
   import DownloadTable from "./components/DownloadTable.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toolbar from "./components/Toolbar.svelte";
@@ -15,7 +16,7 @@
   // reports unread locals as errors here. Remove the temporary read in onMount in Task 14 at the latest.
 
   onMount(() => {
-    void [detailId, addOpen, batchOpen, settingsOpen, removeOpen]; // TEMPORARY, see above
+    void [addOpen, batchOpen, settingsOpen, removeOpen]; // TEMPORARY, see above
     void downloads.init();
   });
 
@@ -50,7 +51,7 @@
   <div class="body">
     <Sidebar />
     <DownloadTable onopen={(id) => (detailId = id)} />
-    <!-- Task 12: <DetailPanel id={detailId} onclose={() => (detailId = null)} /> -->
+    <DetailPanel id={detailId} onclose={() => (detailId = null)} />
   </div>
 </div>
 
