@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { shouldCloseOnBackdrop } from "../lib/model";
 
   let {
     open,
@@ -17,13 +18,21 @@
     if (!open && el.open) el.close();
   });
 
+  let downOnBackdrop = false;
+
+  function down(e: MouseEvent) {
+    downOnBackdrop = e.target === el;
+  }
+
   function backdrop(e: MouseEvent) {
-    if (e.target === el) onclose();
+    const close = shouldCloseOnBackdrop(downOnBackdrop, e.target === el);
+    downOnBackdrop = false;
+    if (close) onclose();
   }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-<dialog bind:this={el} style:width={`${width}px`} aria-labelledby="modal-title" onclose={onclose} onclick={backdrop}>
+<dialog bind:this={el} style:width={`${width}px`} aria-labelledby="modal-title" onclose={onclose} onmousedown={down} onclick={backdrop}>
   {#if open}
     <div class="content">
       <h2 id="modal-title">{title}</h2>

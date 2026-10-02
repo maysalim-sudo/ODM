@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   ReloadGate,
   coerceSettings,
+  nextFilename,
+  shouldCloseOnBackdrop,
   toInt,
   applyEvent,
   canCancel,
@@ -303,7 +305,7 @@ describe("toInt", () => {
 
 describe("coerceSettings", () => {
   const base = {
-    download_dir: "C:\dl",
+    download_dir: "C:\\dl",
     category_folders: { video: "Video" },
     max_concurrent: 3,
     max_connections: 8,
@@ -325,6 +327,28 @@ describe("coerceSettings", () => {
     expect(out.max_connections).toBe(8);
     expect(out.speed_limit_kbps).toBe(500);
     expect(out.max_concurrent).toBe(4);
-    expect(out.download_dir).toBe("C:\dl");
+    expect(out.download_dir).toBe("C:\\dl");
+  });
+});
+
+describe("shouldCloseOnBackdrop", () => {
+  it("closes only when the press and the release were both on the backdrop", () => {
+    expect(shouldCloseOnBackdrop(true, true)).toBe(true);
+    expect(shouldCloseOnBackdrop(false, true)).toBe(false);
+    expect(shouldCloseOnBackdrop(true, false)).toBe(false);
+    expect(shouldCloseOnBackdrop(false, false)).toBe(false);
+  });
+});
+
+describe("nextFilename", () => {
+  it("fills an empty field", () => {
+    expect(nextFilename("", null, "a.zip")).toBe("a.zip");
+  });
+  it("replaces an earlier auto-filled name", () => {
+    expect(nextFilename("a.zip", "a.zip", "b.zip")).toBe("b.zip");
+  });
+  it("never overwrites a name the user typed", () => {
+    expect(nextFilename("mine.zip", "a.zip", "b.zip")).toBe("mine.zip");
+    expect(nextFilename("mine.zip", null, "b.zip")).toBe("mine.zip");
   });
 });

@@ -6,13 +6,24 @@
   let { open, onclose }: { open: boolean; onclose: () => void } = $props();
 
   let deleteFile = $state(false);
+  let busy = $state(false);
   const count = $derived(downloads.selected.size);
 
   $effect(() => {
-    if (open) deleteFile = false;
+    if (open) {
+      deleteFile = false;
+      busy = false;
+    }
+  });
+
+  // Nothing left to remove (for example the rows finished vanishing): close instead of asking about 0.
+  $effect(() => {
+    if (open && count === 0 && !busy) onclose();
   });
 
   async function confirm() {
+    if (busy) return;
+    busy = true;
     const ids = [...downloads.selected];
     if (await downloads.run(() => api.remove(ids, deleteFile))) downloads.selected = new Set();
     onclose();
@@ -27,6 +38,6 @@
   </label>
   <div class="actions">
     <button onclick={onclose}>Keep</button>
-    <button class="primary" onclick={confirm} disabled={count === 0}>Remove</button>
+    <button class="primary" onclick={confirm} disabled={count === 0 || busy}>Remove</button>
   </div>
 </Modal>

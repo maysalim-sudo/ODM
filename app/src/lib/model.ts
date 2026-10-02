@@ -264,3 +264,13 @@ export function coerceSettings(form: Settings, loaded: Settings): Settings {
   for (const k of NUMERIC_SETTINGS) out[k] = toInt(form[k], loaded[k]);
   return out;
 }
+
+/** A backdrop click closes a dialog only when the press and the release both happened on the backdrop. */
+export function shouldCloseOnBackdrop(downOnBackdrop: boolean, upOnBackdrop: boolean): boolean {
+  return downOnBackdrop && upOnBackdrop;
+}
+
+/** The file name after a probe: auto-fill unless the user typed their own. */
+export function nextFilename(current: string, lastAuto: string | null, suggested: string): string {
+  return current === "" || current === lastAuto ? suggested : current;
+}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as api from "../lib/api";
   import { formatBytes } from "../lib/format";
-  import { CATEGORIES, toInt } from "../lib/model";
+  import { CATEGORIES, nextFilename, toInt } from "../lib/model";
   import type { Suggestion } from "../lib/types";
   import Modal from "./Modal.svelte";
 
@@ -13,6 +13,7 @@
   let category = $state("");
   let connections = $state<number | null>(8);
   let defaultConnections = 8;
+  let lastAuto: string | null = null;
   let suggestion = $state<Suggestion | null>(null);
   let checking = $state(false);
   let busy = $state(false);
@@ -25,6 +26,7 @@
     if (!open) return;
     url = "";
     filename = "";
+    lastAuto = null;
     saveDir = "";
     category = "";
     suggestion = null;
@@ -48,7 +50,10 @@
       api
         .suggest(wanted)
         .then((s) => {
-          if (url.trim() === wanted) suggestion = s;
+          if (url.trim() !== wanted) return;
+          suggestion = s;
+          filename = nextFilename(filename, lastAuto, s.filename);
+          lastAuto = s.filename;
         })
         .catch(() => {})
         .finally(() => (checking = false));
