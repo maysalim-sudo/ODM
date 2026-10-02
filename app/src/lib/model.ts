@@ -23,7 +23,7 @@ export function isActive(state: DownloadState): boolean {
 
 export function toRow(d: Download, prev?: Row): Row {
   // Live values only carry over while the download is still running.
-  const live = isActive(d.state) ? prev : undefined;
+  const live = isActive(d.state) && prev && isActive(prev.state) ? prev : undefined;
   return {
     ...d,
     // While running, the last progress event is newer than the stored byte count.
@@ -36,6 +36,11 @@ export function toRow(d: Download, prev?: Row): Row {
 
 export function replaceAll(list: Download[]): Map<string, Row> {
   return new Map(list.map((d) => [d.id, toRow(d)]));
+}
+
+/** Like replaceAll, but running rows keep their live speed, ETA and chunk map. */
+export function mergeList(prev: Map<string, Row>, list: Download[]): Map<string, Row> {
+  return new Map(list.map((d) => [d.id, toRow(d, prev.get(d.id))]));
 }
 
 export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<string, Row>; resync: boolean } {
@@ -55,7 +60,8 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
       let next: Map<string, Row> | null = null;
       for (const p of ev.items) {
         const row = rows.get(p.id);
-        if (!row) continue;
+        // A late item must not revive a row that already paused, finished or failed.
+        if (!row || !isActive(row.state)) continue;
         next ??= new Map(rows);
         next.set(p.id, {
           ...row,
@@ -179,4 +185,35 @@ export function parseUrls(text: string): ParsedUrls {
     if (!bucket.includes(line)) bucket.push(line);
   }
   return out;
+}
+
+/**
+ * Makes list reloads safe: a superseded response is dropped, and upsert/removed events
+ * that arrived while the request was in flight are replayed on top of the fresh list.
+ */
+export class ReloadGate {
+  private latest = 0;
+  private inFlight = false;
+  private buffer: UiEvent[] = [];
+
+  begin(): number {
+    this.latest += 1;
+    this.inFlight = true;
+    // The new list is fetched after everything seen so far, so earlier events are in it.
+    this.buffer = [];
+    return this.latest;
+  }
+
+  record(ev: UiEvent): void {
+    if (this.inFlight && (ev.type === "upsert" || ev.type === "removed")) this.buffer.push(ev);
+  }
+
+  finish(ticket: number, prev: Map<string, Row>, list: Download[]): Map<string, Row> | null {
+    if (ticket !== this.latest) return null;
+    let rows = mergeList(prev, list);
+    for (const ev of this.buffer) rows = applyEvent(rows, ev).rows;
+    this.buffer = [];
+    this.inFlight = false;
+    return rows;
+  }
 }

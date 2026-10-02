@@ -1,5 +1,5 @@
 import * as api from "./api";
-import { applyEvent, counts, replaceAll, visible, type Filter, type Row, type SortDir, type SortKey } from "./model";
+import { ReloadGate, applyEvent, counts, visible, type Filter, type Row, type SortDir, type SortKey } from "./model";
 import type { UiEvent } from "./types";
 
 class DownloadsStore {
@@ -14,22 +14,33 @@ class DownloadsStore {
   counts = $derived(counts(this.rows));
   selectedRows = $derived([...this.selected].map((id) => this.rows.get(id)).filter((r): r is Row => !!r));
 
-  /** Load the list, then follow live events. Call once at start-up. */
+  private gate = new ReloadGate();
+  private unlisten: (() => void) | null = null;
+
+  /** Load the list, then follow live events. Safe to call more than once. */
   async init(): Promise<void> {
-    await api.onEvent((ev) => this.handle(ev));
+    if (this.unlisten) return;
+    this.unlisten = await api.onEvent((ev) => this.handle(ev));
     await this.reload();
   }
 
   async reload(): Promise<void> {
+    const ticket = this.gate.begin();
     try {
-      this.rows = replaceAll(await api.listDownloads());
-      this.pruneSelection();
+      const list = await api.listDownloads();
+      const next = this.gate.finish(ticket, this.rows, list);
+      if (next) {
+        this.rows = next;
+        this.pruneSelection();
+        this.error = null;
+      }
     } catch (e) {
       this.error = api.errorText(e);
     }
   }
 
   handle(ev: UiEvent): void {
+    this.gate.record(ev);
     const r = applyEvent(this.rows, ev);
     this.rows = r.rows;
     if (r.resync) void this.reload();

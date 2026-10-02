@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  ReloadGate,
   applyEvent,
   canCancel,
   canPause,
   canResume,
   counts,
   matches,
+  mergeList,
   parseUrls,
   replaceAll,
   segments,
+  toRow,
   visible,
 } from "./model";
 import type { Download } from "./types";
@@ -86,12 +89,84 @@ describe("applyEvent", () => {
   });
 
   it("resync_replaces_the_list", () => {
-    // What the store does after a resync: the fresh list wins completely.
+    // What the store does after a resync: the fresh list wins, live values survive.
     const stale = replaceAll([dl("a", { state: "downloading" }), dl("gone")]);
-    const fresh = replaceAll([dl("a", { state: "completed", bytes: 1000 }), dl("new")]);
-    expect(stale.has("gone")).toBe(true);
+    const live = applyEvent(stale, {
+      type: "progress_batch",
+      items: [{ id: "a", bytes: 500, total: 1000, speed_bps: 7, eta_s: 3, chunks: [] }],
+    }).rows;
+    const fresh = mergeList(live, [dl("a", { state: "downloading", bytes: 400 }), dl("new")]);
+    expect(live.has("gone")).toBe(true);
     expect([...fresh.keys()].sort()).toEqual(["a", "new"]);
-    expect(fresh.get("a")!.state).toBe("completed");
+    expect([fresh.get("a")!.bytes, fresh.get("a")!.speed_bps]).toEqual([500, 7]);
+  });
+
+  it("ignores progress for rows that are not active", () => {
+    const rows = replaceAll([dl("c", { state: "completed", bytes: 1000 }), dl("p", { state: "paused", bytes: 10 })]);
+    const r = applyEvent(rows, {
+      type: "progress_batch",
+      items: [
+        { id: "c", bytes: 600, total: 1000, speed_bps: 5e6, eta_s: 1, chunks: [] },
+        { id: "p", bytes: 99, total: 1000, speed_bps: 5, eta_s: 1, chunks: [] },
+      ],
+    });
+    expect(r.rows).toBe(rows);
+    expect(rows.get("c")!.bytes).toBe(1000);
+    expect(rows.get("p")!.speed_bps).toBe(0);
+  });
+});
+
+describe("mergeList", () => {
+  it("keeps live values for running rows and drops them for rows that stopped", () => {
+    const prev = applyEvent(replaceAll([dl("a", { state: "downloading" }), dl("b", { state: "downloading" })]), {
+      type: "progress_batch",
+      items: [
+        { id: "a", bytes: 50, total: 1000, speed_bps: 9, eta_s: 4, chunks: [] },
+        { id: "b", bytes: 60, total: 1000, speed_bps: 8, eta_s: 5, chunks: [] },
+      ],
+    }).rows;
+    const m = mergeList(prev, [dl("a", { state: "downloading" }), dl("b", { state: "paused" }), dl("c")]);
+    expect([m.get("a")!.speed_bps, m.get("a")!.eta_s, m.get("a")!.chunks]).toEqual([9, 4, []]);
+    expect([m.get("b")!.speed_bps, m.get("b")!.eta_s, m.get("b")!.chunks]).toEqual([0, null, null]);
+    expect(m.has("c")).toBe(true);
+  });
+});
+
+describe("toRow", () => {
+  it("does not carry live values from a row that was not active", () => {
+    const prev = toRow(dl("a", { state: "failed", bytes: 700 }));
+    const retried = toRow(dl("a", { state: "downloading", bytes: 0 }), prev);
+    expect(retried.bytes).toBe(0);
+  });
+});
+
+describe("ReloadGate", () => {
+  it("drops the response of a superseded reload", () => {
+    const gate = new ReloadGate();
+    const t1 = gate.begin();
+    const t2 = gate.begin();
+    const prev = replaceAll([]);
+    expect(gate.finish(t1, prev, [dl("old")])).toBeNull();
+    expect([...gate.finish(t2, prev, [dl("new")])!.keys()]).toEqual(["new"]);
+  });
+
+  it("replays events recorded while the reload was in flight", () => {
+    const gate = new ReloadGate();
+    const prev = replaceAll([dl("a"), dl("b")]);
+    const t = gate.begin();
+    gate.record({ type: "upsert", download: dl("a", { state: "completed", bytes: 1000 }) });
+    gate.record({ type: "removed", id: "b" });
+    const out = gate.finish(t, prev, [dl("a", { state: "downloading" }), dl("b")])!;
+    expect(out.get("a")!.state).toBe("completed");
+    expect(out.has("b")).toBe(false);
+  });
+
+  it("does not buffer events when no reload is in flight", () => {
+    const gate = new ReloadGate();
+    gate.record({ type: "removed", id: "b" });
+    const t = gate.begin();
+    const out = gate.finish(t, replaceAll([]), [dl("b")])!;
+    expect(out.has("b")).toBe(true);
   });
 });
 
