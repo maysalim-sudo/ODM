@@ -139,3 +139,39 @@ fn paths_layout() {
     );
     assert!(AppPaths::default_location().data_dir.ends_with("ODM"));
 }
+
+#[test]
+fn odd_shapes_fall_back_per_field() {
+    let d = Settings::default();
+    let cases = [
+        (
+            r#"{"max_concurrent": null, "max_attempts": 9}"#,
+            "max_concurrent",
+        ),
+        (
+            r#"{"max_concurrent": -1, "max_attempts": 9}"#,
+            "max_concurrent",
+        ),
+        (
+            r#"{"max_concurrent": "5", "max_attempts": 9}"#,
+            "max_concurrent",
+        ),
+        (
+            r#"{"category_folders": {"video": 5}, "max_attempts": 9}"#,
+            "category_folders",
+        ),
+        (
+            r#"{"skip_hosts": ["ok.com", 7], "max_attempts": 9}"#,
+            "skip_hosts",
+        ),
+    ];
+    for (text, bad) in cases {
+        let (s, warnings) = Settings::from_json(text);
+        assert_eq!(s.max_attempts, 9, "input: {text}");
+        assert_eq!(s.max_concurrent, d.max_concurrent, "input: {text}");
+        assert_eq!(s.category_folders, d.category_folders, "input: {text}");
+        assert_eq!(s.skip_hosts, d.skip_hosts, "input: {text}");
+        assert_eq!(warnings.len(), 1, "input: {text}: {warnings:?}");
+        assert!(warnings[0].contains(bad), "input: {text}: {warnings:?}");
+    }
+}
