@@ -5,6 +5,7 @@
   import DetailPanel from "./components/DetailPanel.svelte";
   import DownloadTable from "./components/DownloadTable.svelte";
   import RemoveDialog from "./components/RemoveDialog.svelte";
+  import SettingsDialog from "./components/SettingsDialog.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toolbar from "./components/Toolbar.svelte";
   import { downloads } from "./lib/downloads.svelte";
@@ -16,9 +17,6 @@
   let removeOpen = $state(false);
 
   onMount(() => {
-    // TEMPORARY: the dialogs that read these flags arrive in Tasks 13-14; svelte-check reports
-    // unread locals as errors. Remove this read in Task 14 at the latest.
-    void [settingsOpen];
     void downloads.init();
   });
 
@@ -66,7 +64,7 @@
 <AddDialog open={addOpen} onclose={() => (addOpen = false)} />
 <BatchDialog open={batchOpen} onclose={() => (batchOpen = false)} />
 <RemoveDialog open={removeOpen} onclose={() => (removeOpen = false)} />
-<!-- Task 14: SettingsDialog -->
+<SettingsDialog open={settingsOpen} onclose={() => (settingsOpen = false)} />
 
 <style>
   .app {
