@@ -1,0 +1,102 @@
+export type DownloadState =
+  | "queued"
+  | "probing"
+  | "downloading"
+  | "paused"
+  | "merging"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type ChunkState = "pending" | "active" | "retrying" | "done" | "failed";
+
+export interface Download {
+  id: string;
+  url: string;
+  filename: string;
+  save_dir: string;
+  size: number | null;
+  bytes: number;
+  mime: string | null;
+  category: string;
+  state: DownloadState;
+  error_code: string | null;
+  error_message: string | null;
+  max_connections: number;
+  kind: string;
+  page_url: string | null;
+  page_title: string | null;
+  created_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+}
+
+export interface ChunkView {
+  idx: number;
+  start: number;
+  end: number | null;
+  written: number;
+  state: ChunkState;
+}
+
+export interface Progress {
+  id: string;
+  bytes: number;
+  total: number | null;
+  speed_bps: number;
+  eta_s: number | null;
+  chunks: ChunkView[];
+}
+
+export interface Detail {
+  download: Download;
+  final_url: string | null;
+  chunks: ChunkView[];
+  header_names: string[];
+}
+
+export type UiEvent =
+  | { type: "upsert"; download: Download }
+  | { type: "removed"; id: string }
+  | { type: "progress_batch"; items: Progress[] }
+  | { type: "resync" };
+
+export interface Settings {
+  download_dir: string;
+  category_folders: Record<string, string>;
+  max_concurrent: number;
+  max_connections: number;
+  max_attempts: number;
+  speed_limit_kbps: number;
+  connect_timeout_s: number;
+  read_timeout_s: number;
+  ffmpeg_path: string;
+  capture_enabled: boolean;
+  min_capture_bytes: number;
+  skip_hosts: string[];
+  close_to_tray: boolean;
+  start_minimized: boolean;
+  notifications: boolean;
+}
+
+export interface AddArgs {
+  url: string;
+  filename?: string | null;
+  save_dir?: string | null;
+  connections?: number | null;
+  category?: string | null;
+  checksum?: string | null;
+  start_paused?: boolean;
+}
+
+export interface Suggestion {
+  filename: string;
+  size: number | null;
+  category: string;
+  resumable: boolean;
+}
+
+export interface BatchResult {
+  added: string[];
+  rejected: string[];
+}
