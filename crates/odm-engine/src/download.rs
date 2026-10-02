@@ -53,10 +53,6 @@ pub fn build_client(cfg: &EngineConfig) -> reqwest::Client {
         .expect("reqwest client")
 }
 
-pub fn log_url(url: &str) -> &str {
-    url.split(['?', '#']).next().unwrap_or(url)
-}
-
 pub fn part_path(rec: &DownloadRecord) -> PathBuf {
     let short = &rec.id[..rec.id.len().min(8)];
     Path::new(&rec.save_dir).join(format!("{}.{short}.odm-part", rec.filename))
@@ -208,7 +204,7 @@ async fn run_inner(
         transition(env, id, DownloadState::Downloading, None).await;
         std::fs::create_dir_all(&rec.save_dir).map_err(io_err)?;
         let part = part_path(&rec);
-        tracing::info!(%id, url = log_url(&rec.url), part = %part.display(), "downloading");
+        tracing::info!(%id, url = %odm_core::redact_url(&rec.url), part = %part.display(), "downloading");
 
         if rec.size == Some(0) {
             File::create(&part).map_err(io_err)?;
