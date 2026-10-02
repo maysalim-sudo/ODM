@@ -48,6 +48,7 @@ struct Inner {
     requests: Arc<AtomicU32>,
     cookie_requests: AtomicU32,
     in_flight: AtomicU32,
+    refused: AtomicU32,
     max_in_flight: AtomicU32,
 }
 
@@ -66,6 +67,7 @@ impl TestServer {
             requests: requests.clone(),
             cookie_requests: AtomicU32::new(0),
             in_flight: AtomicU32::new(0),
+            refused: AtomicU32::new(0),
             max_in_flight: AtomicU32::new(0),
         });
         let app = Router::new()
@@ -98,6 +100,11 @@ impl TestServer {
 
     pub fn max_concurrent(&self) -> u32 {
         self.inner.max_in_flight.load(Ordering::SeqCst)
+    }
+
+    /// Number of `/file` requests answered 429 by the `max_parallel` fault.
+    pub fn refused(&self) -> u32 {
+        self.inner.refused.load(Ordering::SeqCst)
     }
 
     /// Number of `/file` requests that carried a `Cookie` header.
@@ -251,6 +258,7 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
                 }) {
                 Ok(prev) => prev + 1,
                 Err(_) => {
+                    inner.refused.fetch_add(1, Ordering::SeqCst);
                     return Response::builder()
                         .status(429)
                         .header(header::RETRY_AFTER, "1")

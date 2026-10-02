@@ -324,6 +324,9 @@ async fn probe_with_retry(
     }
 }
 
+/// Pause before a parked chunk takes the place of a finished connection.
+const UNPARK_DELAY: Duration = Duration::from_millis(250);
+
 fn set_chunk_state(chunk: &ChunkRef, state: ChunkViewState) {
     chunk.lock().unwrap().state = state;
 }
@@ -425,7 +428,8 @@ async fn transfer(
                         set_chunk_state(&chunk, ChunkViewState::Done);
                         if !work.is_cancelled() && set.len() < max_conn {
                             if let Some(c) = parked.pop_front() {
-                                spawn_worker(&mut set, &ctx, c, Duration::ZERO);
+                                // Let the server release the finished connection first.
+                                spawn_worker(&mut set, &ctx, c, UNPARK_DELAY);
                             } else if require_partial {
                                 if let Some(c) = table.split_largest() {
                                     layout_dirty = true;

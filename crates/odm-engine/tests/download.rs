@@ -208,6 +208,9 @@ async fn connection_limited_server_still_completes() {
         "server saw {} parallel bodies",
         s.max_concurrent()
     );
+    // 8 connections against a limit of 3: at most 5 refusals at start-up, plus a
+    // small allowance for replacements refused before a slot was released.
+    assert!(s.refused() <= 12, "server refused {} requests", s.refused());
 }
 
 #[tokio::test]

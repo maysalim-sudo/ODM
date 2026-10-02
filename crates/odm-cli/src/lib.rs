@@ -1,5 +1,8 @@
 use odm_core::DownloadState;
-use odm_engine::{AddRequest, ChunkView, ChunkViewState, EngineConfig, EngineEvent, ManagerHandle};
+use odm_engine::{
+    AddRequest, ChunkView, ChunkViewState, EngineConfig, EngineEvent, ManagerHandle,
+    ProgressSnapshot,
+};
 use odm_store::Store;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -45,6 +48,18 @@ fn connections_label(chunks: &[ChunkView]) -> String {
     }
 }
 
+/// The carriage-return progress line printed while downloading.
+fn progress_line(p: &ProgressSnapshot) -> String {
+    let total = p.total.map(human).unwrap_or_else(|| "?".into());
+    format!(
+        "\r{} / {}  {}/s  {}   ",
+        human(p.bytes),
+        total,
+        human(p.speed_bps),
+        connections_label(&p.chunks)
+    )
+}
+
 pub(crate) fn engine_config(dir: Option<&Path>, limit_bps: u64) -> EngineConfig {
     let default_cfg = EngineConfig::default();
     match dir {
@@ -76,14 +91,7 @@ pub async fn run_get(args: GetArgs) -> Result<PathBuf, String> {
     let result = loop {
         match rx.recv().await {
             Ok(EngineEvent::Progress(p)) if p.id == id && !args.quiet => {
-                let total = p.total.map(human).unwrap_or_else(|| "?".into());
-                print!(
-                    "\r{} / {}  {}/s  {} conns   ",
-                    human(p.bytes),
-                    total,
-                    human(p.speed_bps),
-                    connections_label(&p.chunks)
-                );
+                print!("{}", progress_line(&p));
                 let _ = std::io::stdout().flush();
             }
             Ok(EngineEvent::State {
@@ -133,6 +141,23 @@ mod tests {
             written: 0,
             state,
         }
+    }
+
+    #[test]
+    fn progress_line_has_exact_format() {
+        use ChunkViewState::*;
+        let p = ProgressSnapshot {
+            id: "a".into(),
+            bytes: 5 * 1024 * 1024,
+            total: Some(100 * 1024 * 1024),
+            speed_bps: 2 * 1024 * 1024,
+            eta_s: None,
+            chunks: vec![view(0, Active), view(1, Active), view(2, Done)],
+        };
+        assert_eq!(
+            progress_line(&p),
+            "\r5.0 MB / 100.0 MB  2.0 MB/s  2 connections   "
+        );
     }
 
     #[test]
