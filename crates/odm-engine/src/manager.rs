@@ -1,5 +1,5 @@
 use odm_core::{category, filename, DownloadState, ErrorKind, OdmError};
-use odm_store::{DownloadRecord, Store};
+use odm_store::{ChunkRecord, DownloadRecord, Store};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -54,6 +54,7 @@ enum Cmd {
     ResumeAll,
     SetSpeedLimit(u64),
     SetMaxConcurrent(usize),
+    SetConfig(Box<EngineConfig>),
     Finished(String, Outcome),
     Shutdown(oneshot::Sender<()>),
     ShutdownDeadline,
@@ -80,16 +81,18 @@ pub struct ManagerHandle {
     store: Store,
 }
 
+fn store_err(e: odm_store::StoreError) -> OdmError {
+    OdmError::new(ErrorKind::Other, format!("store: {e}"))
+}
+
 fn closed() -> OdmError {
     OdmError::new(ErrorKind::Other, "engine stopped")
 }
 
 impl ManagerHandle {
     pub async fn start(config: EngineConfig, store: Store) -> Result<ManagerHandle, OdmError> {
-        store
-            .reset_interrupted()
-            .await
-            .map_err(|e| OdmError::new(ErrorKind::Other, format!("store: {e}")))?;
+        let config = config.sanitized();
+        store.reset_interrupted().await.map_err(store_err)?;
         let (events, _) = broadcast::channel(4096);
         let env = DownloadEnv {
             store: store.clone(),
@@ -143,6 +146,43 @@ impl ManagerHandle {
     }
     pub async fn set_max_concurrent(&self, n: usize) -> Result<(), OdmError> {
         self.send(Cmd::SetMaxConcurrent(n)).await
+    }
+
+    pub async fn set_config(&self, config: EngineConfig) -> Result<(), OdmError> {
+        self.send(Cmd::SetConfig(Box::new(config))).await
+    }
+
+    pub async fn list(&self) -> Result<Vec<(DownloadRecord, u64)>, OdmError> {
+        self.store.list_with_bytes().await.map_err(store_err)
+    }
+
+    pub async fn get(&self, id: &str) -> Result<Option<(DownloadRecord, u64)>, OdmError> {
+        self.store.get_with_bytes(id).await.map_err(store_err)
+    }
+
+    pub async fn chunks(&self, id: &str) -> Result<Vec<ChunkRecord>, OdmError> {
+        self.store.get_chunks(id).await.map_err(store_err)
+    }
+
+    /// Header names only: values (cookies, tokens) never leave the engine.
+    pub async fn header_names(&self, id: &str) -> Result<Vec<String>, OdmError> {
+        Ok(self
+            .store
+            .get_headers(id)
+            .await
+            .map_err(store_err)?
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect())
+    }
+
+    pub async fn active_count(&self) -> Result<usize, OdmError> {
+        Ok(self
+            .list()
+            .await?
+            .iter()
+            .filter(|(r, _)| r.state.is_active())
+            .count())
     }
 
     pub async fn shutdown(&self) {
@@ -203,6 +243,14 @@ impl Manager {
                 Cmd::SetSpeedLimit(bps) => self.env.limiter.set_rate(bps),
                 Cmd::SetMaxConcurrent(n) => {
                     self.max_concurrent = n.clamp(1, 10);
+                    self.schedule().await;
+                }
+                Cmd::SetConfig(cfg) => {
+                    let cfg = cfg.sanitized();
+                    self.env.limiter.set_rate(cfg.speed_limit_bps);
+                    self.env.client = build_client(&cfg);
+                    self.max_concurrent = cfg.max_concurrent;
+                    self.env.config = cfg;
                     self.schedule().await;
                 }
                 Cmd::Finished(id, outcome) => self.finished(id, outcome).await,
@@ -278,6 +326,7 @@ impl Manager {
 
         let mut rec = DownloadRecord::new_file(&id, &req.url, &name, &dir.to_string_lossy());
         rec.category = cat;
+        rec.auto_place = req.category.is_none() && req.save_dir.is_none();
         rec.filename_locked = req.filename.is_some();
         rec.max_connections = req
             .max_connections
@@ -290,19 +339,11 @@ impl Manager {
         if req.start_paused {
             rec.state = DownloadState::Paused;
         }
-        let store_err = |e| OdmError::new(ErrorKind::Other, format!("store: {e}"));
         self.env
             .store
-            .insert_download(rec)
+            .insert_download_with_headers(rec, req.headers)
             .await
             .map_err(store_err)?;
-        if !req.headers.is_empty() {
-            self.env
-                .store
-                .set_headers(&id, req.headers)
-                .await
-                .map_err(store_err)?;
-        }
         let _ = self.env.events.send(EngineEvent::Added { id: id.clone() });
         if !req.start_paused {
             self.schedule().await;

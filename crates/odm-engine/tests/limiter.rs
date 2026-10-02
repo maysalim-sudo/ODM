@@ -53,3 +53,15 @@ async fn switching_to_unlimited_takes_effect() {
     l.acquire(1_000_000).await;
     assert!(t.elapsed() < Duration::from_millis(50));
 }
+
+#[tokio::test]
+async fn raising_the_rate_wakes_sleepers() {
+    let l = std::sync::Arc::new(SpeedLimiter::new(1_000));
+    let l2 = l.clone();
+    let t = Instant::now();
+    let waiter = tokio::spawn(async move { l2.acquire(10_000).await }); // ~9 s at 1 KB/s
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    l.set_rate(0);
+    waiter.await.unwrap();
+    assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+}

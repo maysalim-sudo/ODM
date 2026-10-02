@@ -34,6 +34,8 @@ pub struct Faults {
     /// Answer `bytes=0-0` (the probe) with 206, but any other Range with a 200
     /// full body carrying the same ETag.
     pub only_probe_range: bool,
+    /// Content-Type of `/file` answers; `None` means `application/octet-stream`.
+    pub content_type: Option<String>,
 }
 
 struct Inner {
@@ -202,7 +204,12 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
     let mut b = Response::builder()
         .status(status)
         .header(header::ETAG, etag)
-        .header(header::CONTENT_TYPE, "application/octet-stream");
+        .header(
+            header::CONTENT_TYPE,
+            f.content_type
+                .as_deref()
+                .unwrap_or("application/octet-stream"),
+        );
     if !f.no_ranges {
         b = b.header(header::ACCEPT_RANGES, "bytes");
     }

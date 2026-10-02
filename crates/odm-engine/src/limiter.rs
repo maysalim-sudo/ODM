@@ -11,6 +11,7 @@ struct Bucket {
 
 pub struct SpeedLimiter {
     inner: Mutex<Bucket>,
+    changed: tokio::sync::Notify,
 }
 
 impl SpeedLimiter {
@@ -21,6 +22,7 @@ impl SpeedLimiter {
                 tokens: rate_bps as f64,
                 last: Instant::now(),
             }),
+            changed: tokio::sync::Notify::new(),
         }
     }
 
@@ -29,13 +31,20 @@ impl SpeedLimiter {
     }
 
     pub fn set_rate(&self, bps: u64) {
-        let mut b = self.inner.lock().unwrap();
-        b.rate = bps;
-        b.tokens = bps as f64;
-        b.last = Instant::now();
+        {
+            let mut b = self.inner.lock().unwrap();
+            b.rate = bps;
+            b.tokens = bps as f64;
+            b.last = Instant::now();
+        }
+        // Anyone sleeping off debt under the old rate re-evaluates now.
+        self.changed.notify_waiters();
     }
 
     pub async fn acquire(&self, n: usize) {
+        // Created before the wait is computed, so a set_rate in between is not missed.
+        let changed = self.changed.notified();
+        tokio::pin!(changed);
         let wait = {
             let mut b = self.inner.lock().unwrap();
             if b.rate == 0 {
@@ -53,7 +62,10 @@ impl SpeedLimiter {
             }
         }; // lock released before sleeping
         if !wait.is_zero() {
-            tokio::time::sleep(wait).await;
+            tokio::select! {
+                _ = tokio::time::sleep(wait) => {}
+                _ = &mut changed => {} // rate changed: the bucket was reset, old debt is void
+            }
         }
     }
 }

@@ -310,3 +310,75 @@ async fn start_paused_and_bad_urls() {
     assert!(m.add(AddRequest::new("ftp://x/y")).await.is_err());
     assert!(m.add(AddRequest::new("javascript:alert(1)")).await.is_err());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn set_config_applies_to_new_downloads() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let s = TestServer::start(1000, Faults::default()).await;
+    let m = ManagerHandle::start(cfg(a.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    m.set_config(cfg(b.path())).await.unwrap();
+    let id = m.add(AddRequest::new(s.url("/file"))).await.unwrap();
+    let r = wait_state(m.store(), &id, DownloadState::Completed, 10).await;
+    assert!(
+        Path::new(&r.save_dir).starts_with(b.path()),
+        "{}",
+        r.save_dir
+    );
+    assert!(final_path(&r).exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queries_report_bytes_and_active_count() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(2 * MB, Faults::default()).await;
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(m.active_count().await.unwrap(), 0);
+    let mut req = AddRequest::new(s.url("/file"));
+    req.headers = vec![("Cookie".into(), "secret=1".into())];
+    let id = m.add(req).await.unwrap();
+    wait_state(m.store(), &id, DownloadState::Completed, 20).await;
+    let (rec, bytes) = m.get(&id).await.unwrap().unwrap();
+    assert_eq!((rec.size, bytes), (Some(2 * MB), 2 * MB));
+    assert_eq!(m.list().await.unwrap().len(), 1);
+    assert!(!m.chunks(&id).await.unwrap().is_empty());
+    assert_eq!(
+        m.header_names(&id).await.unwrap(),
+        vec!["Cookie".to_string()]
+    );
+    assert!(m.get("nope").await.unwrap().is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn auto_placement_uses_the_probe_mime_type() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(
+        1000,
+        Faults {
+            content_type: Some("video/mp4".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+
+    // No category and no folder given: placed by MIME type after the probe.
+    let auto = m.add(AddRequest::new(s.url("/file"))).await.unwrap();
+    let r = wait_state(m.store(), &auto, DownloadState::Completed, 10).await;
+    assert_eq!(r.category, "video");
+    assert_eq!(Path::new(&r.save_dir), d.path().join("Videos"));
+    assert!(final_path(&r).exists());
+
+    // A folder chosen by the user is never changed.
+    let mut req = AddRequest::new(s.url("/file"));
+    req.save_dir = Some(d.path().join("mine"));
+    let fixed = m.add(req).await.unwrap();
+    let r = wait_state(m.store(), &fixed, DownloadState::Completed, 10).await;
+    assert_eq!(Path::new(&r.save_dir), d.path().join("mine"));
+}

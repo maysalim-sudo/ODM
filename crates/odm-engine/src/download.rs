@@ -182,6 +182,21 @@ async fn run_inner(
                 .await
                 .map_err(store_err)?;
             rec = load(env, id).await?;
+            if rec.auto_place {
+                let detected = odm_core::category::detect(&rec.filename, rec.mime.as_deref());
+                if detected.as_str() != rec.category {
+                    let dir = env.config.save_dir_for(detected.as_str());
+                    env.store
+                        .set_placement(
+                            id,
+                            detected.as_str().to_string(),
+                            dir.to_string_lossy().into_owned(),
+                        )
+                        .await
+                        .map_err(store_err)?;
+                    rec = load(env, id).await?;
+                }
+            }
             require_partial = p.supports_range && p.size.is_some();
             chunks = plan_chunks(p.size, require_partial, rec.max_connections);
             env.store
