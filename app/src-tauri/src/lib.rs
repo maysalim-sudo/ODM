@@ -1,4 +1,5 @@
 mod commands;
+mod shell;
 
 use odm_appcore::api::user_message;
 use odm_appcore::dto::UiEvent;
@@ -45,11 +46,7 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
+            shell::show_main(app);
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -78,17 +75,17 @@ pub fn run() {
                 manager,
                 UI_PROGRESS_INTERVAL,
                 move |ev: UiEvent| {
+                    shell::on_ui_event(&handle, &ev);
                     if let Err(e) = handle.emit(EVENT, &ev) {
                         tracing::warn!("could not send an event to the window: {e}");
                     }
                 },
             ));
 
-            if let Some(w) = app.get_webview_window("main") {
-                w.show()?;
-            }
+            shell::setup(app)?;
             Ok(())
         })
+        .on_window_event(shell::on_window_event)
         .invoke_handler(tauri::generate_handler![
             commands::list_downloads,
             commands::get_detail,
