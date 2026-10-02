@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ReloadGate,
+  coerceSettings,
+  toInt,
   applyEvent,
   canCancel,
   canPause,
@@ -282,5 +284,47 @@ describe("visibleColumns", () => {
     expect(visibleColumns(808)).toEqual({ added: false, eta: true, speed: true });
     expect(visibleColumns(939)).toEqual({ added: false, eta: true, speed: true });
     expect(visibleColumns(940)).toEqual({ added: true, eta: true, speed: true });
+  });
+});
+
+describe("toInt", () => {
+  it("keeps whole numbers and rounds fractions", () => {
+    expect(toInt(7, 3)).toBe(7);
+    expect(toInt(7.6, 3)).toBe(8);
+  });
+  it("falls back for null, NaN, undefined, strings and infinity", () => {
+    expect(toInt(null, 3)).toBe(3);
+    expect(toInt(Number.NaN, 3)).toBe(3);
+    expect(toInt(undefined, 3)).toBe(3);
+    expect(toInt("12" as unknown, 3)).toBe(3);
+    expect(toInt(Number.POSITIVE_INFINITY, 3)).toBe(3);
+  });
+});
+
+describe("coerceSettings", () => {
+  const base = {
+    download_dir: "C:\dl",
+    category_folders: { video: "Video" },
+    max_concurrent: 3,
+    max_connections: 8,
+    max_attempts: 5,
+    speed_limit_kbps: 0,
+    connect_timeout_s: 20,
+    read_timeout_s: 60,
+    ffmpeg_path: "",
+    capture_enabled: true,
+    min_capture_bytes: 1048576,
+    skip_hosts: [],
+    close_to_tray: true,
+    start_minimized: false,
+    notifications: true,
+  };
+  it("replaces emptied number fields with the previously loaded value", () => {
+    const form = { ...base, max_connections: null, speed_limit_kbps: Number.NaN, max_concurrent: 4.4 };
+    const out = coerceSettings(form as unknown as typeof base, { ...base, speed_limit_kbps: 500 });
+    expect(out.max_connections).toBe(8);
+    expect(out.speed_limit_kbps).toBe(500);
+    expect(out.max_concurrent).toBe(4);
+    expect(out.download_dir).toBe("C:\dl");
   });
 });

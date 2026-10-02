@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import AddDialog from "./components/AddDialog.svelte";
+  import BatchDialog from "./components/BatchDialog.svelte";
   import DetailPanel from "./components/DetailPanel.svelte";
   import DownloadTable from "./components/DownloadTable.svelte";
+  import RemoveDialog from "./components/RemoveDialog.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toolbar from "./components/Toolbar.svelte";
   import { downloads } from "./lib/downloads.svelte";
@@ -15,12 +18,18 @@
   onMount(() => {
     // TEMPORARY: the dialogs that read these flags arrive in Tasks 13-14; svelte-check reports
     // unread locals as errors. Remove this read in Task 14 at the latest.
-    void [addOpen, batchOpen, settingsOpen, removeOpen];
+    void [settingsOpen];
     void downloads.init();
   });
 
   function onkeydown(e: KeyboardEvent) {
-    const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    if (addOpen || batchOpen || settingsOpen || removeOpen) return;
+    const t = e.target;
+    const typing =
+      t instanceof HTMLInputElement ||
+      t instanceof HTMLTextAreaElement ||
+      t instanceof HTMLSelectElement ||
+      (t instanceof HTMLElement && t.isContentEditable);
     if (typing) return;
     if (e.key === "Delete" && downloads.selected.size > 0) removeOpen = true;
     if (e.key === "Escape") detailId = null;
@@ -54,7 +63,10 @@
   </div>
 </div>
 
-<!-- Tasks 13 and 14 add: AddDialog, BatchDialog, RemoveDialog, SettingsDialog -->
+<AddDialog open={addOpen} onclose={() => (addOpen = false)} />
+<BatchDialog open={batchOpen} onclose={() => (batchOpen = false)} />
+<RemoveDialog open={removeOpen} onclose={() => (removeOpen = false)} />
+<!-- Task 14: SettingsDialog -->
 
 <style>
   .app {

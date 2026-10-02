@@ -1,4 +1,4 @@
-import type { ChunkState, ChunkView, Download, DownloadState, UiEvent } from "./types";
+import type { ChunkState, ChunkView, Download, DownloadState, Settings, UiEvent } from "./types";
 
 /** A list row: the stored download plus live values from progress events. */
 export interface Row extends Download {
@@ -241,4 +241,26 @@ const ADDED_AT = ETA_AT + COL.added;
 /** Which optional columns fit at this table width while the name keeps NAME_MIN. */
 export function visibleColumns(width: number): { added: boolean; eta: boolean; speed: boolean } {
   return { added: width >= ADDED_AT, eta: width >= ETA_AT, speed: width >= SPEED_AT };
+}
+
+/** A finite whole number from a number input's value; `fallback` when it is empty or not a number. */
+export function toInt(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : fallback;
+}
+
+const NUMERIC_SETTINGS = [
+  "max_concurrent",
+  "max_connections",
+  "max_attempts",
+  "speed_limit_kbps",
+  "connect_timeout_s",
+  "read_timeout_s",
+  "min_capture_bytes",
+] as const;
+
+/** The settings form with every number field made a finite integer, so the backend never sees null. */
+export function coerceSettings(form: Settings, loaded: Settings): Settings {
+  const out: Settings = { ...form };
+  for (const k of NUMERIC_SETTINGS) out[k] = toInt(form[k], loaded[k]);
+  return out;
 }
