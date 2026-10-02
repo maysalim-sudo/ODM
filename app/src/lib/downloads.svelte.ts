@@ -1,5 +1,5 @@
 import * as api from "./api";
-import { ReloadGate, applyEvent, counts, visible, type Filter, type Row, type SortDir, type SortKey } from "./model";
+import { ReloadGate, applyEvent, counts, keepVisible, visible, type Filter, type Row, type SortDir, type SortKey } from "./model";
 import type { UiEvent } from "./types";
 
 class DownloadsStore {
@@ -9,6 +9,8 @@ class DownloadsStore {
   sortDir = $state<SortDir>("desc");
   selected = $state<Set<string>>(new Set());
   error = $state<string | null>(null);
+  /** True once the first list load has succeeded. */
+  loaded = $state(false);
 
   visible = $derived(visible(this.rows, this.filter, this.sortKey, this.sortDir));
   counts = $derived(counts(this.rows));
@@ -32,6 +34,7 @@ class DownloadsStore {
       if (next) {
         this.rows = next;
         this.pruneSelection();
+        this.loaded = true;
         this.error = null;
       }
     } catch (e) {
@@ -50,6 +53,13 @@ class DownloadsStore {
   private pruneSelection(): void {
     const kept = [...this.selected].filter((id) => this.rows.has(id));
     if (kept.length !== this.selected.size) this.selected = new Set(kept);
+  }
+
+  /** Change the filter; rows it hides drop out of the selection. */
+  setFilter(f: Filter): void {
+    this.filter = f;
+    const kept = keepVisible(this.selected, this.visible);
+    if (kept !== this.selected) this.selected = kept;
   }
 
   /** Plain click selects one; ctrl toggles; shift extends from the last selected row. */

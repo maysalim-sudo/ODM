@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatEta, formatSpeed, percent, stateLabel } from "./format";
+import { formatBytes, formatEta, formatSpeed, joinPath, percent, stateLabel } from "./format";
 
 describe("formatBytes", () => {
   it("picks a readable unit", () => {
@@ -44,5 +44,16 @@ describe("stateLabel", () => {
   it("is sentence case", () => {
     expect(stateLabel("downloading")).toBe("Downloading");
     expect(stateLabel("probing")).toBe("Starting");
+  });
+});
+
+describe("joinPath", () => {
+  it("uses the separator the directory uses", () => {
+    expect(joinPath("C:\\Users\\me\\Downloads", "a.zip")).toBe("C:\\Users\\me\\Downloads\\a.zip");
+    expect(joinPath("/home/me", "a.zip")).toBe("/home/me/a.zip");
+  });
+  it("does not double a trailing separator", () => {
+    expect(joinPath("C:\\dl\\", "a.zip")).toBe("C:\\dl\\a.zip");
+    expect(joinPath("/dl/", "a.zip")).toBe("/dl/a.zip");
   });
 });

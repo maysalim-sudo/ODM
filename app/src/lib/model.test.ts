@@ -6,6 +6,7 @@ import {
   canPause,
   canResume,
   counts,
+  keepVisible,
   matches,
   mergeList,
   parseUrls,
@@ -240,5 +241,23 @@ describe("parseUrls", () => {
     const p = parseUrls("https://a.com/1\n\n  http://b.com/2 \nftp://c\nhttps://a.com/1\nnope\nhttps://\n");
     expect(p.valid).toEqual(["https://a.com/1", "http://b.com/2"]);
     expect(p.rejected).toEqual(["ftp://c", "nope", "https://"]);
+  });
+});
+
+describe("keepVisible", () => {
+  const rows = [toRow(dl("a")), toRow(dl("b"))];
+
+  it("returns the same set when nothing is hidden", () => {
+    const sel = new Set(["a", "b"]);
+    expect(keepVisible(sel, rows)).toBe(sel);
+    const empty = new Set<string>();
+    expect(keepVisible(empty, rows)).toBe(empty);
+  });
+
+  it("drops ids that are not visible", () => {
+    const sel = new Set(["a", "gone"]);
+    const out = keepVisible(sel, rows);
+    expect(out).not.toBe(sel);
+    expect([...out]).toEqual(["a"]);
   });
 });

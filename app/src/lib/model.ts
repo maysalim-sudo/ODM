@@ -217,3 +217,10 @@ export class ReloadGate {
     return rows;
   }
 }
+
+/** The selection restricted to visible rows; the same Set instance when nothing changes. */
+export function keepVisible(selected: Set<string>, visible: Row[]): Set<string> {
+  const shown = new Set(visible.map((r) => r.id));
+  const kept = [...selected].filter((id) => shown.has(id));
+  return kept.length === selected.size ? selected : new Set(kept);
+}

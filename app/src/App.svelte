@@ -12,11 +12,10 @@
   let settingsOpen = $state(false);
   let removeOpen = $state(false);
 
-  // TEMPORARY (Task 11 only): the dialogs that read these flags arrive in Tasks 12-14; svelte-check
-  // reports unread locals as errors here. Remove the temporary read in onMount in Task 14 at the latest.
-
   onMount(() => {
-    void [addOpen, batchOpen, settingsOpen, removeOpen]; // TEMPORARY, see above
+    // TEMPORARY: the dialogs that read these flags arrive in Tasks 13-14; svelte-check reports
+    // unread locals as errors. Remove this read in Task 14 at the latest.
+    void [addOpen, batchOpen, settingsOpen, removeOpen];
     void downloads.init();
   });
 

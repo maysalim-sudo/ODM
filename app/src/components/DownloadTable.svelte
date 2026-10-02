@@ -10,10 +10,10 @@
     { key: "filename", label: "Name", cls: "name" },
     { key: "size", label: "Size", cls: "num" },
     { key: "progress", label: "Progress", cls: "progress" },
-    { key: "speed_bps", label: "Speed", cls: "num" },
-    { key: null, label: "Time left", cls: "num" },
+    { key: "speed_bps", label: "Speed", cls: "num c-speed" },
+    { key: null, label: "Time left", cls: "num c-eta" },
     { key: "state", label: "Status", cls: "status" },
-    { key: "created_at", label: "Added", cls: "num" },
+    { key: "created_at", label: "Added", cls: "num added c-added" },
   ];
 
   function click(e: MouseEvent, id: string) {
@@ -35,7 +35,7 @@
       {downloads.rows.size === 0 ? "No downloads yet. Choose Add download to start one." : "Nothing matches this filter."}
     </p>
   {:else}
-    <table>
+    <table role="grid">
       <thead>
         <tr>
           {#each columns as c (c.label)}
@@ -66,15 +66,17 @@
             <td class="name" title={row.filename}>{row.filename}</td>
             <td class="num">{row.size === null ? "Unknown" : formatBytes(row.size)}</td>
             <td class="progress">
-              <ProgressBar value={pct} state={row.state} />
-              <span>{pct === null ? formatBytes(row.bytes) : `${pct.toFixed(pct < 100 ? 1 : 0)}%`}</span>
+              <div class="progress-cell">
+                <ProgressBar value={pct} state={row.state} />
+                <span>{pct === null ? formatBytes(row.bytes) : `${pct.toFixed(pct < 100 ? 1 : 0)}%`}</span>
+              </div>
             </td>
-            <td class="num">{row.state === "downloading" ? formatSpeed(row.speed_bps) : "—"}</td>
-            <td class="num">{row.state === "downloading" ? formatEta(row.eta_s) : "—"}</td>
+            <td class="num c-speed">{row.state === "downloading" ? formatSpeed(row.speed_bps) : "—"}</td>
+            <td class="num c-eta">{row.state === "downloading" ? formatEta(row.eta_s) : "—"}</td>
             <td class="status" class:bad={row.state === "failed"} title={row.error_message ?? ""}>
               {stateLabel(row.state)}
             </td>
-            <td class="num">{formatDate(row.created_at)}</td>
+            <td class="num added c-added">{formatDate(row.created_at)}</td>
           </tr>
         {/each}
       </tbody>
@@ -85,7 +87,9 @@
 <style>
   .wrap {
     flex: 1;
+    min-width: 0;
     overflow: auto;
+    container-type: inline-size;
   }
   .empty {
     margin: 80px auto;
@@ -96,6 +100,7 @@
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
+    min-width: 560px;
   }
   th {
     position: sticky;
@@ -142,6 +147,25 @@
   }
   .name {
     width: auto;
+    min-width: 220px;
+  }
+  .num.added {
+    width: 132px;
+  }
+  @container (max-width: 859px) {
+    .c-added {
+      display: none;
+    }
+  }
+  @container (max-width: 759px) {
+    .c-eta {
+      display: none;
+    }
+  }
+  @container (max-width: 659px) {
+    .c-speed {
+      display: none;
+    }
   }
   .num {
     width: 96px;
@@ -157,13 +181,13 @@
   .progress {
     width: 190px;
   }
-  td.progress {
+  .progress-cell {
     display: grid;
     grid-template-columns: 1fr 52px;
     align-items: center;
     gap: 8px;
   }
-  td.progress span {
+  .progress-cell span {
     text-align: right;
     font-variant-numeric: tabular-nums;
     color: var(--muted);

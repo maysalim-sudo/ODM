@@ -23,7 +23,7 @@
 
 <nav aria-label="Filters">
   {#each status as s (s.key)}
-    <button class:active={downloads.filter === s.key} onclick={() => (downloads.filter = s.key)}>
+    <button class:active={downloads.filter === s.key} aria-current={downloads.filter === s.key ? "true" : undefined} onclick={() => downloads.setFilter(s.key)}>
       <span>{s.label}</span>
       <span class="count">{downloads.counts[s.key] ?? 0}</span>
     </button>
@@ -31,7 +31,7 @@
   <h2>Categories</h2>
   {#each CATEGORIES as c (c)}
     {@const key = `cat:${c}` as Filter}
-    <button class:active={downloads.filter === key} onclick={() => (downloads.filter = key)}>
+    <button class:active={downloads.filter === key} aria-current={downloads.filter === key ? "true" : undefined} onclick={() => downloads.setFilter(key)}>
       <span>{categoryLabel[c]}</span>
       <span class="count">{downloads.counts[key] ?? 0}</span>
     </button>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as api from "../lib/api";
   import { downloads } from "../lib/downloads.svelte";
-  import { formatBytes, formatEta, formatSpeed, percent, stateLabel } from "../lib/format";
+  import { formatBytes, formatEta, formatSpeed, joinPath, percent, stateLabel } from "../lib/format";
   import type { Detail } from "../lib/types";
   import ChunkMap from "./ChunkMap.svelte";
 
@@ -14,31 +14,48 @@
   // Live chunks while it runs; the stored ones otherwise.
   const chunks = $derived(row?.chunks ?? detail?.chunks ?? []);
   const pct = $derived(row ? percent(row.bytes, row.size) : null);
+  // A primitive, so progress ticks (which replace the row object) do not re-run the fetch.
+  const rowState = $derived(row?.state);
+
+  // Show nothing stale when switching to another download.
+  $effect(() => {
+    void id;
+    detail = null;
+  });
 
   $effect(() => {
     const wanted = id;
     // Re-read when the download changes state, so stored chunks stay current.
-    void row?.state;
-    detail = null;
+    void rowState;
     if (!wanted) return;
+    let cancelled = false;
     api
       .getDetail(wanted)
       .then((d) => {
-        if (id === wanted) detail = d;
+        if (!cancelled) detail = d;
       })
-      .catch((e) => (downloads.error = api.errorText(e)));
+      .catch((e) => {
+        if (!cancelled) downloads.error = api.errorText(e);
+      });
+    return () => {
+      cancelled = true;
+    };
   });
 
-  // The download was removed while its panel was open.
+  // The download was removed while its panel was open (not merely not loaded yet).
   $effect(() => {
-    if (id && !row) onclose();
+    if (id && downloads.loaded && !row) onclose();
   });
 
   async function copyUrl() {
     if (!row) return;
-    await navigator.clipboard.writeText(row.url);
-    copied = true;
-    setTimeout(() => (copied = false), 1500);
+    try {
+      await navigator.clipboard.writeText(row.url);
+      copied = true;
+      setTimeout(() => (copied = false), 1500);
+    } catch (e) {
+      downloads.error = api.errorText(e);
+    }
   }
 </script>
 
@@ -69,7 +86,7 @@
       <dt>Time left</dt>
       <dd>{row.state === "downloading" ? formatEta(row.eta_s) : "—"}</dd>
       <dt>Saved to</dt>
-      <dd class="wrap">{row.save_dir}</dd>
+      <dd class="wrap">{joinPath(row.save_dir, row.filename)}</dd>
       <dt>Address</dt>
       <dd class="wrap">{row.url}</dd>
       {#if detail?.final_url && detail.final_url !== row.url}

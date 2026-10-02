@@ -62,3 +62,9 @@ const LABELS: Record<DownloadState, string> = {
 export function stateLabel(state: DownloadState): string {
   return LABELS[state];
 }
+
+/** Join a folder and a file name with the separator the folder already uses. */
+export function joinPath(dir: string, name: string): string {
+  const sep = dir.includes("\\") ? "\\" : "/";
+  return dir.endsWith("\\") || dir.endsWith("/") ? `${dir}${name}` : `${dir}${sep}${name}`;
+}
