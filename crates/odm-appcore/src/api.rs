@@ -193,6 +193,19 @@ pub async fn apply_settings(m: &ManagerHandle, s: &Settings) -> Result<(), Strin
     m.set_config(s.to_engine_config()).await.map_err(msg)
 }
 
+/// Clamp, write the file, then apply to the running manager.
+pub async fn save_settings(
+    m: &ManagerHandle,
+    path: &std::path::Path,
+    mut s: Settings,
+) -> Result<(Settings, Vec<String>), String> {
+    let warnings = s.clamp();
+    s.save(path)
+        .map_err(|e| format!("could not save settings: {e}"))?;
+    apply_settings(m, &s).await?;
+    Ok((s, warnings))
+}
+
 #[cfg(test)]
 mod tests {
     use super::user_message;

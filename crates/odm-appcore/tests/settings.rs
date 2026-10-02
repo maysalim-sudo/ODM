@@ -175,3 +175,14 @@ fn odd_shapes_fall_back_per_field() {
         assert!(warnings[0].contains(bad), "input: {text}: {warnings:?}");
     }
 }
+
+#[test]
+fn from_env_prefers_odm_data_dir() {
+    // Env vars are process-wide: this is the only test that touches ODM_DATA_DIR.
+    std::env::set_var("ODM_DATA_DIR", "X:/elsewhere");
+    assert_eq!(AppPaths::from_env(), AppPaths::at("X:/elsewhere"));
+    std::env::set_var("ODM_DATA_DIR", "");
+    assert_eq!(AppPaths::from_env(), AppPaths::default_location());
+    std::env::remove_var("ODM_DATA_DIR");
+    assert_eq!(AppPaths::from_env(), AppPaths::default_location());
+}

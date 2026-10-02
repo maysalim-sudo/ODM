@@ -205,3 +205,50 @@ fn ui_event_json_shape_is_pinned() {
     let json = serde_json::to_string(&UiEvent::ProgressBatch { items: vec![] }).unwrap();
     assert_eq!(json, r#"{"type":"progress_batch","items":[]}"#);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn save_settings_clamps_persists_and_applies() {
+    let data = tempfile::tempdir().unwrap();
+    let dl = tempfile::tempdir().unwrap();
+    let s = TestServer::start(1000, Faults::default()).await;
+    let m = manager(data.path()).await;
+    let path = data.path().join("settings.json");
+
+    let wanted = Settings {
+        download_dir: dl.path().to_string_lossy().into_owned(),
+        max_connections: 500,
+        ..Default::default()
+    };
+    let (saved, warnings) = api::save_settings(&m, &path, wanted).await.unwrap();
+    assert_eq!(saved.max_connections, 32);
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(Settings::load(&path).0, saved);
+
+    let id = api::add(
+        &m,
+        AddArgs {
+            url: s.url("/file"),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    wait_completed(&m, &id).await;
+    assert!(dl.path().join("file").exists());
+}
+
+#[test]
+fn completed_download_only_matches_completed_upserts() {
+    use odm_appcore::dto::{completed_download, to_dto};
+    let mut r = odm_store::DownloadRecord::new_file("a", "https://e.com/f", "f", "C:/dl");
+    let queued = UiEvent::Upsert {
+        download: Box::new(to_dto(&r, 0)),
+    };
+    r.state = DownloadState::Completed;
+    let done = UiEvent::Upsert {
+        download: Box::new(to_dto(&r, 0)),
+    };
+    assert!(completed_download(&queued).is_none());
+    assert_eq!(completed_download(&done).unwrap().id, "a");
+    assert!(completed_download(&UiEvent::Resync).is_none());
+}

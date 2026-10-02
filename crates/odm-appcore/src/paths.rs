@@ -20,6 +20,14 @@ impl AppPaths {
         }
     }
 
+    /// `ODM_DATA_DIR` if set and not empty, otherwise the default location.
+    pub fn from_env() -> Self {
+        match std::env::var_os("ODM_DATA_DIR") {
+            Some(v) if !v.is_empty() => Self::at(PathBuf::from(v)),
+            _ => Self::default_location(),
+        }
+    }
+
     pub fn default_location() -> Self {
         let base = std::env::var_os("APPDATA")
             .map(PathBuf::from)

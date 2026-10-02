@@ -99,3 +99,13 @@ pub enum UiEvent {
     /// The UI missed events and must reload the list.
     Resync,
 }
+
+/// The download in `ev`, if this event says it just completed.
+pub fn completed_download(ev: &UiEvent) -> Option<&DownloadDto> {
+    match ev {
+        UiEvent::Upsert { download } if download.state == DownloadState::Completed => {
+            Some(download.as_ref())
+        }
+        _ => None,
+    }
+}
