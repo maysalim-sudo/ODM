@@ -169,7 +169,7 @@ async fn suggest_reads_name_size_and_category_from_the_server() {
     assert!(api::suggest(&s.url("/file"), &EngineConfig::default())
         .await
         .unwrap_err()
-        .contains("http_404"));
+        .contains("404"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

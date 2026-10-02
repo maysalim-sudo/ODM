@@ -37,8 +37,13 @@ pub async fn pump<L, Fut, F>(
                     pending.insert(p.id.clone(), p);
                 }
                 Ok(EngineEvent::Added { id }) | Ok(EngineEvent::State { id, .. }) => {
-                    pending.remove(&id);
-                    if let Some(download) = lookup(id).await {
+                    let latest = pending.remove(&id);
+                    if let Some(mut download) = lookup(id).await {
+                        // The store lags the live counter by up to a persist interval; while
+                        // the download is active, never let the byte count step backwards.
+                        if let (Some(p), true) = (latest, download.state.is_active()) {
+                            download.bytes = download.bytes.max(p.bytes);
+                        }
                         emit(UiEvent::Upsert { download: Box::new(download) });
                     }
                 }

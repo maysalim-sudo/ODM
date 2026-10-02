@@ -206,3 +206,40 @@ async fn a_real_download_produces_upserts_and_batches() {
         (DownloadState::Completed, 4 << 20)
     );
 }
+
+async fn upsert_bytes_after_progress(state: DownloadState) -> u64 {
+    let (tx, rx) = broadcast::channel(64);
+    let (log, emit) = sink();
+    let mut stored = dto("a", state);
+    stored.bytes = 38;
+    let lookup = move |_id: String| {
+        let d = stored.clone();
+        async move { Some(d) }
+    };
+    let task = tokio::spawn(bridge::pump(rx, lookup, Duration::from_secs(60), emit));
+    tx.send(progress("a", 41)).unwrap();
+    tx.send(EngineEvent::State {
+        id: "a".into(),
+        state,
+        error_code: None,
+        error_message: None,
+    })
+    .unwrap();
+    settle().await;
+    drop(tx);
+    task.await.unwrap();
+    let events = log.lock().unwrap().clone();
+    let [UiEvent::Upsert { download }] = events.as_slice() else {
+        panic!("{events:?}")
+    };
+    download.bytes
+}
+
+#[tokio::test]
+async fn upsert_never_reports_fewer_bytes_than_pending_progress() {
+    assert_eq!(
+        upsert_bytes_after_progress(DownloadState::Downloading).await,
+        41
+    );
+    assert_eq!(upsert_bytes_after_progress(DownloadState::Paused).await, 38);
+}
