@@ -1,9 +1,11 @@
-use odm_appcore::dto::{completed_download, UiEvent};
+use odm_appcore::dto::UiEvent;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Manager, Window, WindowEvent};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_notification::NotificationExt;
+
+use std::sync::atomic::Ordering;
 
 use crate::AppState;
 
@@ -102,6 +104,13 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
 }
 
 pub fn request_quit(app: &AppHandle) {
+    if app
+        .state::<AppState>()
+        .quitting
+        .swap(true, Ordering::SeqCst)
+    {
+        return;
+    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let manager = app.state::<AppState>().manager.clone();
@@ -131,6 +140,9 @@ pub fn request_quit(app: &AppHandle) {
             .await
             .unwrap_or(false);
             if !confirmed {
+                app.state::<AppState>()
+                    .quitting
+                    .store(false, Ordering::SeqCst);
                 return;
             }
         }
@@ -140,7 +152,8 @@ pub fn request_quit(app: &AppHandle) {
 }
 
 pub fn on_ui_event(app: &AppHandle, ev: &UiEvent) {
-    let Some(download) = completed_download(ev) else {
+    let state = app.state::<AppState>();
+    let Some(download) = state.completions.lock().unwrap().newly_completed(ev) else {
         return;
     };
     if !app

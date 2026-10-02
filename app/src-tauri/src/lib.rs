@@ -1,11 +1,12 @@
 mod commands;
 mod shell;
 
-use odm_appcore::api::user_message;
-use odm_appcore::dto::UiEvent;
+use odm_appcore::api::{store_open_message, user_message};
+use odm_appcore::dto::{CompletionTracker, UiEvent};
 use odm_appcore::{bridge, logging, AppPaths, Settings};
 use odm_engine::ManagerHandle;
 use odm_store::Store;
+use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{Emitter, Manager, RunEvent};
@@ -19,11 +20,18 @@ pub struct AppState {
     pub manager: ManagerHandle,
     pub settings: Mutex<Settings>,
     pub paths: AppPaths,
+    /// Downloads already announced with a notification.
+    pub completions: Mutex<CompletionTracker>,
+    /// Set while the quit flow runs, so it cannot start twice.
+    pub quitting: AtomicBool,
 }
 
 fn start_engine(paths: &AppPaths, settings: &Settings) -> Result<ManagerHandle, String> {
-    let store =
-        Store::open(&paths.db).map_err(|e| format!("ODM could not open its database.\n\n{e}"))?;
+    let store = Store::open(&paths.db).map_err(|e| {
+        // Raw detail goes to the log only; it has no URLs or header values.
+        tracing::error!("could not open the database: {e}");
+        store_open_message(&e)
+    })?;
     tauri::async_runtime::block_on(ManagerHandle::start(settings.to_engine_config(), store))
         .map_err(|e| {
             format!(
@@ -37,7 +45,7 @@ pub fn run() {
     let paths = AppPaths::from_env();
     let _ = paths.ensure();
     // Kept alive until the process exits, so buffered log lines are flushed.
-    let _log_guard = logging::init(&paths.logs).ok();
+    let mut log_guard = logging::init(&paths.logs).ok();
     let (settings, warnings) = Settings::load(&paths.settings);
     for w in &warnings {
         tracing::warn!("settings: {w}");
@@ -61,14 +69,20 @@ pub fn run() {
                         .title("ODM")
                         .kind(MessageDialogKind::Error)
                         .blocking_show();
-                    return Err(message.into());
+                    // Flush the log, then leave without Tauri's setup-failure panic.
+                    drop(log_guard.take());
+                    std::process::exit(1);
                 }
             };
             app.manage(AppState {
                 manager: manager.clone(),
                 settings: Mutex::new(settings),
                 paths,
+                completions: Mutex::new(CompletionTracker::default()),
+                quitting: AtomicBool::new(false),
             });
+            // Keep the log flushing for as long as the app runs.
+            app.manage(Mutex::new(log_guard));
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(bridge::run(

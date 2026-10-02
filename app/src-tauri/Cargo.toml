@@ -19,6 +19,7 @@ tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 odm-core.workspace = true
 odm-store.workspace = true
+tracing-appender.workspace = true
 odm-engine.workspace = true
 odm-appcore.workspace = true
 serde.workspace = true

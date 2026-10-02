@@ -109,3 +109,74 @@ pub fn completed_download(ev: &UiEvent) -> Option<&DownloadDto> {
         _ => None,
     }
 }
+
+/// Remembers which downloads have already been reported as completed, so a
+/// download that the bridge reports as completed more than once (a fast one is
+/// already complete when its earlier events are looked up) notifies only once.
+#[derive(Debug, Default)]
+pub struct CompletionTracker {
+    notified: std::collections::HashSet<String>,
+}
+
+impl CompletionTracker {
+    /// The download in `ev` only the first time it is seen completed. An upsert in
+    /// any other state, or a removal, forgets the id so a later completion counts again.
+    pub fn newly_completed<'a>(&mut self, ev: &'a UiEvent) -> Option<&'a DownloadDto> {
+        match ev {
+            UiEvent::Upsert { download } if download.state == DownloadState::Completed => {
+                if self.notified.insert(download.id.clone()) {
+                    Some(download.as_ref())
+                } else {
+                    None
+                }
+            }
+            UiEvent::Upsert { download } => {
+                self.notified.remove(&download.id);
+                None
+            }
+            UiEvent::Removed { id } => {
+                self.notified.remove(id);
+                None
+            }
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tracker_tests {
+    use super::*;
+
+    fn up(id: &str, state: DownloadState) -> UiEvent {
+        let mut r = DownloadRecord::new_file(id, "https://e.com/f", "f", "C:/dl");
+        r.state = state;
+        UiEvent::Upsert {
+            download: Box::new(to_dto(&r, 0)),
+        }
+    }
+
+    #[test]
+    fn notifies_once_per_completion() {
+        let mut t = CompletionTracker::default();
+        let done = up("a", DownloadState::Completed);
+        assert!(t.newly_completed(&done).is_some());
+        assert!(t.newly_completed(&done).is_none());
+        assert!(t
+            .newly_completed(&up("b", DownloadState::Completed))
+            .is_some());
+    }
+
+    #[test]
+    fn removed_or_requeued_allows_another_notification() {
+        let mut t = CompletionTracker::default();
+        let done = up("a", DownloadState::Completed);
+        assert!(t.newly_completed(&done).is_some());
+        assert!(t
+            .newly_completed(&UiEvent::Removed { id: "a".into() })
+            .is_none());
+        assert!(t.newly_completed(&done).is_some());
+        assert!(t.newly_completed(&up("a", DownloadState::Queued)).is_none());
+        assert!(t.newly_completed(&done).is_some());
+        assert!(t.newly_completed(&UiEvent::Resync).is_none());
+    }
+}

@@ -193,6 +193,20 @@ pub async fn apply_settings(m: &ManagerHandle, s: &Settings) -> Result<(), Strin
     m.set_config(s.to_engine_config()).await.map_err(msg)
 }
 
+/// A plain-language message for a database that could not be opened.
+pub fn store_open_message(e: &odm_store::StoreError) -> String {
+    match e {
+        odm_store::StoreError::NewerSchema { .. } => {
+            "This data was made by a newer version of ODM. Install the latest ODM, then try again."
+                .into()
+        }
+        _ => {
+            "ODM could not open its database. The file may be damaged or in use by another program."
+                .into()
+        }
+    }
+}
+
 /// Clamp, write the file, then apply to the running manager.
 pub async fn save_settings(
     m: &ManagerHandle,
@@ -208,8 +222,21 @@ pub async fn save_settings(
 
 #[cfg(test)]
 mod tests {
-    use super::user_message;
+    use super::{store_open_message, user_message};
     use odm_core::{ErrorKind::*, OdmError};
+
+    #[test]
+    fn store_open_messages_are_plain() {
+        let newer = odm_store::StoreError::NewerSchema {
+            found: 5,
+            supported: 3,
+        };
+        assert!(store_open_message(&newer).starts_with("This data was made by a newer version"));
+        let other = odm_store::StoreError::Closed;
+        let text = store_open_message(&other);
+        assert!(text.contains("damaged or in use"));
+        assert!(!text.contains("sqlite"));
+    }
 
     fn m(k: odm_core::ErrorKind, text: &str) -> String {
         user_message(&OdmError::new(k, text))
