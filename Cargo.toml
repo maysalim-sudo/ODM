@@ -12,6 +12,7 @@ odm-core = { path = "crates/odm-core" }
 odm-store = { path = "crates/odm-store" }
 odm-engine = { path = "crates/odm-engine" }
 odm-testserver = { path = "crates/odm-testserver" }
+odm-appcore = { path = "crates/odm-appcore" }
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
@@ -20,6 +21,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tracing = "0.1"
+tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 fastrand = "2"
 uuid = { version = "1", features = ["v4"] }

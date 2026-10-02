@@ -1,0 +1,20 @@
+[package]
+name = "odm-appcore"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+odm-core.workspace = true
+odm-store.workspace = true
+odm-engine.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+odm-testserver.workspace = true
+tempfile.workspace = true
