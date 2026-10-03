@@ -16,6 +16,7 @@
   let lastAuto: string | null = null;
   let suggestion = $state<Suggestion | null>(null);
   let checking = $state(false);
+  let variantUrl = $state("");
   let busy = $state(false);
   let error = $state<string | null>(null);
 
@@ -30,6 +31,7 @@
     saveDir = "";
     category = "";
     suggestion = null;
+    variantUrl = "";
     error = null;
     api
       .getSettings()
@@ -52,6 +54,7 @@
         .then((s) => {
           if (url.trim() !== wanted) return;
           suggestion = s;
+          variantUrl = s.variants[0]?.url ?? "";
           filename = nextFilename(filename, lastAuto, s.filename);
           lastAuto = s.filename;
         })
@@ -78,6 +81,7 @@
         save_dir: saveDir.trim() || null,
         category: category || null,
         connections: toInt(connections, defaultConnections),
+        ...(suggestion?.is_stream ? { stream: true, variant_url: variantUrl || null } : {}),
       });
       onclose();
     } catch (err) {
@@ -98,6 +102,8 @@
     <p class="hint">
       {#if checking}
         Checking the address…
+      {:else if suggestion?.is_stream}
+        Video stream · downloaded in parts and merged into one file with FFmpeg
       {:else if suggestion}
         {suggestion.size === null ? "Size unknown" : formatBytes(suggestion.size)} ·
         {suggestion.resumable ? "can be paused and resumed" : "cannot be resumed if interrupted"}
@@ -107,6 +113,17 @@
         &nbsp;
       {/if}
     </p>
+
+    {#if suggestion?.is_stream && suggestion.variants.length > 0}
+      <label class="field">
+        <span>Quality</span>
+        <select bind:value={variantUrl}>
+          {#each suggestion.variants as v (v.url)}
+            <option value={v.url}>{v.label}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
 
     <label class="field">
       <span>File name</span>

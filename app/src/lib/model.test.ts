@@ -21,6 +21,7 @@ import {
   matches,
   mergeList,
   parseUrls,
+  progressPct,
   replaceAll,
   segments,
   toRow,
@@ -405,5 +406,47 @@ describe("offers", () => {
     const r = applyEvent(rows, { type: "reuse_offer", offer: { offer_id: "o", existing_id: "a", filename: "f" } });
     expect(r.rows).toBe(rows);
     expect(r.resync).toBe(false);
+  });
+});
+
+describe("progressPct", () => {
+  const row = (patch: Partial<Download>, segments: { done: number; total: number } | null = null) => ({
+    ...toRow(dl("p", patch)),
+    segments,
+  });
+
+  it("uses segments when the progress has them", () => {
+    expect(progressPct(row({ size: 5, bytes: 1 }, { done: 3, total: 12 }))).toBe(25);
+  });
+
+  it("falls back to bytes over size", () => {
+    expect(progressPct(row({ size: 200, bytes: 50 }))).toBe(25);
+  });
+
+  it("is 0 without a size and never passes 100", () => {
+    expect(progressPct(row({ size: null, bytes: 50 }))).toBe(0);
+    expect(progressPct(row({ size: 100, bytes: 500 }))).toBe(100);
+    expect(progressPct(row({}, { done: 13, total: 12 }))).toBe(100);
+    expect(progressPct(row({}, { done: 0, total: 0 }))).toBe(0);
+  });
+
+  it("progress events carry segments onto the row", () => {
+    let rows = replaceAll([dl("a", { state: "downloading", kind: "hls", size: null })]);
+    rows = applyEvent(rows, {
+      type: "progress_batch",
+      items: [
+        {
+          id: "a",
+          bytes: 300,
+          total: 1200,
+          speed_bps: 1,
+          eta_s: 1,
+          chunks: [],
+          segments: { done: 3, total: 12 },
+        },
+      ],
+    }).rows;
+    expect(rows.get("a")!.segments).toEqual({ done: 3, total: 12 });
+    expect(progressPct(rows.get("a")!)).toBe(25);
   });
 });

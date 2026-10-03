@@ -4,6 +4,7 @@ use odm_appcore::Settings;
 use odm_core::DownloadState;
 use odm_engine::{ChunkViewState, EngineConfig, ManagerHandle};
 use odm_store::Store;
+use odm_testserver::hls::{write_synthetic, HlsFaults, HlsServer};
 use odm_testserver::{Faults, TestServer};
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -354,4 +355,69 @@ fn reuse_offer_event_json() {
         serde_json::to_value(UiEvent::ReuseOffer { offer }).unwrap(),
         serde_json::json!({"type":"reuse_offer","offer":{"offer_id":"o","existing_id":"e","filename":"f.zip"}})
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn suggest_lists_variants_for_master() {
+    let src = tempfile::tempdir().unwrap();
+    write_synthetic(src.path(), 1, 100, false);
+    std::fs::write(
+        src.path().join("master.m3u8"),
+        "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\nlow.m3u8\n\
+         #EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720\nmedia.m3u8\n",
+    )
+    .unwrap();
+    let hls = HlsServer::start(src.path().to_path_buf(), HlsFaults::default()).await;
+    let sug = api::suggest(&hls.url("/master.m3u8"), &EngineConfig::default())
+        .await
+        .unwrap();
+    assert!(sug.is_stream);
+    assert_eq!(sug.category, "video");
+    assert_eq!(sug.filename, "master.mp4");
+    assert_eq!(sug.variants.len(), 2);
+    assert_eq!(sug.variants[0].bandwidth, 2_500_000);
+    assert_eq!(sug.variants[0].url, hls.url("/media.m3u8"));
+    assert_eq!(sug.variants[0].label, "1280\u{d7}720 \u{b7} 2.5 Mbit/s");
+    assert_eq!(sug.variants[1].label, "640\u{d7}360 \u{b7} 800 kbit/s");
+
+    let media = api::suggest(&hls.url("/media.m3u8"), &EngineConfig::default())
+        .await
+        .unwrap();
+    assert!(media.is_stream);
+    assert!(media.variants.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn suggest_plain_file_has_no_variants() {
+    let s = TestServer::start(5000, Faults::default()).await;
+    let sug = api::suggest(&s.url("/file"), &EngineConfig::default())
+        .await
+        .unwrap();
+    assert!(!sug.is_stream);
+    assert!(sug.variants.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn add_with_stream_flag_adds_hls_download_for_the_chosen_variant() {
+    let src = tempfile::tempdir().unwrap();
+    write_synthetic(src.path(), 1, 100, false);
+    let hls = HlsServer::start(src.path().to_path_buf(), HlsFaults::default()).await;
+    let d = tempfile::tempdir().unwrap();
+    let m = manager(d.path()).await;
+    let id = api::add(
+        &m,
+        AddArgs {
+            url: hls.url("/master.m3u8"),
+            variant_url: Some(hls.url("/media.m3u8")),
+            stream: true,
+            start_paused: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let (rec, _) = m.get(&id).await.unwrap().unwrap();
+    assert_eq!(rec.kind, "hls");
+    let meta = m.store().get_hls_meta(&id).await.unwrap().unwrap();
+    assert!(meta.variant_url.ends_with("/media.m3u8"));
 }

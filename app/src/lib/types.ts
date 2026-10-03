@@ -46,6 +46,13 @@ export interface Progress {
   speed_bps: number;
   eta_s: number | null;
   chunks: ChunkView[];
+  /** HLS only: finished and total segments. */
+  segments?: SegmentProgress;
+}
+
+export interface SegmentProgress {
+  done: number;
+  total: number;
 }
 
 export interface Detail {
@@ -94,6 +101,10 @@ export interface AddArgs {
   category?: string | null;
   checksum?: string | null;
   start_paused?: boolean;
+  /** HLS: the chosen quality of a master playlist. */
+  variant_url?: string | null;
+  /** HLS: add `url` as a video stream. */
+  stream?: boolean;
 }
 
 export interface Suggestion {
@@ -101,6 +112,15 @@ export interface Suggestion {
   size: number | null;
   category: string;
   resumable: boolean;
+  variants: Variant[];
+  is_stream: boolean;
+}
+
+export interface Variant {
+  url: string;
+  bandwidth: number;
+  resolution: string | null;
+  label: string;
 }
 
 export interface BatchResult {

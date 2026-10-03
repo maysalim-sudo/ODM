@@ -8,7 +8,7 @@ use odm_core::ipc::{
     cmd, code, AddDownload, AddStream, Added, PingReply, Request, Response, Source, Summary,
 };
 use odm_core::{filename, redact_url, DownloadState};
-use odm_engine::{AddRequest, ManagerHandle};
+use odm_engine::{AddRequest, ManagerHandle, StreamRequest};
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -65,14 +65,7 @@ pub async fn dispatch(ctx: &IpcContext, req: Request) -> Response {
             (ctx.show_window)();
             Response::ok(id, serde_json::json!({}))
         }
-        cmd::ADD_STREAM => match serde_json::from_value::<AddStream>(req.payload) {
-            Ok(_) => Response::err(
-                id,
-                code::NOT_SUPPORTED,
-                "Video streams arrive in a later version of ODM.",
-            ),
-            Err(e) => Response::err(id, code::BAD_PAYLOAD, e.to_string()),
-        },
+        cmd::ADD_STREAM => add_stream(ctx, id, req.payload).await,
         cmd::ADD_DOWNLOAD => add_download(ctx, id, req.payload).await,
         other => {
             let shown: String = other.chars().take(64).collect();
@@ -105,6 +98,46 @@ async fn get_summary(ctx: &IpcContext, id: Option<String>) -> Response {
             total_speed_bps,
         },
     )
+}
+
+/// Always an explicit click in the browser, so the capture filters do not apply.
+async fn add_stream(ctx: &IpcContext, id: Option<String>, payload: Value) -> Response {
+    let p: AddStream = match serde_json::from_value(payload) {
+        Ok(p) => p,
+        Err(e) => return Response::err(id, code::BAD_PAYLOAD, e.to_string()),
+    };
+    tracing::info!(
+        cmd = cmd::ADD_STREAM,
+        url = %redact_url(&p.playlist_url),
+        headers = ?p.headers.keys().collect::<Vec<_>>(),
+        "ipc request"
+    );
+    let mut headers: Vec<(String, String)> = p
+        .headers
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    if !p.page_url.is_empty()
+        && !headers
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("referer"))
+    {
+        headers.push(("Referer".into(), p.page_url.clone()));
+    }
+    if let Some(c) = p.cookies.as_deref().filter(|c| !c.is_empty()) {
+        headers.push(("Cookie".into(), c.to_string()));
+    }
+    let req = StreamRequest {
+        playlist_url: p.playlist_url,
+        page_url: Some(p.page_url).filter(|u| !u.is_empty()),
+        page_title: p.page_title.filter(|t| !t.trim().is_empty()),
+        headers: normalize_headers(headers),
+        ..Default::default()
+    };
+    match ctx.manager.add_stream(req).await {
+        Ok(download_id) => reply(id, &Added { download_id }),
+        Err(e) => Response::err(id, code::ADD_FAILED, user_message(&e)),
+    }
 }
 
 async fn add_download(ctx: &IpcContext, id: Option<String>, payload: Value) -> Response {

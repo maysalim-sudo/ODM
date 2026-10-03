@@ -1,8 +1,8 @@
 <script lang="ts">
   import * as api from "../lib/api";
   import { downloads } from "../lib/downloads.svelte";
-  import { formatBytes, formatEta, formatSpeed, joinPath, percent, stateLabel } from "../lib/format";
-  import { canRefresh, isRiskyFile } from "../lib/model";
+  import { formatBytes, formatEta, formatSpeed, joinPath, stateLabel } from "../lib/format";
+  import { canRefresh, isRiskyFile, progressPct } from "../lib/model";
   import type { Detail } from "../lib/types";
   import ChunkMap from "./ChunkMap.svelte";
 
@@ -19,7 +19,7 @@
   const row = $derived(id ? downloads.rows.get(id) : undefined);
   // Live chunks while it runs; the stored ones otherwise.
   const chunks = $derived(row?.chunks ?? detail?.chunks ?? []);
-  const pct = $derived(row ? percent(row.bytes, row.size) : null);
+  const pct = $derived(row && (row.segments || row.size) ? progressPct(row) : null);
   // A primitive, so progress ticks (which replace the row object) do not re-run the fetch.
   const rowState = $derived(row?.state);
 
@@ -72,9 +72,11 @@
       <button onclick={onclose} aria-label="Close details">Close</button>
     </header>
 
-    <section>
-      <ChunkMap {chunks} total={row.size} />
-    </section>
+    {#if row.kind !== "hls"}
+      <section>
+        <ChunkMap {chunks} total={row.size} />
+      </section>
+    {/if}
 
     <dl>
       <dt>Status</dt>
@@ -87,6 +89,10 @@
       <dd>
         {formatBytes(row.bytes)}{row.size === null ? "" : ` of ${formatBytes(row.size)}`}{pct === null ? "" : ` (${pct.toFixed(1)}%)`}
       </dd>
+      {#if row.kind === "hls" && row.segments}
+        <dt>Segments</dt>
+        <dd>{row.segments.done} of {row.segments.total}</dd>
+      {/if}
       <dt>Speed</dt>
       <dd>{row.state === "downloading" ? formatSpeed(row.speed_bps) : "—"}</dd>
       <dt>Time left</dt>

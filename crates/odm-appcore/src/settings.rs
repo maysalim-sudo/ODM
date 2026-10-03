@@ -197,6 +197,9 @@ impl Settings {
             connect_timeout: Duration::from_secs(self.connect_timeout_s),
             read_timeout: Duration::from_secs(self.read_timeout_s),
             speed_limit_bps: self.speed_limit_kbps.saturating_mul(1024),
+            ffmpeg_path: Some(self.ffmpeg_path.trim())
+                .filter(|p| !p.is_empty())
+                .map(PathBuf::from),
             ..EngineConfig::default()
         }
         .sanitized()

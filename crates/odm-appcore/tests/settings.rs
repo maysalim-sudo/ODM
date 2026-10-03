@@ -201,3 +201,14 @@ fn clamp_normalizes_skip_hosts() {
     assert_eq!(s.skip_hosts, ["example.com"]);
     assert!(w.is_empty(), "{w:?}");
 }
+
+#[test]
+fn ffmpeg_path_reaches_the_engine_config() {
+    let mut s = odm_appcore::Settings::default();
+    assert!(s.to_engine_config().ffmpeg_path.is_none());
+    s.ffmpeg_path = "C:/tools/ffmpeg.exe".into();
+    assert_eq!(
+        s.to_engine_config().ffmpeg_path,
+        Some(std::path::PathBuf::from("C:/tools/ffmpeg.exe"))
+    );
+}

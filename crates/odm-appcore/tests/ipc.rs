@@ -5,6 +5,7 @@ use odm_appcore::ipc::{dispatch, now_ms};
 use odm_core::ipc::{cmd, code};
 use odm_core::DownloadState;
 use odm_engine::AddRequest;
+use odm_testserver::hls::{write_synthetic, HlsFaults, HlsServer};
 use odm_testserver::{Faults, TestServer};
 use serde_json::json;
 
@@ -177,13 +178,47 @@ async fn pause_all_resume_all_show_window() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn add_stream_is_not_supported_yet() {
+async fn add_stream_adds_hls_download() {
     let f = fixture().await;
-    let ok = json!({"page_url": "https://p/", "playlist_url": "https://p/a.m3u8"});
-    let r = dispatch(&f.ctx, req(cmd::ADD_STREAM, ok)).await;
-    assert_eq!(r.error.unwrap().code, code::NOT_SUPPORTED);
+    let src = tempfile::tempdir().unwrap();
+    write_synthetic(src.path(), 2, 1000, false);
+    let hls = HlsServer::start(src.path().to_path_buf(), HlsFaults::default()).await;
+    let r = dispatch(
+        &f.ctx,
+        req(
+            cmd::ADD_STREAM,
+            json!({
+                "page_url": "https://site/watch",
+                "page_title": "Clip",
+                "playlist_url": hls.url("/media.m3u8"),
+                "cookies": "a=1",
+            }),
+        ),
+    )
+    .await;
+    assert!(r.ok, "{:?}", r.error);
+    let id = r.payload.unwrap()["download_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (rec, _) = f.ctx.manager.get(&id).await.unwrap().unwrap();
+    assert_eq!(rec.kind, "hls");
+    assert_eq!(rec.page_title.as_deref(), Some("Clip"));
+    assert_eq!(rec.filename, "Clip.mp4");
+    let headers = f.ctx.manager.store().get_headers(&id).await.unwrap();
+    assert!(headers.contains(&("Cookie".into(), "a=1".into())));
+    assert!(headers.contains(&("Referer".into(), "https://site/watch".into())));
+    let _ = f.ctx.manager.cancel(&id, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn add_stream_rejects_bad_payload_and_scheme() {
+    let f = fixture().await;
     let r = dispatch(&f.ctx, req(cmd::ADD_STREAM, json!({}))).await;
     assert_eq!(r.error.unwrap().code, code::BAD_PAYLOAD);
+    let bad = json!({"page_url": "https://p", "playlist_url": "ftp://x/a.m3u8"});
+    let r = dispatch(&f.ctx, req(cmd::ADD_STREAM, bad)).await;
+    assert_eq!(r.error.unwrap().code, code::ADD_FAILED);
 }
 
 #[tokio::test(flavor = "multi_thread")]

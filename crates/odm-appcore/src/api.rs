@@ -1,6 +1,9 @@
-use odm_core::{category, filename};
+use odm_core::{category, filename, OdmError};
 use odm_engine::download::build_client;
-use odm_engine::{AddRequest, EngineConfig, ManagerHandle};
+use odm_engine::hls::output_name;
+use odm_engine::hls::playlist::{parse, Playlist, Variant};
+use odm_engine::retry::{classify_status, http_err};
+use odm_engine::{AddRequest, EngineConfig, ManagerHandle, StreamRequest};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -49,9 +52,24 @@ pub struct AddArgs {
     pub category: Option<String>,
     pub checksum: Option<String>,
     pub start_paused: bool,
+    /// The chosen quality of an HLS master playlist.
+    pub variant_url: Option<String>,
+    /// `url` is an HLS playlist: add it as a video stream.
+    pub stream: bool,
 }
 
 pub async fn add(m: &ManagerHandle, a: AddArgs) -> Result<String, String> {
+    if a.stream {
+        let req = StreamRequest {
+            playlist_url: a.url.trim().to_string(),
+            variant_url: given(a.variant_url),
+            filename: given(a.filename),
+            save_dir: given(a.save_dir).map(PathBuf::from),
+            start_paused: a.start_paused,
+            ..Default::default()
+        };
+        return m.add_stream(req).await.map_err(msg);
+    }
     let mut req = AddRequest::new(a.url.trim());
     req.filename = given(a.filename);
     req.save_dir = given(a.save_dir).map(PathBuf::from);
@@ -126,20 +144,112 @@ pub async fn add_batch(
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct VariantDto {
+    pub url: String,
+    pub bandwidth: u64,
+    pub resolution: Option<String>,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Suggestion {
     pub filename: String,
     pub size: Option<u64>,
     pub category: String,
     pub resumable: bool,
+    /// Quality choices of an HLS master playlist, best first. Empty for files and media playlists.
+    pub variants: Vec<VariantDto>,
+    pub is_stream: bool,
+}
+
+/// `"1280×720 · 2.5 Mbit/s"`, or just the speed when the resolution is unknown.
+fn variant_label(v: &Variant) -> String {
+    let speed = if v.bandwidth >= 1_000_000 {
+        format!("{:.1} Mbit/s", v.bandwidth as f64 / 1e6)
+    } else {
+        format!("{} kbit/s", v.bandwidth / 1000)
+    };
+    match v.resolution.as_deref().filter(|r| !r.is_empty()) {
+        Some(r) => format!("{} \u{b7} {speed}", r.replace(['x', 'X'], "\u{d7}")),
+        None => speed,
+    }
+}
+
+fn path_is_m3u8(url: &str) -> bool {
+    reqwest::Url::parse(url)
+        .map(|u| u.path().to_ascii_lowercase().ends_with(".m3u8"))
+        .unwrap_or(false)
+}
+
+fn is_hls_mime(mime: &str) -> bool {
+    matches!(
+        mime.trim().to_ascii_lowercase().as_str(),
+        "application/vnd.apple.mpegurl" | "application/x-mpegurl" | "audio/mpegurl"
+    )
+}
+
+/// Largest playlist the Add dialog will read.
+const MAX_PLAYLIST_BYTES: usize = 4 << 20;
+
+async fn fetch_playlist(client: &reqwest::Client, url: &str) -> Result<Playlist, String> {
+    let unreadable = || "The playlist could not be read.".to_string();
+    let resp = client.get(url).send().await.map_err(|e| msg(http_err(e)))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(msg(OdmError::new(
+            classify_status(status.as_u16(), false),
+            format!("playlist returned HTTP {}", status.as_u16()),
+        )));
+    }
+    let final_url = resp.url().to_string();
+    let body = resp.bytes().await.map_err(|e| msg(http_err(e)))?;
+    if body.len() > MAX_PLAYLIST_BYTES {
+        return Err(unreadable());
+    }
+    parse(&String::from_utf8_lossy(&body), &final_url).map_err(|_| unreadable())
+}
+
+fn stream_suggestion(url: &str, playlist: Playlist) -> Suggestion {
+    let variants = match playlist {
+        Playlist::Master(mut v) => {
+            v.sort_by_key(|v| std::cmp::Reverse(v.bandwidth));
+            v.iter()
+                .map(|v| VariantDto {
+                    url: v.url.clone(),
+                    bandwidth: v.bandwidth,
+                    resolution: v.resolution.clone(),
+                    label: variant_label(v),
+                })
+                .collect()
+        }
+        Playlist::Media(_) => Vec::new(),
+    };
+    Suggestion {
+        filename: output_name(None, None, url),
+        size: None,
+        category: "video".into(),
+        resumable: true,
+        variants,
+        is_stream: true,
+    }
 }
 
 /// Ask the server what this URL is, to pre-fill the Add dialog.
 pub async fn suggest(url: &str, cfg: &EngineConfig) -> Result<Suggestion, String> {
     let url = url.trim();
     let client = build_client(cfg);
+    if path_is_m3u8(url) {
+        return Ok(stream_suggestion(url, fetch_playlist(&client, url).await?));
+    }
     let p = odm_engine::probe(&client, url, &Default::default())
         .await
         .map_err(msg)?;
+    if p.mime.as_deref().is_some_and(is_hls_mime) {
+        return Ok(stream_suggestion(
+            url,
+            fetch_playlist(&client, &p.final_url).await?,
+        ));
+    }
     let name = p
         .filename
         .clone()
@@ -153,6 +263,8 @@ pub async fn suggest(url: &str, cfg: &EngineConfig) -> Result<Suggestion, String
         filename: name,
         size: p.size,
         resumable: p.supports_range,
+        variants: Vec::new(),
+        is_stream: false,
     })
 }
 

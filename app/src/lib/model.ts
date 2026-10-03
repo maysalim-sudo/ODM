@@ -1,10 +1,12 @@
-import type { ChunkState, ChunkView, Download, DownloadState, Offer, Settings, UiEvent } from "./types";
+import type { ChunkState, ChunkView, Download, DownloadState, Offer, SegmentProgress, Settings, UiEvent } from "./types";
 
 /** A list row: the stored download plus live values from progress events. */
 export interface Row extends Download {
   speed_bps: number;
   eta_s: number | null;
   chunks: ChunkView[] | null;
+  /** HLS only: from the last progress event. */
+  segments: SegmentProgress | null;
 }
 
 export const CATEGORIES = ["video", "audio", "document", "compressed", "image", "program", "general"] as const;
@@ -32,6 +34,17 @@ export function isActive(state: DownloadState): boolean {
   return ACTIVE.includes(state);
 }
 
+/** Download progress as 0–100: segments done over total for HLS, else bytes over size. */
+export function progressPct(row: Row): number {
+  let pct = 0;
+  if (row.segments) {
+    pct = row.segments.total > 0 ? (row.segments.done / row.segments.total) * 100 : 0;
+  } else if (row.size) {
+    pct = (row.bytes / row.size) * 100;
+  }
+  return Math.min(100, Math.max(0, pct));
+}
+
 export function toRow(d: Download, prev?: Row): Row {
   // Live values only carry over while the download is still running.
   const live = isActive(d.state) && prev && isActive(prev.state) ? prev : undefined;
@@ -42,6 +55,7 @@ export function toRow(d: Download, prev?: Row): Row {
     speed_bps: live ? live.speed_bps : 0,
     eta_s: live ? live.eta_s : null,
     chunks: live ? live.chunks : null,
+    segments: live ? live.segments : null,
   };
 }
 
@@ -81,6 +95,7 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
           speed_bps: p.speed_bps,
           eta_s: p.eta_s,
           chunks: p.chunks,
+          segments: p.segments ?? null,
         });
       }
       return { rows: next ?? rows, resync: false };
@@ -127,7 +142,7 @@ function sortValue(row: Row, key: SortKey): string | number {
     case "size":
       return row.size ?? -1;
     case "progress":
-      return row.size ? row.bytes / row.size : -1;
+      return row.segments || row.size ? progressPct(row) : -1;
     case "speed_bps":
       return row.speed_bps;
     case "state":

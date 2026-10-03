@@ -1,7 +1,7 @@
 <script lang="ts">
   import { downloads } from "../lib/downloads.svelte";
-  import { formatBytes, formatDate, formatEta, formatSpeed, percent, stateLabel } from "../lib/format";
-  import type { SortKey } from "../lib/model";
+  import { formatBytes, formatDate, formatEta, formatSpeed, stateLabel } from "../lib/format";
+  import { progressPct, type SortKey } from "../lib/model";
   import ProgressBar from "./ProgressBar.svelte";
 
   let { onopen }: { onopen: (id: string) => void } = $props();
@@ -54,7 +54,7 @@
       </thead>
       <tbody>
         {#each downloads.visible as row (row.id)}
-          {@const pct = percent(row.bytes, row.size)}
+          {@const pct = row.segments || row.size ? progressPct(row) : null}
           <tr
             class:selected={downloads.selected.has(row.id)}
             tabindex="0"
