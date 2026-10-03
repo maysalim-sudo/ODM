@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
 pub struct Fixture {
-    pub ctx: IpcContext,
+    pub ctx: Arc<IpcContext>,
     pub shows: Arc<AtomicUsize>,
     pub offers_seen: Arc<AtomicUsize>,
     pub _dir: TempDir,
@@ -41,7 +41,7 @@ pub async fn fixture() -> Fixture {
     let offers_seen = Arc::new(AtomicUsize::new(0));
     let (s, o) = (shows.clone(), offers_seen.clone());
     let settings = Settings::default();
-    let ctx = IpcContext {
+    let ctx = Arc::new(IpcContext {
         manager,
         settings: Arc::new(Mutex::new(settings)),
         speeds: Arc::new(Mutex::new(SpeedBoard::default())),
@@ -52,7 +52,7 @@ pub async fn fixture() -> Fixture {
         on_offer: Box::new(move |_| {
             o.fetch_add(1, Ordering::SeqCst);
         }),
-    };
+    });
     Fixture {
         ctx,
         shows,
