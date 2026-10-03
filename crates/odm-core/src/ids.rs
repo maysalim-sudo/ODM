@@ -5,6 +5,11 @@ pub const HOST_NAME: &str = "com.odm.host";
 pub const FIREFOX_EXT_ID: &str = "odm@odm.local";
 pub const APP_DIR_NAME: &str = "ODM";
 
+/// The fixed Chromium extension ID (derived from `extension/chromium-key.txt`).
+pub fn chromium_ext_id() -> &'static str {
+    include_str!("../../../extension/chromium-id.txt").trim()
+}
+
 /// Named pipe path for the given Windows user name.
 pub fn pipe_name(user: &str) -> String {
     format!(r"\\.\pipe\odm-{user}")
@@ -31,6 +36,13 @@ mod tests {
             r"\\.\pipe\odm-Torinou"
         );
         assert_eq!(super::pipe_name_for(None, None), r"\\.\pipe\odm-user");
+    }
+
+    #[test]
+    fn chromium_id_shape() {
+        let id = super::chromium_ext_id();
+        assert_eq!(id.len(), 32);
+        assert!(id.chars().all(|c| ('a'..='p').contains(&c)));
     }
 
     #[test]

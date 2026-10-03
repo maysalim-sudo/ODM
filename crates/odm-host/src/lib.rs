@@ -2,3 +2,4 @@
 pub mod relay;
 
 pub use relay::{run, HostConfig};
+pub mod register;
