@@ -186,3 +186,18 @@ fn from_env_prefers_odm_data_dir() {
     std::env::remove_var("ODM_DATA_DIR");
     assert_eq!(AppPaths::from_env(), AppPaths::default_location());
 }
+
+#[test]
+fn clamp_normalizes_skip_hosts() {
+    let mut s = Settings {
+        skip_hosts: vec![
+            "Example.com".into(),
+            "https://example.com/".into(),
+            "bad host!".into(),
+        ],
+        ..Settings::default()
+    };
+    let w = s.clamp();
+    assert_eq!(s.skip_hosts, ["example.com"]);
+    assert!(w.is_empty(), "{w:?}");
+}

@@ -1,3 +1,4 @@
+use crate::capture::normalize_host;
 use odm_core::Category;
 use odm_engine::EngineConfig;
 use serde::{Deserialize, Serialize};
@@ -152,6 +153,13 @@ impl Settings {
         }
         self.category_folders
             .retain(|k, _| defaults.contains_key(k));
+        let mut hosts: Vec<String> = Vec::new();
+        for h in self.skip_hosts.iter().filter_map(|e| normalize_host(e)) {
+            if !hosts.contains(&h) {
+                hosts.push(h);
+            }
+        }
+        self.skip_hosts = hosts;
         w
     }
 
