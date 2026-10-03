@@ -31,10 +31,13 @@
 </script>
 
 <Modal {open} title={count === 1 ? "Remove this download?" : `Remove ${count} downloads?`} {onclose} width={420}>
-  <p class="hint">They leave the list. Downloads still running are stopped first.</p>
+  <p class="hint">
+    They leave the list. Downloads still running are stopped first, and unfinished downloads lose their partial
+    data. The box below only deletes finished files.
+  </p>
   <label class="check" style="margin-top:12px">
     <input type="checkbox" bind:checked={deleteFile} />
-    <span>Also delete the files from disk</span>
+    <span>Also delete finished files from disk</span>
   </label>
   <div class="actions">
     <button onclick={onclose}>Keep</button>

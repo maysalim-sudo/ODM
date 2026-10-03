@@ -39,7 +39,7 @@ impl AddRequest {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Stop {
     Pause,
-    Cancel { delete: bool },
+    Cancel,
     Remove { delete: bool },
     Shutdown,
 }
@@ -302,7 +302,12 @@ impl Manager {
     }
 
     async fn add(&mut self, req: AddRequest) -> Result<String, OdmError> {
-        if !(req.url.starts_with("http://") || req.url.starts_with("https://")) {
+        let scheme_ok = ["http://", "https://"].iter().any(|p| {
+            req.url
+                .get(..p.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(p))
+        });
+        if !scheme_ok {
             return Err(OdmError::new(
                 ErrorKind::Other,
                 "only http(s) URLs are supported",
@@ -355,7 +360,7 @@ impl Manager {
         match self.active.get_mut(id) {
             Some(a) => {
                 // Remove/Cancel outrank Pause; never downgrade.
-                let keep = matches!(a.stop, Some(Stop::Remove { .. } | Stop::Cancel { .. }))
+                let keep = matches!(a.stop, Some(Stop::Remove { .. } | Stop::Cancel))
                     && stop == Stop::Pause;
                 if !keep {
                     a.stop = Some(stop);
@@ -392,16 +397,16 @@ impl Manager {
         }
     }
 
-    async fn cancel(&mut self, id: &str, delete: bool) {
+    /// A cancelled download can never be resumed, so its part file always goes.
+    /// `_delete_file` only matters for a completed file, which cancel never touches.
+    async fn cancel(&mut self, id: &str, _delete_file: bool) {
         self.resume_after.remove(id);
-        if self.request_stop(id, Stop::Cancel { delete }) {
+        if self.request_stop(id, Stop::Cancel) {
             return;
         }
         if let Some(s) = self.state_of(id).await {
             if !s.is_terminal() || s == DownloadState::Failed {
-                if delete {
-                    self.delete_part(id).await;
-                }
+                self.delete_part(id).await;
                 transition(&self.env, id, DownloadState::Cancelled, None).await;
             }
         }
@@ -422,11 +427,13 @@ impl Manager {
 
     async fn delete_record(&self, id: &str, delete_file: bool) {
         if let Ok(Some(rec)) = self.env.store.get_download(id).await {
-            if delete_file {
-                let _ = std::fs::remove_file(part_path(&rec));
-                if rec.state == DownloadState::Completed {
+            if rec.state == DownloadState::Completed {
+                if delete_file {
                     let _ = std::fs::remove_file(Path::new(&rec.save_dir).join(&rec.filename));
                 }
+            } else {
+                // An unfinished download's part file is useless without its record.
+                let _ = std::fs::remove_file(part_path(&rec));
             }
         }
         if self.env.store.delete_download(id).await.is_ok() {
@@ -449,10 +456,8 @@ impl Manager {
                 transition(&self.env, &id, DownloadState::Completed, None).await
             }
             (Some(Stop::Pause), _) => transition(&self.env, &id, DownloadState::Paused, None).await,
-            (Some(Stop::Cancel { delete }), _) => {
-                if delete {
-                    self.delete_part(&id).await;
-                }
+            (Some(Stop::Cancel), _) => {
+                self.delete_part(&id).await;
                 transition(&self.env, &id, DownloadState::Cancelled, None).await;
             }
             (Some(Stop::Shutdown), _) => {

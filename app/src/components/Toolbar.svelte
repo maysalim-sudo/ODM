@@ -7,8 +7,15 @@
     onadd,
     onbatch,
     onsettings,
+    oncancel,
     onremove,
-  }: { onadd: () => void; onbatch: () => void; onsettings: () => void; onremove: () => void } = $props();
+  }: {
+    onadd: () => void;
+    onbatch: () => void;
+    onsettings: () => void;
+    oncancel: () => void;
+    onremove: () => void;
+  } = $props();
 
   const rows = $derived(downloads.selectedRows);
   const ids = (ok: (r: (typeof rows)[number]) => boolean) => rows.filter(ok).map((r) => r.id);
@@ -24,9 +31,7 @@
   <button disabled={!rows.some(canPause)} onclick={() => downloads.run(() => api.pause(ids(canPause)))}>
     Pause
   </button>
-  <button disabled={!rows.some(canCancel)} onclick={() => downloads.run(() => api.cancel(ids(canCancel), false))}>
-    Cancel
-  </button>
+  <button disabled={!rows.some(canCancel)} onclick={oncancel}>Cancel</button>
   <button disabled={rows.length === 0} onclick={onremove}>Remove</button>
   <span class="spacer"></span>
   <button onclick={onsettings}>Settings</button>

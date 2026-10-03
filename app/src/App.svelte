@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import AddDialog from "./components/AddDialog.svelte";
+  import CancelDialog from "./components/CancelDialog.svelte";
   import BatchDialog from "./components/BatchDialog.svelte";
   import DetailPanel from "./components/DetailPanel.svelte";
   import DownloadTable from "./components/DownloadTable.svelte";
@@ -15,13 +16,14 @@
   let batchOpen = $state(false);
   let settingsOpen = $state(false);
   let removeOpen = $state(false);
+  let cancelOpen = $state(false);
 
   onMount(() => {
     void downloads.init();
   });
 
   function onkeydown(e: KeyboardEvent) {
-    if (addOpen || batchOpen || settingsOpen || removeOpen) return;
+    if (addOpen || batchOpen || settingsOpen || removeOpen || cancelOpen) return;
     const t = e.target;
     const typing =
       t instanceof HTMLInputElement ||
@@ -46,6 +48,7 @@
     onadd={() => (addOpen = true)}
     onbatch={() => (batchOpen = true)}
     onsettings={() => (settingsOpen = true)}
+    oncancel={() => (cancelOpen = true)}
     onremove={() => (removeOpen = true)}
   />
   {#if downloads.error}
@@ -63,6 +66,7 @@
 
 <AddDialog open={addOpen} onclose={() => (addOpen = false)} />
 <BatchDialog open={batchOpen} onclose={() => (batchOpen = false)} />
+<CancelDialog open={cancelOpen} onclose={() => (cancelOpen = false)} />
 <RemoveDialog open={removeOpen} onclose={() => (removeOpen = false)} />
 <SettingsDialog open={settingsOpen} onclose={() => (settingsOpen = false)} />
 

@@ -186,6 +186,57 @@ async fn cancel_with_delete_removes_part_file() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn cancel_without_delete_still_removes_part_file() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(
+        12 * MB,
+        Faults {
+            bytes_per_sec: Some(MB / 2),
+            ..Default::default()
+        },
+    )
+    .await;
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let id = m.add(AddRequest::new(s.url("/file"))).await.unwrap();
+    wait_bytes(m.store(), &id).await;
+    m.cancel(&id, false).await.unwrap();
+    wait_state(m.store(), &id, DownloadState::Cancelled, 10).await;
+    let leftovers: Vec<_> = std::fs::read_dir(d.path()).unwrap().collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn remove_without_delete_still_removes_part_file_of_paused() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(
+        12 * MB,
+        Faults {
+            bytes_per_sec: Some(MB / 2),
+            ..Default::default()
+        },
+    )
+    .await;
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let id = m.add(AddRequest::new(s.url("/file"))).await.unwrap();
+    wait_bytes(m.store(), &id).await;
+    m.pause(&id).await.unwrap();
+    wait_state(m.store(), &id, DownloadState::Paused, 10).await;
+    assert!(std::fs::read_dir(d.path()).unwrap().next().is_some());
+    m.remove(&id, false).await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while m.store().get_download(&id).await.unwrap().is_some() {
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let leftovers: Vec<_> = std::fs::read_dir(d.path()).unwrap().collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn remove_deletes_record_and_file() {
     let d = tempfile::tempdir().unwrap();
     let s = TestServer::start(1000, Faults::default()).await;
@@ -309,6 +360,19 @@ async fn start_paused_and_bad_urls() {
     );
     assert!(m.add(AddRequest::new("ftp://x/y")).await.is_err());
     assert!(m.add(AddRequest::new("javascript:alert(1)")).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn url_scheme_check_ignores_case() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(1000, Faults::default()).await;
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let url = s.url("/file").replacen("http://", "HTTP://", 1);
+    assert!(url.starts_with("HTTP://"), "{url}");
+    let id = m.add(AddRequest::new(url)).await.unwrap();
+    wait_state(m.store(), &id, DownloadState::Completed, 10).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
