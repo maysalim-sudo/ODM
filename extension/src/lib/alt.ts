@@ -8,7 +8,9 @@ export class AltTracker {
     this.held = true;
   }
 
+  /** A release only counts after a press; a window blur alone says nothing about Alt. */
   up(now: number): void {
+    if (!this.held) return;
     this.held = false;
     this.releasedAt = now;
   }

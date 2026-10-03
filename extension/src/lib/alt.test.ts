@@ -17,4 +17,14 @@ describe("AltTracker", () => {
     expect(t.active(1599)).toBe(true);
     expect(t.active(1600)).toBe(false);
   });
+  it("ignores a release without a press (window blur)", () => {
+    const t = new AltTracker();
+    t.up(100);
+    expect(t.active(101)).toBe(false);
+    t.down(200);
+    t.up(300);
+    t.up(1000); // a later blur must not extend the grace period
+    expect(t.active(1799)).toBe(true);
+    expect(t.active(1800)).toBe(false);
+  });
 });
