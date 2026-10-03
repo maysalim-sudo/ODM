@@ -125,3 +125,12 @@ Also update "Status" to say everything in v1 is built.
   - Quit, then run the uninstaller silently (`uninstall.exe /S`). `HKCU\Software\ODM` and `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.odm.host` are gone.
   - Re-run the dev registration afterwards by starting the debug app once.
 - [ ] **Step 5:** Run every gate. Commit with the message `build: NSIS installer with the browser helper, release script, uninstall hook`.
+
+---
+
+## Results (2026-10-03)
+
+- `node scripts/release.mjs` produced `target/release/bundle/nsis/ODM_0.1.0_x64-setup.exe` (4.6 MiB).
+- **Silent per-user install** into a temp folder gave `ODM.exe`, `odm-host.exe` and `uninstall.exe`.
+- **First start** (`ODM.exe --background`) logged "browser integration registered". `HKCU\Software\ODM\HostPath` and `AppPath` pointed at the install folder, and so did the Mozilla and Chromium host keys.
+- **Silent uninstall** removed `HKCU\Software\ODM` and every `com.odm.host` key (Chrome, Edge, Mozilla checked). The parent `NativeMessagingHosts` keys were kept, and the install folder was removed.
