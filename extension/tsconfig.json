@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "skipLibCheck": true,
+    "types": ["chrome", "node"],
+    "allowJs": true
+  },
+  "include": ["src/**/*.ts", "scripts/chromium-id.mjs"]
+}

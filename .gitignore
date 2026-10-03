@@ -5,3 +5,5 @@ dist/
 app/dist/
 app/node_modules/
 app/src-tauri/gen/
+extension/node_modules
+extension/dist
