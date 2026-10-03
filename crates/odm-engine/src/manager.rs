@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::download::{build_client, part_path, run_download, transition, DownloadEnv, Outcome};
-use crate::hls::run::run_hls;
+use crate::hls::run::{run_hls, temp_dir};
 use crate::{EngineConfig, EngineEvent, SpeedLimiter};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
@@ -112,6 +112,15 @@ fn is_http_url(url: &str) -> bool {
         url.get(..p.len())
             .is_some_and(|head| head.eq_ignore_ascii_case(p))
     })
+}
+
+/// Deletes what an unfinished download leaves behind: its part file, or for an
+/// HLS stream its segment directory.
+fn remove_partials(rec: &DownloadRecord) {
+    let _ = std::fs::remove_file(part_path(rec));
+    if rec.kind == "hls" {
+        let _ = std::fs::remove_dir_all(temp_dir(rec));
+    }
 }
 
 fn closed() -> OdmError {
@@ -565,7 +574,7 @@ impl Manager {
 
     async fn delete_part(&self, id: &str) {
         if let Ok(Some(rec)) = self.env.store.get_download(id).await {
-            let _ = std::fs::remove_file(part_path(&rec));
+            remove_partials(&rec);
         }
     }
 
@@ -577,7 +586,7 @@ impl Manager {
                 }
             } else {
                 // An unfinished download's part file is useless without its record.
-                let _ = std::fs::remove_file(part_path(&rec));
+                remove_partials(&rec);
             }
         }
         if self.env.store.delete_download(id).await.is_ok() {

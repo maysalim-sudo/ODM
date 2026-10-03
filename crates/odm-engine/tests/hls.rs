@@ -1,4 +1,5 @@
 use odm_core::DownloadState;
+use odm_engine::hls::merge::find_ffmpeg;
 use odm_engine::hls::run::temp_dir;
 use odm_engine::{EngineConfig, EngineEvent, ManagerHandle, StreamRequest};
 use odm_store::{DownloadRecord, Store};
@@ -49,12 +50,23 @@ struct Setup {
     m: ManagerHandle,
 }
 
+/// A setup whose FFmpeg is unreachable, so the merge step fails the same way on every machine.
 async fn setup(prepare: impl FnOnce(&Path), faults: HlsFaults) -> Setup {
+    setup_with(prepare, faults, false).await
+}
+
+/// `real_ffmpeg`: use the FFmpeg on PATH instead of making it unreachable.
+async fn setup_with(prepare: impl FnOnce(&Path), faults: HlsFaults, real_ffmpeg: bool) -> Setup {
     let src = tempfile::tempdir().unwrap();
     prepare(src.path());
     let out = tempfile::tempdir().unwrap();
     let server = HlsServer::start(src.path().to_path_buf(), faults).await;
-    let m = ManagerHandle::start(cfg(out.path()), Store::open_in_memory().unwrap())
+    let mut config = cfg(out.path());
+    if !real_ffmpeg {
+        config.ffmpeg_path = Some("Z:/nope/ffmpeg.exe".into());
+        config.ffmpeg_search_path = false;
+    }
+    let m = ManagerHandle::start(config, Store::open_in_memory().unwrap())
         .await
         .unwrap();
     Setup {
@@ -73,7 +85,7 @@ fn stream(url: String, out: &Path) -> StreamRequest {
     }
 }
 
-const MERGE_STUB: &str = "merge not implemented";
+const NO_FFMPEG: &str = "FFmpeg not found — set its path in Settings.";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn downloads_and_decrypts_all_segments() {
@@ -88,7 +100,7 @@ async fn downloads_and_decrypts_all_segments() {
             .await
             .unwrap();
     let r = wait_state(s.m.store(), &id, DownloadState::Failed, 30).await;
-    assert_eq!(r.error_msg.as_deref(), Some(MERGE_STUB));
+    assert_eq!(r.error_msg.as_deref(), Some(NO_FFMPEG));
     let tmp = temp_dir(&r);
     for (i, plain) in plains.iter().enumerate() {
         let got = std::fs::read(tmp.join(format!("seg_{:06}.ts", i + 1))).unwrap();
@@ -207,7 +219,7 @@ async fn pause_resume_skips_done_segments() {
 
     s.m.resume(&id).await.unwrap();
     let r = wait_state(s.m.store(), &id, DownloadState::Failed, 30).await;
-    assert_eq!(r.error_msg.as_deref(), Some(MERGE_STUB));
+    assert_eq!(r.error_msg.as_deref(), Some(NO_FFMPEG));
     let total = s
         .server
         .segment_requests
@@ -242,7 +254,7 @@ async fn transient_segment_error_is_retried() {
             .await
             .unwrap();
     let r = wait_state(s.m.store(), &id, DownloadState::Failed, 30).await;
-    assert_eq!(r.error_msg.as_deref(), Some(MERGE_STUB));
+    assert_eq!(r.error_msg.as_deref(), Some(NO_FFMPEG));
     assert_eq!(done_count(s.m.store(), &id).await, 5);
 }
 
@@ -276,4 +288,193 @@ async fn progress_reports_segments() {
     let seg = p.segments.expect("segments");
     assert_eq!(seg.total, 12);
     assert!(p.chunks.is_empty());
+}
+
+fn have_ffmpeg() -> bool {
+    let found = find_ffmpeg(None).is_some();
+    if !found {
+        eprintln!("skipped: ffmpeg not found");
+    }
+    found
+}
+
+/// Duration in seconds from ffprobe, or None when ffprobe is unavailable.
+fn probe_duration(file: &Path) -> Option<f64> {
+    let out = std::process::Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
+        ])
+        .arg(file)
+        .output()
+        .ok()?;
+    assert!(out.status.success(), "ffprobe failed on {}", file.display());
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn real_stream_merges_to_playable_mp4() {
+    if !have_ffmpeg() {
+        return;
+    }
+    let s = setup_with(
+        |d| assert!(odm_testserver::hls::write_real_ts(d), "write_real_ts"),
+        HlsFaults::default(),
+        true,
+    )
+    .await;
+    let mut req = stream(s.server.url("/real/index.m3u8"), s.out.path());
+    req.page_title = Some("Test: clip?".into());
+    let id = s.m.add_stream(req).await.unwrap();
+    let r = wait_state(s.m.store(), &id, DownloadState::Completed, 60).await;
+    assert_eq!(r.filename, "Test clip.mp4");
+    let out = s.out.path().join("Test clip.mp4");
+    let len = std::fs::metadata(&out).unwrap().len();
+    assert!(len > 10_000, "{len} bytes");
+    if let Some(d) = probe_duration(&out) {
+        assert!((3.5..=4.5).contains(&d), "duration {d}");
+    } else {
+        eprintln!("skipped: ffprobe not found");
+    }
+    assert!(!temp_dir(&r).exists(), "temp dir should be gone");
+    assert_eq!(r.size, Some(len));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn encrypted_real_stream_merges() {
+    use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
+    if !have_ffmpeg() {
+        return;
+    }
+    let s = setup_with(
+        |d| {
+            assert!(odm_testserver::hls::write_real_ts(d), "write_real_ts");
+            let real = d.join("real");
+            let key: [u8; 16] = std::array::from_fn(|i| i as u8);
+            std::fs::write(real.join("key.bin"), key).unwrap();
+            let list = std::fs::read_to_string(real.join("index.m3u8")).unwrap();
+            let mut seq = 0u64;
+            for line in list.lines().filter(|l| l.ends_with(".ts")) {
+                let plain = std::fs::read(real.join(line)).unwrap();
+                let mut iv = [0u8; 16];
+                iv[8..].copy_from_slice(&seq.to_be_bytes());
+                let enc = cbc::Encryptor::<aes::Aes128>::new((&key).into(), (&iv).into())
+                    .encrypt_padded_vec_mut::<Pkcs7>(&plain);
+                std::fs::write(real.join(line), enc).unwrap();
+                seq += 1;
+            }
+            assert!(seq >= 3, "expected several segments, got {seq}");
+            // The key tag goes right after #EXT-X-TARGETDURATION.
+            let rewritten = list
+                .lines()
+                .map(|l| {
+                    if l.starts_with("#EXT-X-TARGETDURATION") {
+                        format!("{l}\n#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"")
+                    } else {
+                        l.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(rewritten.contains("METHOD=AES-128"));
+            std::fs::write(real.join("index.m3u8"), rewritten + "\n").unwrap();
+        },
+        HlsFaults::default(),
+        true,
+    )
+    .await;
+    let id =
+        s.m.add_stream(stream(s.server.url("/real/index.m3u8"), s.out.path()))
+            .await
+            .unwrap();
+    let r = wait_state(s.m.store(), &id, DownloadState::Completed, 60).await;
+    let out = s.out.path().join(&r.filename);
+    assert!(std::fs::metadata(&out).unwrap().len() > 10_000);
+    if let Some(d) = probe_duration(&out) {
+        assert!((3.5..=4.5).contains(&d), "duration {d}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn missing_ffmpeg_fails_with_message() {
+    let s = setup(
+        |d| {
+            write_synthetic(d, 3, 2000, false);
+        },
+        HlsFaults::default(),
+    )
+    .await;
+    let id =
+        s.m.add_stream(stream(s.server.url("/media.m3u8"), s.out.path()))
+            .await
+            .unwrap();
+    let r = wait_state(s.m.store(), &id, DownloadState::Failed, 30).await;
+    assert_eq!(r.error_msg.as_deref(), Some(NO_FFMPEG));
+    let tmp = temp_dir(&r);
+    for i in 1..=3 {
+        assert!(
+            tmp.join(format!("seg_{i:06}.ts")).exists(),
+            "segment {i} kept"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn corrupt_segments_fail_with_ffmpeg_output() {
+    if !have_ffmpeg() {
+        return;
+    }
+    let s = setup_with(
+        |d| {
+            write_synthetic(d, 3, 4000, false);
+        },
+        HlsFaults::default(),
+        true,
+    )
+    .await;
+    let id =
+        s.m.add_stream(stream(s.server.url("/media.m3u8"), s.out.path()))
+            .await
+            .unwrap();
+    let r = wait_state(s.m.store(), &id, DownloadState::Failed, 60).await;
+    let msg = r.error_msg.clone().unwrap();
+    assert!(
+        msg.starts_with("FFmpeg could not merge the video:"),
+        "{msg}"
+    );
+    assert!(msg.lines().count() > 1, "stderr tail expected: {msg}");
+    assert!(temp_dir(&r).join("seg_000001.ts").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancel_removes_temp_dir() {
+    let s = setup(
+        |d| {
+            write_synthetic(d, 20, 100_000, false);
+        },
+        HlsFaults {
+            bytes_per_sec: Some(200_000),
+            ..Default::default()
+        },
+    )
+    .await;
+    let id =
+        s.m.add_stream(stream(s.server.url("/media.m3u8"), s.out.path()))
+            .await
+            .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while done_count(s.m.store(), &id).await < 2 {
+        assert!(Instant::now() < deadline, "no progress");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let rec = s.m.store().get_download(&id).await.unwrap().unwrap();
+    let tmp = temp_dir(&rec);
+    assert!(tmp.exists());
+    s.m.cancel(&id, true).await.unwrap();
+    wait_state(s.m.store(), &id, DownloadState::Cancelled, 15).await;
+    assert!(!tmp.exists(), "temp dir should be removed on cancel");
 }

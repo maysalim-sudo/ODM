@@ -18,6 +18,8 @@ pub struct EngineConfig {
     pub user_agent: String,
     /// FFmpeg executable used to merge HLS streams; PATH is searched when unset.
     pub ffmpeg_path: Option<PathBuf>,
+    /// Whether to look for FFmpeg on `PATH` when `ffmpeg_path` is unset or missing.
+    pub ffmpeg_search_path: bool,
 }
 
 impl Default for EngineConfig {
@@ -42,6 +44,7 @@ impl Default for EngineConfig {
             persist_interval: Duration::from_secs(1),
             user_agent: format!("ODM/{}", env!("CARGO_PKG_VERSION")),
             ffmpeg_path: None,
+            ffmpeg_search_path: true,
         }
     }
 }

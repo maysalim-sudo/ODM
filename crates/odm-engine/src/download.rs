@@ -616,21 +616,8 @@ async fn finish(env: &DownloadEnv, rec: &DownloadRecord, part: &Path) -> Result<
             .map_err(|e| OdmError::new(ErrorKind::Other, e.to_string()))??;
     }
     let dir = Path::new(&rec.save_dir);
-    // std::fs::rename REPLACES an existing target on Windows, so choosing the
-    // name and renaming must be atomic with respect to other finishing downloads.
-    let (name, final_path) = {
-        let _guard = FINISH_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let name = filename::unique_name(&rec.filename, |n| dir.join(n).exists());
-        let final_path = dir.join(&name);
-        std::fs::rename(part, &final_path).map_err(io_err)?;
-        (name, final_path)
-    };
-    if name != rec.filename {
-        env.store
-            .set_filename(&rec.id, name)
-            .await
-            .map_err(store_err)?;
-    }
+    let final_path = place_final(part, dir, &rec.filename, rec)?;
+    set_final_name(env, rec, &final_path).await?;
     if rec.size.is_none() {
         let len = std::fs::metadata(&final_path).map_err(io_err)?.len();
         env.store
@@ -644,9 +631,48 @@ async fn finish(env: &DownloadEnv, rec: &DownloadRecord, part: &Path) -> Result<
             .await
             .map_err(store_err)?;
     }
-    write_mark_of_the_web(&final_path, &rec.url, rec.page_url.as_deref());
     tracing::info!(id = %rec.id, path = %final_path.display(), "completed");
     Ok(final_path)
+}
+
+/// Moves `src` into `dir` under a name that is unique there (`name`, `name (1)`, ...)
+/// and marks it as downloaded from the internet. Choosing the name and renaming is
+/// atomic with respect to other finishing downloads.
+pub(crate) fn place_final(
+    src: &Path,
+    dir: &Path,
+    name: &str,
+    rec: &DownloadRecord,
+) -> Result<PathBuf, OdmError> {
+    // std::fs::rename REPLACES an existing target on Windows.
+    let final_path = {
+        let _guard = FINISH_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let name = filename::unique_name(name, |n| dir.join(n).exists());
+        let final_path = dir.join(&name);
+        std::fs::rename(src, &final_path).map_err(io_err)?;
+        final_path
+    };
+    write_mark_of_the_web(&final_path, &rec.url, rec.page_url.as_deref());
+    Ok(final_path)
+}
+
+/// Stores the file name that `place_final` actually chose.
+pub(crate) async fn set_final_name(
+    env: &DownloadEnv,
+    rec: &DownloadRecord,
+    final_path: &Path,
+) -> Result<(), OdmError> {
+    let name = final_path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| rec.filename.clone());
+    if name != rec.filename {
+        env.store
+            .set_filename(&rec.id, name)
+            .await
+            .map_err(store_err)?;
+    }
+    Ok(())
 }
 
 /// Marks the file as downloaded from the internet (`ZoneId=3`) so Windows

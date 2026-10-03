@@ -175,6 +175,8 @@ pub fn write_real_ts(dir: &Path) -> bool {
             "libx264",
             "-g",
             "10",
+            "-bf",
+            "0",
             "-pix_fmt",
             "yuv420p",
             "-c:a",

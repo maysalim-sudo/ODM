@@ -1,5 +1,6 @@
 //! HLS support: playlist parsing, segment decryption and the download run.
 pub mod crypto;
+pub mod merge;
 pub mod playlist;
 pub mod run;
 
