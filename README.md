@@ -4,8 +4,8 @@ A personal download manager for Windows. It downloads files over several connect
 
 ## Status
 
-- Done: the download engine, the command-line tool, the desktop app and browser integration (Chrome/Chromium, Edge, Firefox/Floorp).
-- Not yet built: video streams (HLS) and the installer.
+- Done: the download engine, the command-line tool, the desktop app, browser integration (Chrome/Chromium, Edge, Firefox/Floorp) and HLS video streams.
+- Not yet built: the installer.
 
 ## Requirements
 
@@ -46,6 +46,14 @@ Using it:
 - If ODM is closed, a captured download starts it in the tray.
 
 `odm-host --unregister` removes the registration.
+
+## Video streams (HLS)
+
+- When a page plays an HLS video, the extension's badge shows how many streams it found, and a small "ODM" button appears at the bottom right of the page. Pick a stream there, or in the toolbar popup, to send it to ODM. Nothing is sent unless you click.
+- You can also paste an `.m3u8` link into **Add download**. For a playlist with several qualities, choose one under **Quality** (the highest is preselected).
+- ODM downloads the segments over several connections, resumes after a pause or restart, decrypts AES-128 streams, and merges everything into an `.mp4` with FFmpeg.
+- FFmpeg is required and not bundled. ODM uses the path set in **Settings → FFmpeg path**, or else `ffmpeg.exe` on your `PATH`.
+- Not supported yet: live streams, SAMPLE-AES encryption, byte-range playlists and DASH (`.mpd`). DASH streams show up as "not supported yet".
 
 ## Command line
 
