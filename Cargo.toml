@@ -30,6 +30,8 @@ axum = "0.8"
 bytes = "1"
 sha2 = "0.10"
 md-5 = "0.10"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc", "block-padding"] }
 tempfile = "3"
 clap = { version = "4", features = ["derive"] }
 percent-encoding = "2"
