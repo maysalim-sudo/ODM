@@ -49,6 +49,12 @@ enum Cmd {
     Pause(String),
     Resume(String),
     Cancel(String, bool),
+    RefreshUrl(
+        String,
+        String,
+        Option<Vec<(String, String)>>,
+        oneshot::Sender<Result<(), OdmError>>,
+    ),
     Remove(String, bool),
     PauseAll,
     ResumeAll,
@@ -83,6 +89,14 @@ pub struct ManagerHandle {
 
 fn store_err(e: odm_store::StoreError) -> OdmError {
     OdmError::new(ErrorKind::Other, format!("store: {e}"))
+}
+
+/// Case-insensitive `http://` / `https://` prefix check.
+fn is_http_url(url: &str) -> bool {
+    ["http://", "https://"].iter().any(|p| {
+        url.get(..p.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(p))
+    })
 }
 
 fn closed() -> OdmError {
@@ -129,8 +143,22 @@ impl ManagerHandle {
     pub async fn resume(&self, id: &str) -> Result<(), OdmError> {
         self.send(Cmd::Resume(id.into())).await
     }
+    /// `delete_file` is ignored: cancel always deletes the part file and never touches a completed file.
     pub async fn cancel(&self, id: &str, delete_file: bool) -> Result<(), OdmError> {
         self.send(Cmd::Cancel(id.into(), delete_file)).await
+    }
+    /// Gives a paused or failed download a new link (and optionally new headers).
+    /// It does not resume; the caller resumes.
+    pub async fn refresh_url(
+        &self,
+        id: &str,
+        url: String,
+        headers: Option<Vec<(String, String)>>,
+    ) -> Result<(), OdmError> {
+        let (tx, rx) = oneshot::channel();
+        self.send(Cmd::RefreshUrl(id.into(), url, headers, tx))
+            .await?;
+        rx.await.map_err(|_| closed())?
     }
     pub async fn remove(&self, id: &str, delete_file: bool) -> Result<(), OdmError> {
         self.send(Cmd::Remove(id.into(), delete_file)).await
@@ -176,13 +204,25 @@ impl ManagerHandle {
             .collect())
     }
 
+    /// Number of downloads per state, read straight from the store.
+    pub async fn state_counts(&self) -> Result<HashMap<DownloadState, u64>, OdmError> {
+        Ok(self
+            .store
+            .count_by_state()
+            .await
+            .map_err(store_err)?
+            .into_iter()
+            .collect())
+    }
+
     pub async fn active_count(&self) -> Result<usize, OdmError> {
         Ok(self
-            .list()
+            .state_counts()
             .await?
-            .iter()
-            .filter(|(r, _)| r.state.is_active())
-            .count())
+            .into_iter()
+            .filter(|(s, _)| s.is_active())
+            .map(|(_, n)| n as usize)
+            .sum())
     }
 
     pub async fn shutdown(&self) {
@@ -219,6 +259,10 @@ impl Manager {
                 Cmd::Pause(id) => self.pause(&id).await,
                 Cmd::Resume(id) => self.resume(&id).await,
                 Cmd::Cancel(id, delete) => self.cancel(&id, delete).await,
+                Cmd::RefreshUrl(id, url, headers, reply) => {
+                    let r = self.refresh_url(&id, url, headers).await;
+                    let _ = reply.send(r);
+                }
                 Cmd::Remove(id, delete) => self.remove(&id, delete).await,
                 Cmd::PauseAll => {
                     for id in self
@@ -302,12 +346,7 @@ impl Manager {
     }
 
     async fn add(&mut self, req: AddRequest) -> Result<String, OdmError> {
-        let scheme_ok = ["http://", "https://"].iter().any(|p| {
-            req.url
-                .get(..p.len())
-                .is_some_and(|head| head.eq_ignore_ascii_case(p))
-        });
-        if !scheme_ok {
+        if !is_http_url(&req.url) {
             return Err(OdmError::new(
                 ErrorKind::Other,
                 "only http(s) URLs are supported",
@@ -354,6 +393,35 @@ impl Manager {
             self.schedule().await;
         }
         Ok(id)
+    }
+
+    async fn refresh_url(
+        &mut self,
+        id: &str,
+        url: String,
+        headers: Option<Vec<(String, String)>>,
+    ) -> Result<(), OdmError> {
+        if !is_http_url(&url) {
+            return Err(OdmError::new(
+                ErrorKind::Other,
+                "only http(s) URLs are supported",
+            ));
+        }
+        if !matches!(
+            self.state_of(id).await,
+            Some(DownloadState::Paused | DownloadState::Failed)
+        ) || self.active.contains_key(id)
+        {
+            return Err(OdmError::new(
+                ErrorKind::Other,
+                "only a paused or failed download can get a new link",
+            ));
+        }
+        self.env.store.set_url(id, url).await.map_err(store_err)?;
+        if let Some(h) = headers {
+            self.env.store.set_headers(id, h).await.map_err(store_err)?;
+        }
+        Ok(())
     }
 
     fn request_stop(&mut self, id: &str, stop: Stop) -> bool {

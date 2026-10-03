@@ -260,3 +260,26 @@ pub fn set_placement(
     )?;
     Ok(())
 }
+
+pub fn count_by_state(c: &Connection) -> rusqlite::Result<Vec<(DownloadState, u64)>> {
+    let mut st = c.prepare("SELECT state, COUNT(*) FROM downloads GROUP BY state")?;
+    let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (state, n) = row?;
+        if let Some(s) = DownloadState::parse(&state) {
+            out.push((s, n as u64));
+        }
+    }
+    Ok(out)
+}
+
+/// Replaces the link. The stored validators stay so a resume can still verify
+/// that the new link serves the same file.
+pub fn set_url(c: &Connection, id: &str, url: &str) -> rusqlite::Result<()> {
+    c.execute(
+        "UPDATE downloads SET url=?2, final_url=NULL WHERE id=?1",
+        params![id, url],
+    )?;
+    Ok(())
+}

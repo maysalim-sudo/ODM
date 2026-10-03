@@ -567,3 +567,24 @@ async fn final_progress_event_reports_every_chunk_done() {
     idxs.dedup();
     assert_eq!(idxs.len(), p.chunks.len(), "chunk idx must be unique");
 }
+
+#[cfg(windows)]
+#[tokio::test]
+async fn completed_file_gets_mark_of_the_web() {
+    let f = fx();
+    let s = TestServer::start(MB, Faults::default()).await;
+    let id = add(&f, &s.url("/file?token=secret"), 1).await;
+    let mut rec = f.env.store.get_download(&id).await.unwrap().unwrap();
+    rec.page_url = Some("https://site.example/page?q=1".into());
+    f.env.store.delete_download(&id).await.unwrap();
+    f.env.store.insert_download(rec).await.unwrap();
+    let p = done(run_download(&f.env, &id, CancellationToken::new()).await);
+    let zone = std::fs::read_to_string(format!("{}:Zone.Identifier", p.display())).unwrap();
+    assert!(zone.contains("ZoneId=3"), "{zone}");
+    assert!(zone.contains("HostUrl=http://127.0.0.1:"), "{zone}");
+    assert!(
+        zone.contains("ReferrerUrl=https://site.example/page"),
+        "{zone}"
+    );
+    assert!(!zone.contains("secret") && !zone.contains("q=1"), "{zone}");
+}

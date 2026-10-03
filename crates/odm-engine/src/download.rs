@@ -643,9 +643,30 @@ async fn finish(env: &DownloadEnv, rec: &DownloadRecord, part: &Path) -> Result<
             .await
             .map_err(store_err)?;
     }
+    write_mark_of_the_web(&final_path, &rec.url, rec.page_url.as_deref());
     tracing::info!(id = %rec.id, path = %final_path.display(), "completed");
     Ok(final_path)
 }
+
+/// Marks the file as downloaded from the internet (`ZoneId=3`) so Windows
+/// SmartScreen and Office protected view treat it with suspicion. URLs are
+/// redacted: no query, no credentials. Best-effort: file systems without
+/// alternate data streams (FAT/exFAT) only log a warning.
+#[cfg(windows)]
+fn write_mark_of_the_web(path: &Path, url: &str, page_url: Option<&str>) {
+    let mut zone = String::from("[ZoneTransfer]\r\nZoneId=3\r\n");
+    if let Some(p) = page_url {
+        zone.push_str(&format!("ReferrerUrl={}\r\n", odm_core::redact_url(p)));
+    }
+    zone.push_str(&format!("HostUrl={}\r\n", odm_core::redact_url(url)));
+    let stream = format!("{}:Zone.Identifier", path.display());
+    if let Err(e) = std::fs::write(stream, zone) {
+        tracing::warn!("could not write Mark of the Web: {e}");
+    }
+}
+
+#[cfg(not(windows))]
+fn write_mark_of_the_web(_path: &Path, _url: &str, _page_url: Option<&str>) {}
 
 #[cfg(test)]
 mod tests {

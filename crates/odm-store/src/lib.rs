@@ -147,6 +147,13 @@ impl Store {
         let id = id.to_string();
         self.call(move |c| repo::get_with_bytes(c, &id)).await
     }
+    pub async fn count_by_state(&self) -> Result<Vec<(DownloadState, u64)>, StoreError> {
+        self.call(|c| repo::count_by_state(c)).await
+    }
+    pub async fn set_url(&self, id: &str, url: String) -> Result<(), StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::set_url(c, &id, &url)).await
+    }
     pub async fn set_placement(
         &self,
         id: &str,

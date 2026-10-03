@@ -446,3 +446,98 @@ async fn auto_placement_uses_the_probe_mime_type() {
     let r = wait_state(m.store(), &fixed, DownloadState::Completed, 10).await;
     assert_eq!(Path::new(&r.save_dir), d.path().join("mine"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn state_counts_and_active_count_agree() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(2 * MB, Faults::default()).await;
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        let mut req = AddRequest::new(s.url("/file"));
+        req.start_paused = true;
+        m.add(req).await.unwrap();
+    }
+    assert_eq!(m.state_counts().await.unwrap()[&DownloadState::Paused], 2);
+    assert_eq!(m.active_count().await.unwrap(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_url_resumes_from_partial_data() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(
+        8 * MB,
+        Faults {
+            bytes_per_sec: Some(2 * MB),
+            ..Default::default()
+        },
+    )
+    .await;
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let id = m.add(AddRequest::new(s.url("/file"))).await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let w: u64 = m.chunks(&id).await.unwrap().iter().map(|c| c.written).sum();
+        if w >= MB {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no 1 MB of progress");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    m.pause(&id).await.unwrap();
+    wait_state(m.store(), &id, DownloadState::Paused, 20).await;
+    let (_, paused_bytes) = m.get(&id).await.unwrap().unwrap();
+    assert!(paused_bytes >= MB);
+
+    m.refresh_url(&id, s.url("/file?token=2"), None)
+        .await
+        .unwrap();
+    let mut rx = m.subscribe();
+    m.resume(&id).await.unwrap();
+    let r = wait_state(m.store(), &id, DownloadState::Completed, 60).await;
+    assert_eq!(std::fs::read(final_path(&r)).unwrap(), body(8 * MB));
+    assert!(r.url.ends_with("?token=2"), "{}", r.url);
+
+    let first = loop {
+        match rx.try_recv() {
+            Ok(EngineEvent::Progress(p)) if p.id == id => break p,
+            Ok(_) => {}
+            Err(e) => panic!("no progress event after resume: {e:?}"),
+        }
+    };
+    assert!(
+        first.bytes >= paused_bytes,
+        "restarted: {} < {paused_bytes}",
+        first.bytes
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_url_refuses_active_and_bad_scheme() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(
+        12 * MB,
+        Faults {
+            bytes_per_sec: Some(MB / 2),
+            ..Default::default()
+        },
+    )
+    .await;
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let id = m.add(AddRequest::new(s.url("/file"))).await.unwrap();
+    wait_bytes(m.store(), &id).await;
+    assert!(m.refresh_url(&id, s.url("/file?x=1"), None).await.is_err());
+
+    m.pause(&id).await.unwrap();
+    wait_state(m.store(), &id, DownloadState::Paused, 20).await;
+    assert!(m
+        .refresh_url(&id, "ftp://x/file".into(), None)
+        .await
+        .is_err());
+    m.cancel(&id, true).await.unwrap();
+}

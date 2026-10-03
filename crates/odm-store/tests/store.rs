@@ -343,3 +343,46 @@ async fn set_placement_updates_category_and_dir() {
         ("video", "C:/dl/Videos")
     );
 }
+
+#[tokio::test]
+async fn count_by_state_groups_rows() {
+    let s = Store::open_in_memory().unwrap();
+    for (id, st) in [
+        ("a", DownloadState::Queued),
+        ("b", DownloadState::Queued),
+        ("c", DownloadState::Paused),
+        ("d", DownloadState::Completed),
+    ] {
+        let mut r = rec(id);
+        r.state = st;
+        s.insert_download(r).await.unwrap();
+    }
+    let counts: std::collections::HashMap<DownloadState, u64> =
+        s.count_by_state().await.unwrap().into_iter().collect();
+    assert_eq!(
+        counts,
+        std::collections::HashMap::from([
+            (DownloadState::Queued, 2),
+            (DownloadState::Paused, 1),
+            (DownloadState::Completed, 1),
+        ])
+    );
+}
+
+#[tokio::test]
+async fn set_url_clears_final_url_keeps_validator() {
+    let s = Store::open_in_memory().unwrap();
+    let mut r = rec("a");
+    r.final_url = Some("https://cdn.e.com/old".into());
+    r.etag = Some("\"abc\"".into());
+    r.last_modified = Some("Mon, 01 Jan 2026 00:00:00 GMT".into());
+    s.insert_download(r.clone()).await.unwrap();
+    s.set_url("a", "https://e.com/new?token=2".into())
+        .await
+        .unwrap();
+    let got = s.get_download("a").await.unwrap().unwrap();
+    assert_eq!(got.url, "https://e.com/new?token=2");
+    assert_eq!(got.final_url, None);
+    assert_eq!(got.etag, r.etag);
+    assert_eq!(got.last_modified, r.last_modified);
+}
