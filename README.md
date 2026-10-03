@@ -4,8 +4,8 @@ A personal download manager for Windows. It downloads files over several connect
 
 ## Status
 
-- Done: the download engine, the command-line tool and the desktop app.
-- Not yet built: the browser extension, video streams (HLS) and the installer.
+- Done: the download engine, the command-line tool, the desktop app and browser integration (Chrome/Chromium, Edge, Firefox/Floorp).
+- Not yet built: video streams (HLS) and the installer.
 
 ## Requirements
 
@@ -25,6 +25,28 @@ Build a standalone executable (written to `target/debug/odm-app.exe`):
     cd app
     pnpm tauri build --debug --no-bundle
 
+## Browser integration
+
+1. Build the browser helper next to the app: `cargo build -p odm-host` (or `--release` for a release build of the app). ODM registers it for Chrome, Edge, Brave, Vivaldi, Opera, Chromium, Firefox and Floorp the first time it starts, and again whenever it is moved.
+2. Build the extension:
+
+       cd extension
+       pnpm install
+       pnpm build
+
+3. Chrome, Edge and other Chromium browsers: open `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and pick `extension/dist/chromium`. Its ID is fixed (see `extension/chromium-id.txt`), which is what lets the helper talk to it.
+4. Firefox and Floorp: open `about:debugging`, choose **This Firefox → Load Temporary Add-on** and pick `extension/dist/firefox/manifest.json`. A temporary add-on is removed when the browser restarts. To keep it, sign it as an unlisted add-on with your own addons.mozilla.org keys (`npx web-ext sign --channel=unlisted --source-dir dist/firefox`), or use a build that allows unsigned add-ons. In Firefox, open the ODM popup once and choose **Allow** so it can read download cookies.
+
+Using it:
+- Click a download link as usual. ODM takes it with the page's cookies and Referer, and the browser's own download disappears. If ODM doesn't answer within 5 seconds, the browser keeps the download.
+- Hold **Alt** while clicking to let the browser download it instead.
+- Small files (under the minimum capture size), sites on the skip list, and everything while capture is off stay in the browser. All three are in ODM's Settings.
+- Right-click a link, video or audio element and choose **Download with ODM**.
+- The toolbar popup shows whether ODM is running, the active and queued counts, the total speed, and Pause all / Resume all / Open ODM.
+- If ODM is closed, a captured download starts it in the tray.
+
+`odm-host --unregister` removes the registration.
+
 ## Command line
 
     cargo run -p odm-cli --release -- get <URL> [--dir DIR] [--name NAME] [-c CONNECTIONS] [--limit BYTES_PER_SECOND]
@@ -41,6 +63,7 @@ Some servers refuse extra connections (HTTP 429). ODM then keeps downloading wit
 
     cargo test --workspace -- --test-threads=4
     cd app && pnpm test && pnpm check
+    cd extension && pnpm test && pnpm check
 
 ## Layout
 
@@ -51,7 +74,9 @@ Some servers refuse extra connections (HTTP 429). ODM then keeps downloading wit
 | `crates/odm-engine` | The download engine and queue |
 | `crates/odm-appcore` | App logic that doesn't depend on Tauri: settings, logging, UI data, event bridge |
 | `crates/odm-cli` | Command-line tool |
+| `crates/odm-host` | Browser helper (native messaging host) and its registration |
 | `crates/odm-testserver` | Test-only HTTP server that can misbehave on purpose |
 | `app/src-tauri` | The Tauri shell: commands, tray, window |
 | `app/src` | The Svelte user interface |
+| `extension` | The browser extension (Chromium and Firefox builds) |
 | `docs/superpowers` | Design spec and implementation plans |
