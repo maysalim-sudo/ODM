@@ -11,7 +11,7 @@ pub mod events;
 pub mod speed;
 
 pub use config::EngineConfig;
-pub use events::{ChunkView, ChunkViewState, EngineEvent, ProgressSnapshot};
+pub use events::{ChunkView, ChunkViewState, EngineEvent, ProgressSnapshot, SegmentProgress};
 pub mod worker;
 
 pub mod download;
@@ -19,4 +19,4 @@ pub use download::{run_download, DownloadEnv, Outcome};
 
 pub mod hls;
 pub mod manager;
-pub use manager::{AddRequest, ManagerHandle};
+pub use manager::{AddRequest, ManagerHandle, StreamRequest};

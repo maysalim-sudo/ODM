@@ -65,6 +65,7 @@ mod tests {
             speed_bps: speed,
             eta_s: None,
             chunks: vec![],
+            segments: None,
         })
     }
 

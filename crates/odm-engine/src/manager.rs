@@ -8,6 +8,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::download::{build_client, part_path, run_download, transition, DownloadEnv, Outcome};
+use crate::hls::run::run_hls;
 use crate::{EngineConfig, EngineEvent, SpeedLimiter};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
@@ -36,6 +37,19 @@ impl AddRequest {
     }
 }
 
+/// An HLS stream to download. `playlist_url` may be a master or a media playlist.
+#[derive(Debug, Clone, Default)]
+pub struct StreamRequest {
+    pub playlist_url: String,
+    pub variant_url: Option<String>,
+    pub filename: Option<String>,
+    pub save_dir: Option<PathBuf>,
+    pub page_url: Option<String>,
+    pub page_title: Option<String>,
+    pub headers: Vec<(String, String)>,
+    pub start_paused: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Stop {
     Pause,
@@ -46,6 +60,7 @@ enum Stop {
 
 enum Cmd {
     Add(AddRequest, oneshot::Sender<Result<String, OdmError>>),
+    AddStream(StreamRequest, oneshot::Sender<Result<String, OdmError>>),
     Pause(String),
     Resume(String),
     Cancel(String, bool),
@@ -135,6 +150,11 @@ impl ManagerHandle {
     pub async fn add(&self, req: AddRequest) -> Result<String, OdmError> {
         let (tx, rx) = oneshot::channel();
         self.send(Cmd::Add(req, tx)).await?;
+        rx.await.map_err(|_| closed())?
+    }
+    pub async fn add_stream(&self, req: StreamRequest) -> Result<String, OdmError> {
+        let (tx, rx) = oneshot::channel();
+        self.send(Cmd::AddStream(req, tx)).await?;
         rx.await.map_err(|_| closed())?
     }
     pub async fn pause(&self, id: &str) -> Result<(), OdmError> {
@@ -254,6 +274,10 @@ impl Manager {
             match cmd {
                 Cmd::Add(req, reply) => {
                     let r = self.add(req).await;
+                    let _ = reply.send(r);
+                }
+                Cmd::AddStream(req, reply) => {
+                    let r = self.add_stream(req).await;
                     let _ = reply.send(r);
                 }
                 Cmd::Pause(id) => self.pause(&id).await,
@@ -386,6 +410,58 @@ impl Manager {
         self.env
             .store
             .insert_download_with_headers(rec, req.headers)
+            .await
+            .map_err(store_err)?;
+        let _ = self.env.events.send(EngineEvent::Added { id: id.clone() });
+        if !req.start_paused {
+            self.schedule().await;
+        }
+        Ok(id)
+    }
+
+    async fn add_stream(&mut self, req: StreamRequest) -> Result<String, OdmError> {
+        if !is_http_url(&req.playlist_url) {
+            return Err(OdmError::new(
+                ErrorKind::Other,
+                "only http(s) URLs are supported",
+            ));
+        }
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let name = crate::hls::output_name(
+            req.filename.as_deref(),
+            req.page_title.as_deref(),
+            &req.playlist_url,
+        );
+        let dir = req
+            .save_dir
+            .clone()
+            .unwrap_or_else(|| self.env.config.save_dir_for("video"));
+        let mut rec =
+            DownloadRecord::new_hls(&id, &req.playlist_url, &name, &dir.to_string_lossy());
+        rec.category = "video".into();
+        rec.filename_locked = req.filename.is_some();
+        rec.max_connections = self.env.config.max_connections.clamp(1, 32);
+        rec.page_url = req.page_url;
+        rec.page_title = req.page_title;
+        if req.start_paused {
+            rec.state = DownloadState::Paused;
+        }
+        self.env
+            .store
+            .insert_download_with_headers(rec, req.headers)
+            .await
+            .map_err(store_err)?;
+        self.env
+            .store
+            .set_hls_meta(
+                &id,
+                odm_store::HlsMeta {
+                    variant_url: req.variant_url.unwrap_or(req.playlist_url),
+                    key_url: None,
+                    iv: None,
+                    map_url: None,
+                },
+            )
             .await
             .map_err(store_err)?;
         let _ = self.env.events.send(EngineEvent::Added { id: id.clone() });
@@ -581,16 +657,25 @@ impl Manager {
             // Run the download as its own task so a panic surfaces as a JoinError
             // here instead of skipping `Finished` and wedging the id in `active`.
             let inner_id = task_id.clone();
-            let out =
-                match tokio::spawn(async move { run_download(&env, &inner_id, task_cancel).await })
-                    .await
-                {
-                    Ok(out) => out,
-                    Err(e) => {
-                        tracing::error!(id = %task_id, "download task panicked: {e}");
-                        Outcome::Failed(OdmError::new(ErrorKind::Other, "internal error"))
-                    }
-                };
+            let out = match tokio::spawn(async move {
+                let is_hls = matches!(
+                    env.store.get_download(&inner_id).await,
+                    Ok(Some(r)) if r.kind == "hls"
+                );
+                if is_hls {
+                    run_hls(&env, &inner_id, task_cancel).await
+                } else {
+                    run_download(&env, &inner_id, task_cancel).await
+                }
+            })
+            .await
+            {
+                Ok(out) => out,
+                Err(e) => {
+                    tracing::error!(id = %task_id, "download task panicked: {e}");
+                    Outcome::Failed(OdmError::new(ErrorKind::Other, "internal error"))
+                }
+            };
             let _ = tx.send(Cmd::Finished(task_id, out)).await;
         });
         self.active.insert(id, Active { cancel, stop: None });

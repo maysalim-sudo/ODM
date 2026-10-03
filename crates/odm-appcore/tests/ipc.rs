@@ -156,6 +156,7 @@ async fn summary_counts_and_speed() {
                 speed_bps: 1000,
                 eta_s: None,
                 chunks: vec![],
+                segments: None,
             },
         ));
     let r = dispatch(&f.ctx, req(cmd::GET_SUMMARY, json!({}))).await;

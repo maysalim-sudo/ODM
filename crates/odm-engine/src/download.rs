@@ -564,6 +564,7 @@ fn emit_progress(
         speed_bps: speed,
         eta_s: eta(rec.size, bytes, speed),
         chunks: table.views(),
+        segments: None,
     }));
 }
 

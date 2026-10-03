@@ -26,6 +26,13 @@ pub struct ChunkView {
     pub state: ChunkViewState,
 }
 
+/// Segment counters of an HLS download.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct SegmentProgress {
+    pub done: u32,
+    pub total: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ProgressSnapshot {
     pub id: String,
@@ -34,6 +41,8 @@ pub struct ProgressSnapshot {
     pub speed_bps: u64,
     pub eta_s: Option<u64>,
     pub chunks: Vec<ChunkView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segments: Option<SegmentProgress>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -82,8 +91,21 @@ mod tests {
                     written: 10,
                     state: ChunkViewState::Active,
                 }],
+                segments: None,
             })),
             r#"{"type":"progress","id":"a1","bytes":10,"total":100,"speed_bps":5,"eta_s":18,"chunks":[{"idx":0,"start":0,"end":99,"written":10,"state":"active"}]}"#
+        );
+        assert_eq!(
+            json(&EngineEvent::Progress(ProgressSnapshot {
+                id: "h1".into(),
+                bytes: 300,
+                total: Some(1200),
+                speed_bps: 50,
+                eta_s: Some(18),
+                chunks: vec![],
+                segments: Some(SegmentProgress { done: 3, total: 12 }),
+            })),
+            r#"{"type":"progress","id":"h1","bytes":300,"total":1200,"speed_bps":50,"eta_s":18,"chunks":[],"segments":{"done":3,"total":12}}"#
         );
         assert_eq!(
             json(&EngineEvent::State {

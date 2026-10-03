@@ -16,6 +16,8 @@ pub struct EngineConfig {
     pub progress_interval: Duration,
     pub persist_interval: Duration,
     pub user_agent: String,
+    /// FFmpeg executable used to merge HLS streams; PATH is searched when unset.
+    pub ffmpeg_path: Option<PathBuf>,
 }
 
 impl Default for EngineConfig {
@@ -39,6 +41,7 @@ impl Default for EngineConfig {
             progress_interval: Duration::from_millis(250),
             persist_interval: Duration::from_secs(1),
             user_agent: format!("ODM/{}", env!("CARGO_PKG_VERSION")),
+            ffmpeg_path: None,
         }
     }
 }
