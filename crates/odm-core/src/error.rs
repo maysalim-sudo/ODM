@@ -49,13 +49,26 @@ impl ErrorKind {
         }
     }
 
+    /// Classifies an HTTP error status. 408, 429 and 5xx are transient; 403 and 410
+    /// mean the link expired once the download had started.
+    pub fn from_http_status(status: u16, started: bool) -> Self {
+        if is_transient_status(status) {
+            Self::HttpTransient(status)
+        } else if matches!(status, 403 | 410) && started {
+            Self::LinkExpired
+        } else {
+            Self::Http(status)
+        }
+    }
+
     /// The inverse of [`ErrorKind::code`]. `http_<n>` is transient for 408, 429 and 5xx.
     pub fn from_code(code: &str) -> Option<Self> {
         if let Some(n) = code.strip_prefix("http_") {
             let status: u16 = n.parse().ok()?;
-            return Some(match status {
-                408 | 429 | 500..=599 => Self::HttpTransient(status),
-                _ => Self::Http(status),
+            return Some(if is_transient_status(status) {
+                Self::HttpTransient(status)
+            } else {
+                Self::Http(status)
             });
         }
         Some(match code {
@@ -74,6 +87,10 @@ impl ErrorKind {
             _ => return None,
         })
     }
+}
+
+fn is_transient_status(status: u16) -> bool {
+    matches!(status, 408 | 429 | 500..=599)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +180,18 @@ mod tests {
         assert_eq!(super::ErrorKind::from_code("nonsense"), None);
         assert_eq!(super::ErrorKind::from_code("http_"), None);
         assert_eq!(super::ErrorKind::from_code("http_abc"), None);
+    }
+
+    #[test]
+    fn from_http_status_cases() {
+        let f = super::ErrorKind::from_http_status;
+        assert_eq!(f(503, false), HttpTransient(503));
+        assert_eq!(f(503, true), HttpTransient(503));
+        assert_eq!(f(429, false), HttpTransient(429));
+        assert_eq!(f(404, true), Http(404));
+        assert_eq!(f(403, true), LinkExpired);
+        assert_eq!(f(403, false), Http(403));
+        assert_eq!(f(410, true), LinkExpired);
     }
 
     #[test]

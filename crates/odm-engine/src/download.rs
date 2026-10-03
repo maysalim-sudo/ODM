@@ -409,20 +409,33 @@ async fn transfer(
     let mut tick = tokio::time::interval(cfg.progress_interval);
     let mut last_persist = Instant::now();
     let mut fatal: Option<OdmError> = None;
+    // An error that must end the transfer at once (a persist failure, a worker panic).
+    let mut early: Option<OdmError> = None;
 
     loop {
         tokio::select! {
             _ = tick.tick() => {
                 emit_progress(env, rec, &table, &mut meter, &session);
                 if last_persist.elapsed() >= cfg.persist_interval {
-                    persist(env, id, &ctx.file, &table, &mut layout_dirty).await?;
+                    if let Err(e) = persist(env, id, &ctx.file, &table, &mut layout_dirty).await {
+                        early = Some(e);
+                        break;
+                    }
                     last_persist = Instant::now();
                 }
             }
             joined = set.join_next() => {
                 let Some(joined) = joined else { break };
-                let (chunk, res) = joined
-                    .map_err(|e| OdmError::new(ErrorKind::Other, format!("worker panicked: {e}")))?;
+                let (chunk, res) = match joined {
+                    Ok(v) => v,
+                    Err(e) => {
+                        early = Some(OdmError::new(
+                            ErrorKind::Other,
+                            format!("worker panicked: {e}"),
+                        ));
+                        break;
+                    }
+                };
                 match res {
                     Ok(()) => {
                         set_chunk_state(&chunk, ChunkViewState::Done);
@@ -493,6 +506,14 @@ async fn transfer(
                 }
             }
         }
+    }
+    if let Some(e) = early {
+        // Stop the remaining workers and wait for them, so that no write still
+        // holds the part file once this returns.
+        work.cancel();
+        set.abort_all();
+        while set.join_next().await.is_some() {}
+        return Err(e);
     }
     debug_assert!(
         parked.is_empty() || fatal.is_some() || work.is_cancelled(),

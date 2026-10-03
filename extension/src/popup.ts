@@ -1,9 +1,13 @@
-import { ext, send } from "./lib/browser";
+import { ext, send, sendDetailed } from "./lib/browser";
 import { statusLine } from "./lib/format";
-import { errorText } from "./lib/protocol";
+import { errorText, type SendFailure } from "./lib/protocol";
 import type { Stream } from "./lib/streams";
 
-const MISSING_HELPER = "ODM's browser helper is not installed. Open ODM once to set it up.";
+const FAILURE_TEXT: Record<SendFailure, string> = {
+  missing_host: "ODM's browser helper is not installed. Open ODM once to set it up.",
+  timeout: "ODM did not answer in time.",
+  other: "Could not reach ODM.",
+};
 const TEN_MINUTES = 10 * 60 * 1000;
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
@@ -19,9 +23,9 @@ async function refreshSummary(): Promise<void> {
 }
 
 async function init(): Promise<void> {
-  const r = await send<{ version: string }>("PING", {}, 2000);
+  const { response: r, failure } = await sendDetailed<{ version: string }>("PING", {}, 2000);
   if (r === null) {
-    setStatus(MISSING_HELPER);
+    setStatus(FAILURE_TEXT[failure ?? "other"]);
   } else if (r.ok) {
     setStatus(`Connected to ODM ${r.payload?.version ?? ""}`.trim());
     await refreshSummary();
@@ -103,9 +107,9 @@ $("resume").addEventListener("click", async () => {
   await refreshSummary();
 });
 $("open").addEventListener("click", async () => {
-  const r = await send("SHOW_WINDOW", {}, 15000);
+  const { response: r, failure } = await sendDetailed("SHOW_WINDOW", {}, 15000);
   if (r?.ok) window.close();
-  else setStatus(r === null ? MISSING_HELPER : errorText(r));
+  else setStatus(r === null ? FAILURE_TEXT[failure ?? "other"] : errorText(r));
 });
 $("dismiss").addEventListener("click", async () => {
   const area = ext.storage.session ?? ext.storage.local;

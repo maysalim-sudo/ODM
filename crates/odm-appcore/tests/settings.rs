@@ -212,3 +212,39 @@ fn ffmpeg_path_reaches_the_engine_config() {
         Some(std::path::PathBuf::from("C:/tools/ffmpeg.exe"))
     );
 }
+
+#[test]
+fn concurrent_saves_do_not_clash() {
+    let d = tempfile::tempdir().unwrap();
+    let path = d.path().join("settings.json");
+    let variants: Vec<Settings> = (1..=8u32)
+        .map(|n| Settings {
+            max_concurrent: n,
+            ..Settings::default()
+        })
+        .collect();
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = variants
+            .iter()
+            .map(|s| {
+                let path = path.clone();
+                scope.spawn(move || s.save(&path))
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap().expect("every save succeeds");
+        }
+    });
+    let (loaded, warnings) = Settings::load(&path);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(variants.contains(&loaded));
+    let names: Vec<String> = std::fs::read_dir(d.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["settings.json".to_string()],
+        "left over: {names:?}"
+    );
+}

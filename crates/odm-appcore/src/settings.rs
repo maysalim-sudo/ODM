@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -176,7 +177,16 @@ impl Settings {
 
     /// Write to a temp file, then rename over the real one.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        let tmp = path.with_extension("json.tmp");
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_default();
+        let tmp = path.with_file_name(format!(
+            "{name}.{}-{}.tmp",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
         {
             use std::io::Write;
             let mut f = std::fs::File::create(&tmp)?;
@@ -184,7 +194,11 @@ impl Settings {
             // Flush to disk before the rename so a crash can't leave a truncated file.
             f.sync_all()?;
         }
-        std::fs::rename(&tmp, path)
+        let renamed = std::fs::rename(&tmp, path);
+        if renamed.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        renamed
     }
 
     pub fn to_engine_config(&self) -> EngineConfig {

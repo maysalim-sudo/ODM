@@ -26,11 +26,7 @@ pub fn parse_retry_after(v: &str) -> Option<Duration> {
 }
 
 pub fn classify_status(status: u16, started: bool) -> ErrorKind {
-    match status {
-        408 | 429 | 500..=599 => ErrorKind::HttpTransient(status),
-        403 | 410 if started => ErrorKind::LinkExpired,
-        s => ErrorKind::Http(s),
-    }
+    ErrorKind::from_http_status(status, started)
 }
 
 pub fn classify_io(e: &std::io::Error) -> ErrorKind {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { errorText, makeRequest } from "./protocol";
+import { classifySendError, errorText, makeRequest, TIMEOUT_SENTINEL } from "./protocol";
 
 describe("protocol", () => {
   it("makes a request with a uuid id", () => {
@@ -12,5 +12,10 @@ describe("protocol", () => {
     expect(errorText({ id: "1", ok: false, error: { code: "x", message: "m" } })).toBe("m");
     expect(errorText(null)).toBe("ODM did not answer.");
     expect(errorText({ id: "1", ok: true })).toBe("");
+  });
+  it("classifies send failures", () => {
+    expect(classifySendError(new Error("Specified native messaging host not found."))).toBe("missing_host");
+    expect(classifySendError(new Error("Error when communicating with the native messaging host."))).toBe("other");
+    expect(classifySendError(TIMEOUT_SENTINEL)).toBe("timeout");
   });
 });
