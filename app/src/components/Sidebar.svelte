@@ -1,6 +1,6 @@
 <script lang="ts">
   import { downloads } from "../lib/downloads.svelte";
-  import { CATEGORIES, type Filter } from "../lib/model";
+  import { CATEGORIES, CATEGORY_LABELS, type Filter } from "../lib/model";
 
   const status: { key: Filter; label: string }[] = [
     { key: "all", label: "All downloads" },
@@ -10,15 +10,6 @@
     { key: "failed", label: "Failed" },
   ];
 
-  const categoryLabel: Record<string, string> = {
-    video: "Video",
-    audio: "Audio",
-    document: "Documents",
-    compressed: "Compressed",
-    image: "Images",
-    program: "Programs",
-    general: "Other",
-  };
 </script>
 
 <nav aria-label="Filters">
@@ -32,7 +23,7 @@
   {#each CATEGORIES as c (c)}
     {@const key = `cat:${c}` as Filter}
     <button class:active={downloads.filter === key} aria-current={downloads.filter === key ? "true" : undefined} onclick={() => downloads.setFilter(key)}>
-      <span>{categoryLabel[c]}</span>
+      <span>{CATEGORY_LABELS[c]}</span>
       <span class="count">{downloads.counts[key] ?? 0}</span>
     </button>
   {/each}

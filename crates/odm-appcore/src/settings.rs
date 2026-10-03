@@ -169,10 +169,13 @@ impl Settings {
     /// Write to a temp file, then rename over the real one.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(
-            &tmp,
-            serde_json::to_vec_pretty(self).expect("settings serialize"),
-        )?;
+        {
+            use std::io::Write;
+            let mut f = std::fs::File::create(&tmp)?;
+            f.write_all(&serde_json::to_vec_pretty(self).expect("settings serialize"))?;
+            // Flush to disk before the rename so a crash can't leave a truncated file.
+            f.sync_all()?;
+        }
         std::fs::rename(&tmp, path)
     }
 

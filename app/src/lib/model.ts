@@ -9,6 +9,17 @@ export interface Row extends Download {
 
 export const CATEGORIES = ["video", "audio", "document", "compressed", "image", "program", "general"] as const;
 
+/** Display names for the category ids, used by the sidebar and the settings. */
+export const CATEGORY_LABELS: Record<(typeof CATEGORIES)[number], string> = {
+  video: "Video",
+  audio: "Audio",
+  document: "Documents",
+  compressed: "Compressed",
+  image: "Images",
+  program: "Programs",
+  general: "Other",
+};
+
 export type StatusFilter = "all" | "active" | "queued" | "completed" | "failed";
 export type Filter = StatusFilter | `cat:${string}`;
 export type SortKey = "filename" | "size" | "progress" | "speed_bps" | "state" | "created_at";

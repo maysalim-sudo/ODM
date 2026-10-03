@@ -71,7 +71,11 @@
 
     {#if rejected.length > 0}
       <p class="form-error" role="alert">
-        {rejected.length} {rejected.length === 1 ? "line was" : "lines were"} not added. They are still in the box above.
+        {#if rejected.length === 1}
+          1 line was not added. It is still in the box above.
+        {:else}
+          {rejected.length} lines were not added. They are still in the box above.
+        {/if}
       </p>
     {/if}
     {#if error}<p class="form-error" role="alert">{error}</p>{/if}

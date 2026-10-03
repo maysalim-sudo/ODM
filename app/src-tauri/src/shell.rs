@@ -86,15 +86,14 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
 
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     if let WindowEvent::CloseRequested { api, .. } = event {
+        let app = window.app_handle();
+        // No state means startup failed; let the window close normally.
+        let Some(state) = app.try_state::<AppState>() else {
+            return;
+        };
         // Either way the window does not close by itself: hide it, or run the quit flow.
         api.prevent_close();
-        let app = window.app_handle();
-        let to_tray = app
-            .state::<AppState>()
-            .settings
-            .lock()
-            .unwrap()
-            .close_to_tray;
+        let to_tray = state.settings.lock().unwrap().close_to_tray;
         if to_tray {
             let _ = window.hide();
         } else {
@@ -104,11 +103,10 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
 }
 
 pub fn request_quit(app: &AppHandle) {
-    if app
-        .state::<AppState>()
-        .quitting
-        .swap(true, Ordering::SeqCst)
-    {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    if state.quitting.swap(true, Ordering::SeqCst) {
         return;
     }
     let app = app.clone();
@@ -152,17 +150,13 @@ pub fn request_quit(app: &AppHandle) {
 }
 
 pub fn on_ui_event(app: &AppHandle, ev: &UiEvent) {
-    let state = app.state::<AppState>();
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
     let Some(download) = state.completions.lock().unwrap().newly_completed(ev) else {
         return;
     };
-    if !app
-        .state::<AppState>()
-        .settings
-        .lock()
-        .unwrap()
-        .notifications
-    {
+    if !state.settings.lock().unwrap().notifications {
         return;
     }
     if let Err(e) = app

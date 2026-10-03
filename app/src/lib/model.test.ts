@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  CATEGORIES,
+  CATEGORY_LABELS,
   ReloadGate,
   coerceSettings,
   nextFilename,
@@ -350,5 +352,19 @@ describe("nextFilename", () => {
   it("never overwrites a name the user typed", () => {
     expect(nextFilename("mine.zip", "a.zip", "b.zip")).toBe("mine.zip");
     expect(nextFilename("mine.zip", null, "b.zip")).toBe("mine.zip");
+  });
+});
+
+describe("CATEGORY_LABELS", () => {
+  it("names every category in plain words", () => {
+    expect(CATEGORIES.map((c) => CATEGORY_LABELS[c])).toEqual([
+      "Video",
+      "Audio",
+      "Documents",
+      "Compressed",
+      "Images",
+      "Programs",
+      "Other",
+    ]);
   });
 });

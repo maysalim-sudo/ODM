@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as api from "../lib/api";
-  import { CATEGORIES, coerceSettings } from "../lib/model";
+  import { CATEGORIES, CATEGORY_LABELS, coerceSettings } from "../lib/model";
   import type { Settings } from "../lib/types";
   import Modal from "./Modal.svelte";
 
@@ -82,7 +82,7 @@
         <div class="grid">
           {#each CATEGORIES as c (c)}
             <label class="field">
-              <span>{c}</span>
+              <span>{CATEGORY_LABELS[c]}</span>
               <input bind:value={s.category_folders[c]} />
             </label>
           {/each}

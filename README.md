@@ -11,7 +11,7 @@ A personal download manager for Windows. It downloads files over several connect
 
 - Windows 10 or 11 with the WebView2 runtime (included in Windows 11)
 - Rust (stable, MSVC toolchain) and the Visual Studio C++ Build Tools
-- Node 20 or newer and pnpm
+- Node 22.12 or newer and pnpm
 - TypeScript is pinned to version 6 because the current `svelte-check` does not accept TypeScript 7.
 
 ## Run the desktop app
