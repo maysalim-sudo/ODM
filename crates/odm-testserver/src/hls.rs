@@ -154,7 +154,26 @@ pub fn write_synthetic(dir: &Path, n: u32, seg_len: usize, encrypt: bool) -> Vec
 /// Uses ffmpeg (if found on PATH) to write a real 4-second VOD stream "real/index.m3u8" with
 /// 1-second TS segments; returns false when ffmpeg is unavailable or fails.
 pub fn write_real_ts(dir: &Path) -> bool {
-    let out = dir.join("real");
+    write_real(dir, "real", &[])
+}
+
+/// Like `write_real_ts`, but fragmented-MP4 segments: "fmp4/index.m3u8" with `init.mp4`
+/// and `index<N>.m4s`.
+pub fn write_real_fmp4(dir: &Path) -> bool {
+    write_real(
+        dir,
+        "fmp4",
+        &[
+            "-hls_segment_type",
+            "fmp4",
+            "-hls_fmp4_init_filename",
+            "init.mp4",
+        ],
+    )
+}
+
+fn write_real(dir: &Path, sub: &str, hls_args: &[&str]) -> bool {
+    let out = dir.join(sub);
     if std::fs::create_dir_all(&out).is_err() {
         return false;
     }
@@ -187,8 +206,9 @@ pub fn write_real_ts(dir: &Path) -> bool {
             "1",
             "-hls_playlist_type",
             "vod",
-            "real/index.m3u8",
         ])
+        .args(hls_args)
+        .arg(format!("{sub}/index.m3u8"))
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()

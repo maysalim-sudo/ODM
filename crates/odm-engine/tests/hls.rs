@@ -478,3 +478,30 @@ async fn cancel_removes_temp_dir() {
     wait_state(s.m.store(), &id, DownloadState::Cancelled, 15).await;
     assert!(!tmp.exists(), "temp dir should be removed on cancel");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn real_fmp4_stream_merges_to_playable_mp4() {
+    if !have_ffmpeg() {
+        return;
+    }
+    let s = setup_with(
+        |d| assert!(odm_testserver::hls::write_real_fmp4(d), "write_real_fmp4"),
+        HlsFaults::default(),
+        true,
+    )
+    .await;
+    let id =
+        s.m.add_stream(stream(s.server.url("/fmp4/index.m3u8"), s.out.path()))
+            .await
+            .unwrap();
+    let r = wait_state(s.m.store(), &id, DownloadState::Completed, 60).await;
+    let out = s.out.path().join(&r.filename);
+    let len = std::fs::metadata(&out).unwrap().len();
+    assert!(len > 10_000, "{len} bytes");
+    if let Some(d) = probe_duration(&out) {
+        assert!((3.5..=4.5).contains(&d), "duration {d}");
+    } else {
+        eprintln!("skipped: ffprobe not found");
+    }
+    assert!(!temp_dir(&r).exists(), "temp dir should be gone");
+}
