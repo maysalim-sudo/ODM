@@ -3,6 +3,7 @@ pub mod api;
 pub mod bridge;
 pub mod capture;
 pub mod dto;
+pub mod ipc;
 pub mod logging;
 pub mod messages;
 pub mod offers;

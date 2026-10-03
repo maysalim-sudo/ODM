@@ -1,0 +1,197 @@
+//! The IPC command dispatcher: plain async logic against `ManagerHandle`, no transport.
+use crate::capture::{normalize_headers, skip_reason};
+use crate::messages::user_message;
+use crate::offers::{find_reusable, OfferDto, Offers};
+use crate::summary::SpeedBoard;
+use crate::Settings;
+use odm_core::ipc::{
+    cmd, code, AddDownload, AddStream, Added, PingReply, Request, Response, Source, Summary,
+};
+use odm_core::{filename, redact_url, DownloadState};
+use odm_engine::{AddRequest, ManagerHandle};
+use serde::Serialize;
+use serde_json::Value;
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+pub struct IpcContext {
+    pub manager: ManagerHandle,
+    pub settings: Arc<Mutex<Settings>>,
+    pub speeds: Arc<Mutex<SpeedBoard>>,
+    pub offers: Arc<Offers>,
+    pub show_window: Box<dyn Fn() + Send + Sync>,
+    pub on_offer: Box<dyn Fn(&OfferDto) + Send + Sync>,
+}
+
+/// Milliseconds since the Unix epoch.
+pub fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn reply<T: Serialize>(id: Option<String>, v: &T) -> Response {
+    match serde_json::to_value(v) {
+        Ok(p) => Response::ok(id, p),
+        Err(e) => Response::err(id, code::INTERNAL, e.to_string()),
+    }
+}
+
+fn internal(id: Option<String>, e: &odm_core::OdmError) -> Response {
+    Response::err(id, code::INTERNAL, user_message(e))
+}
+
+/// Handles one request. Never panics; always echoes `req.id`.
+pub async fn dispatch(ctx: &IpcContext, req: Request) -> Response {
+    let id = req.id.clone();
+    match req.cmd.as_str() {
+        cmd::PING => reply(
+            id,
+            &PingReply {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            },
+        ),
+        cmd::GET_SUMMARY => get_summary(ctx, id).await,
+        cmd::PAUSE_ALL => match ctx.manager.pause_all().await {
+            Ok(()) => Response::ok(id, serde_json::json!({})),
+            Err(e) => internal(id, &e),
+        },
+        cmd::RESUME_ALL => match ctx.manager.resume_all().await {
+            Ok(()) => Response::ok(id, serde_json::json!({})),
+            Err(e) => internal(id, &e),
+        },
+        cmd::SHOW_WINDOW => {
+            (ctx.show_window)();
+            Response::ok(id, serde_json::json!({}))
+        }
+        cmd::ADD_STREAM => match serde_json::from_value::<AddStream>(req.payload) {
+            Ok(_) => Response::err(
+                id,
+                code::NOT_SUPPORTED,
+                "Video streams arrive in a later version of ODM.",
+            ),
+            Err(e) => Response::err(id, code::BAD_PAYLOAD, e.to_string()),
+        },
+        cmd::ADD_DOWNLOAD => add_download(ctx, id, req.payload).await,
+        other => {
+            let shown: String = other.chars().take(64).collect();
+            Response::err(
+                id,
+                code::UNKNOWN_COMMAND,
+                format!("Unknown command: {shown}"),
+            )
+        }
+    }
+}
+
+async fn get_summary(ctx: &IpcContext, id: Option<String>) -> Response {
+    let counts = match ctx.manager.state_counts().await {
+        Ok(c) => c,
+        Err(e) => return internal(id, &e),
+    };
+    let active = counts
+        .iter()
+        .filter(|(s, _)| s.is_active())
+        .map(|(_, n)| *n)
+        .sum();
+    let queued = counts.get(&DownloadState::Queued).copied().unwrap_or(0);
+    let total_speed_bps = ctx.speeds.lock().unwrap_or_else(|e| e.into_inner()).total();
+    reply(
+        id,
+        &Summary {
+            active,
+            queued,
+            total_speed_bps,
+        },
+    )
+}
+
+async fn add_download(ctx: &IpcContext, id: Option<String>, payload: Value) -> Response {
+    let p: AddDownload = match serde_json::from_value(payload) {
+        Ok(p) => p,
+        Err(e) => return Response::err(id, code::BAD_PAYLOAD, e.to_string()),
+    };
+    tracing::info!(
+        cmd = cmd::ADD_DOWNLOAD,
+        url = %redact_url(&p.url),
+        headers = ?p.headers.keys().collect::<Vec<_>>(),
+        "ipc request"
+    );
+    if p.expires_at_ms.is_some_and(|t| now_ms() > t) {
+        return Response::err(
+            id,
+            code::EXPIRED,
+            "ODM answered too late; the browser kept the download.",
+        );
+    }
+    if p.source == Source::Capture {
+        let settings = ctx
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(reason) = skip_reason(&settings, &p.url, p.filesize) {
+            return Response::err(id, code::SKIPPED, reason);
+        }
+    }
+
+    let mut headers: Vec<(String, String)> = p
+        .headers
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    if let Some(r) = p.referrer.as_deref().filter(|r| !r.is_empty()) {
+        if !headers
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("referer"))
+        {
+            headers.push(("Referer".into(), r.to_string()));
+        }
+    }
+    if let Some(c) = p.cookies.as_deref().filter(|c| !c.is_empty()) {
+        headers.push(("Cookie".into(), c.to_string()));
+    }
+    let headers = normalize_headers(headers);
+
+    let basename = p
+        .filename
+        .as_deref()
+        .and_then(|f| f.rsplit(['/', '\\']).next())
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .map(str::to_string);
+    let req = AddRequest {
+        filename: basename.clone(),
+        page_url: p.referrer.clone(),
+        headers,
+        ..AddRequest::new(p.url.clone())
+    };
+
+    let name = match &basename {
+        Some(b) => Some(filename::sanitize(b)),
+        None => filename::from_url(&p.url),
+    };
+    if let Some(name) = name {
+        match find_reusable(&ctx.manager, &name).await {
+            Ok(Some(rec)) => {
+                let offer = ctx.offers.create(rec.id.clone(), rec.filename.clone(), req);
+                (ctx.on_offer)(&offer);
+                (ctx.show_window)();
+                return reply(
+                    id,
+                    &Added {
+                        download_id: rec.id,
+                    },
+                );
+            }
+            Ok(None) => {}
+            Err(e) => return internal(id, &e),
+        }
+    }
+
+    match ctx.manager.add(req).await {
+        Ok(download_id) => reply(id, &Added { download_id }),
+        Err(e) => Response::err(id, code::ADD_FAILED, user_message(&e)),
+    }
+}
