@@ -5,7 +5,7 @@ A personal download manager for Windows. It downloads files over several connect
 ## Status
 
 - Done: the download engine, the command-line tool, the desktop app, browser integration (Chrome/Chromium, Edge, Firefox/Floorp) and HLS video streams.
-- Not yet built: the installer.
+- Also done: an unsigned per-user installer. Everything planned for v1 is built.
 
 ## Requirements
 
@@ -13,6 +13,16 @@ A personal download manager for Windows. It downloads files over several connect
 - Rust (stable, MSVC toolchain) and the Visual Studio C++ Build Tools
 - Node 22.12 or newer and pnpm
 - TypeScript is pinned to version 6 because the current `svelte-check` does not accept TypeScript 7.
+
+## Install
+
+    node scripts/release.mjs
+
+This builds the helper, the extension and the app, then prints the paths. Run the installer from `target\release\bundle\nsis\`. It installs for the current user, so it needs no admin rights, and it is unsigned, so Windows SmartScreen may ask you to confirm.
+
+- ODM registers the browser helper (`odm-host.exe`, installed next to `ODM.exe`) the first time it starts.
+- Uninstalling removes that registration.
+- Load the extension from `extension\dist\chromium` or `extension\dist\firefox` as described under "Browser integration".
 
 ## Run the desktop app
 
