@@ -3,6 +3,7 @@ pub mod api;
 pub mod bridge;
 pub mod dto;
 pub mod logging;
+pub mod messages;
 pub mod paths;
 pub mod settings;
 

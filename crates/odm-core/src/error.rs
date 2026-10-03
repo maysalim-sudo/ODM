@@ -48,6 +48,32 @@ impl ErrorKind {
             Self::Other => "other".into(),
         }
     }
+
+    /// The inverse of [`ErrorKind::code`]. `http_<n>` is transient for 408, 429 and 5xx.
+    pub fn from_code(code: &str) -> Option<Self> {
+        if let Some(n) = code.strip_prefix("http_") {
+            let status: u16 = n.parse().ok()?;
+            return Some(match status {
+                408 | 429 | 500..=599 => Self::HttpTransient(status),
+                _ => Self::Http(status),
+            });
+        }
+        Some(match code {
+            "timeout" => Self::Timeout,
+            "connection" => Self::Connection,
+            "dns" => Self::Dns,
+            "disk_full" => Self::DiskFull,
+            "permission_denied" => Self::PermissionDenied,
+            "range_ignored" => Self::RangeIgnored,
+            "checksum_mismatch" => Self::ChecksumMismatch,
+            "link_expired" => Self::LinkExpired,
+            "file_changed" => Self::FileChanged,
+            "io" => Self::Io,
+            "cancelled" => Self::Cancelled,
+            "other" => Self::Other,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,6 +135,34 @@ mod tests {
         assert_eq!(Http(404).code(), "http_404");
         assert_eq!(HttpTransient(503).code(), "http_503");
         assert_eq!(LinkExpired.code(), "link_expired");
+    }
+
+    #[test]
+    fn from_code_round_trips_every_variant() {
+        for k in [
+            Timeout,
+            Connection,
+            Dns,
+            HttpTransient(408),
+            HttpTransient(429),
+            HttpTransient(503),
+            Http(404),
+            Http(403),
+            DiskFull,
+            PermissionDenied,
+            RangeIgnored,
+            ChecksumMismatch,
+            LinkExpired,
+            FileChanged,
+            Io,
+            Cancelled,
+            Other,
+        ] {
+            assert_eq!(super::ErrorKind::from_code(&k.code()), Some(k), "{k:?}");
+        }
+        assert_eq!(super::ErrorKind::from_code("nonsense"), None);
+        assert_eq!(super::ErrorKind::from_code("http_"), None);
+        assert_eq!(super::ErrorKind::from_code("http_abc"), None);
     }
 
     #[test]

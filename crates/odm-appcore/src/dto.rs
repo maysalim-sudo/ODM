@@ -1,4 +1,5 @@
-use odm_core::DownloadState;
+use crate::messages::user_message;
+use odm_core::{DownloadState, ErrorKind, OdmError};
 use odm_engine::{ChunkView, ChunkViewState, ProgressSnapshot};
 use odm_store::{ChunkRecord, DownloadRecord};
 use serde::Serialize;
@@ -26,6 +27,18 @@ pub struct DownloadDto {
     pub finished_at: Option<i64>,
 }
 
+/// The stored failure text, rewritten in plain language when its code is known.
+fn failure_message(r: &DownloadRecord) -> Option<String> {
+    let stored = r.error_msg.clone();
+    match r.error_kind.as_deref().and_then(ErrorKind::from_code) {
+        Some(kind) => Some(user_message(&OdmError::new(
+            kind,
+            stored.unwrap_or_default(),
+        ))),
+        None => stored,
+    }
+}
+
 pub fn to_dto(r: &DownloadRecord, bytes: u64) -> DownloadDto {
     let bytes = match (r.state, r.size) {
         (DownloadState::Completed, Some(size)) => size,
@@ -42,7 +55,7 @@ pub fn to_dto(r: &DownloadRecord, bytes: u64) -> DownloadDto {
         category: r.category.clone(),
         state: r.state,
         error_code: r.error_kind.clone(),
-        error_message: r.error_msg.clone(),
+        error_message: failure_message(r),
         max_connections: r.max_connections,
         kind: r.kind.clone(),
         page_url: r.page_url.clone(),
@@ -178,5 +191,48 @@ mod tracker_tests {
         assert!(t.newly_completed(&up("a", DownloadState::Queued)).is_none());
         assert!(t.newly_completed(&done).is_some());
         assert!(t.newly_completed(&UiEvent::Resync).is_none());
+    }
+}
+
+#[cfg(test)]
+mod message_tests {
+    use super::*;
+
+    fn failed(kind: Option<&str>, msg: &str) -> DownloadRecord {
+        let mut r = DownloadRecord::new_file("a", "https://e.com/f", "f", "C:/dl");
+        r.state = DownloadState::Failed;
+        r.error_kind = kind.map(String::from);
+        r.error_msg = Some(msg.into());
+        r
+    }
+
+    #[test]
+    fn link_expired_uses_the_spec_text() {
+        let dto = to_dto(&failed(Some("link_expired"), "HTTP 403"), 0);
+        assert_eq!(
+            dto.error_message.as_deref(),
+            Some("Link expired — re-send it from the browser.")
+        );
+        assert_eq!(dto.error_code.as_deref(), Some("link_expired"));
+    }
+
+    #[test]
+    fn disk_full_is_plain() {
+        let dto = to_dto(
+            &failed(
+                Some("disk_full"),
+                "There is not enough space on the disk. (os error 112)",
+            ),
+            0,
+        );
+        assert_eq!(dto.error_message.as_deref(), Some("The disk is full."));
+    }
+
+    #[test]
+    fn unknown_code_keeps_the_stored_message() {
+        let dto = to_dto(&failed(Some("weird"), "raw text"), 0);
+        assert_eq!(dto.error_message.as_deref(), Some("raw text"));
+        let dto = to_dto(&failed(None, "raw text"), 0);
+        assert_eq!(dto.error_message.as_deref(), Some("raw text"));
     }
 }
