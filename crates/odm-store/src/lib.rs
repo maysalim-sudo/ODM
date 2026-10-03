@@ -4,7 +4,7 @@ mod migrations;
 mod models;
 mod repo;
 
-pub use models::{now_ms, ChunkRecord, DownloadRecord, ProbeMeta};
+pub use models::{now_ms, ChunkRecord, DownloadRecord, HlsMeta, ProbeMeta, SegmentRecord};
 
 use odm_core::DownloadState;
 use rusqlite::Connection;
@@ -163,5 +163,35 @@ impl Store {
         let id = id.to_string();
         self.call(move |c| repo::set_placement(c, &id, &category, &save_dir))
             .await
+    }
+    pub async fn replace_segments(
+        &self,
+        id: &str,
+        s: Vec<SegmentRecord>,
+    ) -> Result<(), StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::replace_segments(c, &id, &s)).await
+    }
+    pub async fn get_segments(&self, id: &str) -> Result<Vec<SegmentRecord>, StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::get_segments(c, &id)).await
+    }
+    pub async fn mark_segment_done(
+        &self,
+        id: &str,
+        idx: u32,
+        bytes: u64,
+    ) -> Result<(), StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::mark_segment_done(c, &id, idx, bytes))
+            .await
+    }
+    pub async fn set_hls_meta(&self, id: &str, m: HlsMeta) -> Result<(), StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::set_hls_meta(c, &id, &m)).await
+    }
+    pub async fn get_hls_meta(&self, id: &str) -> Result<Option<HlsMeta>, StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::get_hls_meta(c, &id)).await
     }
 }

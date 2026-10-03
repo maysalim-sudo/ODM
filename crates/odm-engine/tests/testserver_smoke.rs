@@ -122,3 +122,57 @@ async fn max_parallel_refuses_extra_requests_but_not_the_probe() {
     assert_eq!(first.bytes().await.unwrap().len(), 200_000);
     assert!(s.max_concurrent() <= 2, "got {}", s.max_concurrent());
 }
+
+#[tokio::test]
+async fn hls_server_serves_synthetic_playlist() {
+    use odm_engine::hls::crypto::{decrypt_aes128, iv_for};
+    use odm_engine::hls::playlist::{Key, KeyMethod};
+    use odm_testserver::hls::{write_synthetic, HlsFaults, HlsServer};
+
+    let dir = tempfile::tempdir().unwrap();
+    let plain = write_synthetic(dir.path(), 3, 1000, true);
+    assert_eq!(plain.len(), 3);
+    assert_eq!(plain[1][0], 62);
+    let s = HlsServer::start(dir.path().to_path_buf(), HlsFaults::default()).await;
+    let c = reqwest::Client::new();
+
+    let r = c.get(s.url("/media.m3u8")).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(r.headers()["content-type"], "application/vnd.apple.mpegurl");
+    assert!(r
+        .text()
+        .await
+        .unwrap()
+        .contains("#EXT-X-KEY:METHOD=AES-128"));
+
+    let enc = c
+        .get(s.url("/s1.ts"))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    assert_eq!(
+        s.segment_requests.load(std::sync::atomic::Ordering::SeqCst),
+        1
+    );
+    let key_bytes = c
+        .get(s.url("/key.bin"))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    let key: [u8; 16] = key_bytes.as_ref().try_into().unwrap();
+    let k = Key {
+        method: KeyMethod::Aes128,
+        uri: None,
+        iv: None,
+    };
+    let dec = decrypt_aes128(&key, &iv_for(&k, 0), &enc).unwrap();
+    assert_eq!(dec, plain[0]);
+
+    assert_eq!(c.get(s.url("/nope")).send().await.unwrap().status(), 404);
+}

@@ -1,4 +1,6 @@
 //! Fault-injecting HTTP server for engine tests. Not shipped.
+pub mod hls;
+
 use axum::{
     body::Body,
     extract::State,

@@ -1,5 +1,5 @@
 use odm_core::DownloadState;
-use odm_store::{ChunkRecord, DownloadRecord, ProbeMeta, Store};
+use odm_store::{ChunkRecord, DownloadRecord, HlsMeta, ProbeMeta, SegmentRecord, Store};
 
 fn rec(id: &str) -> DownloadRecord {
     DownloadRecord::new_file(id, "https://e.com/f.bin", "f.bin", "C:/dl")
@@ -385,4 +385,53 @@ async fn set_url_clears_final_url_keeps_validator() {
     assert_eq!(got.final_url, None);
     assert_eq!(got.etag, r.etag);
     assert_eq!(got.last_modified, r.last_modified);
+}
+
+#[tokio::test]
+async fn segments_round_trip_and_bytes() {
+    let s = Store::open_in_memory().unwrap();
+    let r = DownloadRecord::new_hls("h", "https://e.com/m.m3u8", "v.mp4", "C:/dl");
+    assert_eq!(r.kind, "hls");
+    s.insert_download(r).await.unwrap();
+    let seg = |idx: u32| SegmentRecord {
+        idx,
+        url: format!("https://e.com/s{idx}.ts"),
+        duration_ms: 4000,
+        state: "queued".into(),
+        bytes: 0,
+    };
+    s.replace_segments("h", vec![seg(1), seg(2), seg(3)])
+        .await
+        .unwrap();
+    s.mark_segment_done("h", 2, 500).await.unwrap();
+    let got = s.get_segments("h").await.unwrap();
+    let states: Vec<&str> = got.iter().map(|x| x.state.as_str()).collect();
+    assert_eq!(states, ["queued", "done", "queued"]);
+    assert_eq!(got[1].bytes, 500);
+    assert_eq!(got[2].url, "https://e.com/s3.ts");
+    assert_eq!(s.get_with_bytes("h").await.unwrap().unwrap().1, 500);
+    assert_eq!(s.list_with_bytes().await.unwrap()[0].1, 500);
+
+    // Replacing discards the old rows.
+    s.replace_segments("h", vec![seg(1)]).await.unwrap();
+    assert_eq!(s.get_segments("h").await.unwrap().len(), 1);
+    assert_eq!(s.get_with_bytes("h").await.unwrap().unwrap().1, 0);
+}
+
+#[tokio::test]
+async fn hls_meta_upsert() {
+    let s = Store::open_in_memory().unwrap();
+    s.insert_download(DownloadRecord::new_hls("h", "u", "v.mp4", "C:/dl"))
+        .await
+        .unwrap();
+    assert!(s.get_hls_meta("h").await.unwrap().is_none());
+    let m = |v: &str| HlsMeta {
+        variant_url: v.into(),
+        key_url: Some("k".into()),
+        iv: None,
+        map_url: Some("m".into()),
+    };
+    s.set_hls_meta("h", m("first")).await.unwrap();
+    s.set_hls_meta("h", m("second")).await.unwrap();
+    assert_eq!(s.get_hls_meta("h").await.unwrap().unwrap(), m("second"));
 }

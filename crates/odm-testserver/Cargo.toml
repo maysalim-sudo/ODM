@@ -10,3 +10,5 @@ axum.workspace = true
 tokio.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
+aes.workspace = true
+cbc.workspace = true

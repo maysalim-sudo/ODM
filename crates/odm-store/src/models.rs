@@ -68,6 +68,34 @@ impl DownloadRecord {
     }
 }
 
+impl DownloadRecord {
+    /// A stream download; `url` is the playlist URL.
+    pub fn new_hls(id: &str, playlist_url: &str, filename: &str, save_dir: &str) -> Self {
+        Self {
+            kind: "hls".into(),
+            ..Self::new_file(id, playlist_url, filename, save_dir)
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SegmentRecord {
+    pub idx: u32,
+    pub url: String,
+    pub duration_ms: u64,
+    /// "queued" | "done"
+    pub state: String,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HlsMeta {
+    pub variant_url: String,
+    pub key_url: Option<String>,
+    pub iv: Option<String>,
+    pub map_url: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkRecord {
     pub idx: u32,

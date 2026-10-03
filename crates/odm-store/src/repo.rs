@@ -1,7 +1,7 @@
 use odm_core::DownloadState;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
-use crate::models::{now_ms, ChunkRecord, DownloadRecord, ProbeMeta};
+use crate::models::{now_ms, ChunkRecord, DownloadRecord, HlsMeta, ProbeMeta, SegmentRecord};
 
 const COLS: &str =
     "id,url,final_url,filename,save_dir,size,mime,category,state,error_kind,error_msg,\
@@ -212,8 +212,7 @@ pub fn reset_interrupted(c: &Connection) -> rusqlite::Result<usize> {
     )
 }
 
-const BYTES: &str =
-    "COALESCE((SELECT SUM(written) FROM chunks WHERE download_id = downloads.id), 0)";
+const BYTES: &str = "COALESCE((SELECT SUM(written) FROM chunks WHERE download_id = downloads.id), 0) + COALESCE((SELECT SUM(bytes) FROM hls_segments WHERE download_id = downloads.id AND state = 'done'), 0)";
 
 pub fn insert_download_with_headers(
     c: &mut Connection,
@@ -282,4 +281,71 @@ pub fn set_url(c: &Connection, id: &str, url: &str) -> rusqlite::Result<()> {
         params![id, url],
     )?;
     Ok(())
+}
+
+pub fn replace_segments(
+    c: &mut Connection,
+    id: &str,
+    segs: &[SegmentRecord],
+) -> rusqlite::Result<()> {
+    let tx = c.transaction()?;
+    tx.execute("DELETE FROM hls_segments WHERE download_id=?1", [id])?;
+    for s in segs {
+        tx.execute(
+            "INSERT INTO hls_segments (download_id,idx,url,duration_ms,state,bytes) VALUES (?1,?2,?3,?4,?5,?6)",
+            params![id, s.idx, s.url, s.duration_ms as i64, s.state, s.bytes as i64],
+        )?;
+    }
+    tx.commit()
+}
+
+pub fn get_segments(c: &Connection, id: &str) -> rusqlite::Result<Vec<SegmentRecord>> {
+    let mut st = c.prepare(
+        "SELECT idx,url,duration_ms,state,bytes FROM hls_segments WHERE download_id=?1 ORDER BY idx",
+    )?;
+    let rows = st.query_map([id], |r| {
+        Ok(SegmentRecord {
+            idx: r.get::<_, i64>(0)? as u32,
+            url: r.get(1)?,
+            duration_ms: r.get::<_, i64>(2)? as u64,
+            state: r.get(3)?,
+            bytes: r.get::<_, i64>(4)? as u64,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn mark_segment_done(c: &Connection, id: &str, idx: u32, bytes: u64) -> rusqlite::Result<()> {
+    c.execute(
+        "UPDATE hls_segments SET state='done', bytes=?3 WHERE download_id=?1 AND idx=?2",
+        params![id, idx, bytes as i64],
+    )?;
+    Ok(())
+}
+
+pub fn set_hls_meta(c: &Connection, id: &str, m: &HlsMeta) -> rusqlite::Result<()> {
+    c.execute(
+        "INSERT INTO hls_meta (download_id,variant_url,key_url,iv,map_url) VALUES (?1,?2,?3,?4,?5)
+         ON CONFLICT(download_id) DO UPDATE SET
+            variant_url=excluded.variant_url, key_url=excluded.key_url,
+            iv=excluded.iv, map_url=excluded.map_url",
+        params![id, m.variant_url, m.key_url, m.iv, m.map_url],
+    )?;
+    Ok(())
+}
+
+pub fn get_hls_meta(c: &Connection, id: &str) -> rusqlite::Result<Option<HlsMeta>> {
+    c.query_row(
+        "SELECT variant_url,key_url,iv,map_url FROM hls_meta WHERE download_id=?1",
+        [id],
+        |r| {
+            Ok(HlsMeta {
+                variant_url: r.get(0)?,
+                key_url: r.get(1)?,
+                iv: r.get(2)?,
+                map_url: r.get(3)?,
+            })
+        },
+    )
+    .optional()
 }
