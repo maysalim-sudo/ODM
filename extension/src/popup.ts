@@ -1,6 +1,7 @@
 import { ext, send } from "./lib/browser";
 import { statusLine } from "./lib/format";
 import { errorText } from "./lib/protocol";
+import type { Stream } from "./lib/streams";
 
 const MISSING_HELPER = "ODM's browser helper is not installed. Open ODM once to set it up.";
 const TEN_MINUTES = 10 * 60 * 1000;
@@ -47,6 +48,52 @@ async function showPermissionPrompt(): Promise<void> {
   if (!granted) $("permission").hidden = false;
 }
 
+function el(parent: HTMLElement, tag: string, cls?: string, text?: string): HTMLElement {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  parent.appendChild(e);
+  return e;
+}
+
+async function showVideos(): Promise<void> {
+  const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id === undefined) return;
+  const tabId = tab.id;
+  const list = (await ext.runtime.sendMessage({ type: "odm-list-streams", tabId })) as Stream[] | undefined;
+  if (!Array.isArray(list) || list.length === 0) return;
+  const ul = $("video-list");
+  for (const s of list) {
+    const li = el(ul, "li");
+    const line = el(li, "div", "line");
+    const name = el(line, "span", "name", s.label);
+    name.title = s.url;
+    if (!s.supported) {
+      el(line, "span", "muted", "(DASH, not supported yet)");
+      continue;
+    }
+    const note = el(li, "p", "note");
+    note.hidden = true;
+    const button = el(line, "button", undefined, "Download") as HTMLButtonElement;
+    button.type = "button";
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      note.textContent = "Sending...";
+      note.hidden = false;
+      try {
+        const r = (await ext.runtime.sendMessage({ type: "odm-add-stream", url: s.url, tabId })) as
+          | { ok: boolean; message: string }
+          | undefined;
+        note.textContent = r?.message ?? "ODM did not answer.";
+      } catch {
+        note.textContent = "ODM did not answer.";
+      }
+      button.disabled = false;
+    });
+  }
+  $("videos").hidden = false;
+}
+
 $("pause").addEventListener("click", async () => {
   await send("PAUSE_ALL", {}, 2000);
   await refreshSummary();
@@ -74,3 +121,4 @@ $("allow").addEventListener("click", async () => {
 void init();
 void showLastError();
 void showPermissionPrompt();
+void showVideos().catch(() => {});

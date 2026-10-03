@@ -17,6 +17,14 @@ export type AddDownloadPayload = {
   expires_at_ms?: number;
 };
 
+export type AddStreamPayload = {
+  page_url: string;
+  page_title?: string;
+  playlist_url: string;
+  headers: Record<string, string>;
+  cookies?: string;
+};
+
 export function makeRequest(cmd: string, payload: object = {}): { id: string; cmd: string; payload: object } {
   return { id: crypto.randomUUID(), cmd, payload };
 }

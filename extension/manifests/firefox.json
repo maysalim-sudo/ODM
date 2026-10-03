@@ -3,7 +3,7 @@
   "name": "ODM",
   "version": "0.1.0",
   "description": "Send downloads to ODM (Open Downloader Manager).",
-  "permissions": ["downloads", "cookies", "nativeMessaging", "contextMenus", "storage"],
+  "permissions": ["downloads", "cookies", "nativeMessaging", "contextMenus", "storage", "webRequest"],
   "host_permissions": ["<all_urls>"],
   "background": { "scripts": ["background.js"] },
   "content_scripts": [

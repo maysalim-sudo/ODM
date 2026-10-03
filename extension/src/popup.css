@@ -76,3 +76,46 @@ button.primary {
 #problem p {
   margin-bottom: 8px;
 }
+
+#videos {
+  margin-bottom: 10px;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+#videos h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+#video-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#video-list li {
+  margin-bottom: 8px;
+}
+
+#video-list .line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#video-list .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#video-list .note {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
