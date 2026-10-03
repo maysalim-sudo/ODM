@@ -2770,6 +2770,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "odm-host"
+version = "0.1.0"
+dependencies = [
+ "odm-core",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "winreg",
+]
+
+[[package]]
 name = "odm-store"
 version = "0.1.0"
 dependencies = [
