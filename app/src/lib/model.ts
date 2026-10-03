@@ -1,4 +1,4 @@
-import type { ChunkState, ChunkView, Download, DownloadState, Settings, UiEvent } from "./types";
+import type { ChunkState, ChunkView, Download, DownloadState, Offer, Settings, UiEvent } from "./types";
 
 /** A list row: the stored download plus live values from progress events. */
 export interface Row extends Download {
@@ -87,6 +87,9 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
     }
     case "resync":
       return { rows, resync: true };
+    case "reuse_offer":
+      // Offers are not rows; the store handles them before this function.
+      return { rows, resync: false };
   }
 }
 
@@ -157,6 +160,25 @@ export function canResume(row: Row): boolean {
 
 export function canCancel(row: Row): boolean {
   return !DONE.includes(row.state);
+}
+
+export function canRefresh(row: Row): boolean {
+  return row.state === "paused" || row.state === "failed";
+}
+
+const RISKY_EXTENSIONS = new Set(
+  "exe msi bat cmd com scr ps1 vbs vbe js jse wsf wsh hta lnk reg cpl msc jar appx msix".split(" "),
+);
+
+/** True for file types that run code when opened, judged by extension only. */
+export function isRiskyFile(name: string): boolean {
+  const dot = name.lastIndexOf(".");
+  return dot !== -1 && RISKY_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
+}
+
+/** The list with `o` added, or the same list when its offer_id is already there. */
+export function addOffer(list: Offer[], o: Offer): Offer[] {
+  return list.some((x) => x.offer_id === o.offer_id) ? list : [...list, o];
 }
 
 export interface Segment {

@@ -1,6 +1,6 @@
 import * as api from "./api";
-import { ReloadGate, applyEvent, counts, keepVisible, visible, type Filter, type Row, type SortDir, type SortKey } from "./model";
-import type { UiEvent } from "./types";
+import { ReloadGate, addOffer, applyEvent, counts, keepVisible, visible, type Filter, type Row, type SortDir, type SortKey } from "./model";
+import type { Offer, UiEvent } from "./types";
 
 class DownloadsStore {
   rows = $state<Map<string, Row>>(new Map());
@@ -11,6 +11,8 @@ class DownloadsStore {
   error = $state<string | null>(null);
   /** True once the first list load has succeeded. */
   loaded = $state(false);
+  /** Browser downloads that match an unfinished one; the first is shown to the user. */
+  offers = $state<Offer[]>([]);
 
   visible = $derived(visible(this.rows, this.filter, this.sortKey, this.sortDir));
   counts = $derived(counts(this.rows));
@@ -23,7 +25,18 @@ class DownloadsStore {
   async init(): Promise<void> {
     if (this.unlisten) return;
     this.unlisten = await api.onEvent((ev) => this.handle(ev));
+    try {
+      for (const o of await api.listOffers()) this.offers = addOffer(this.offers, o);
+    } catch (e) {
+      this.error = api.errorText(e);
+    }
     await this.reload();
+  }
+
+  /** Answer an offer. Throws the command's message on failure; the offer stays when it does. */
+  async resolveOffer(offer: Offer, reuse: boolean): Promise<void> {
+    await api.resolveOffer(offer.offer_id, reuse);
+    this.offers = this.offers.filter((o) => o.offer_id !== offer.offer_id);
   }
 
   async reload(): Promise<void> {
@@ -43,6 +56,10 @@ class DownloadsStore {
   }
 
   handle(ev: UiEvent): void {
+    if (ev.type === "reuse_offer") {
+      this.offers = addOffer(this.offers, ev.offer);
+      return;
+    }
     this.gate.record(ev);
     const r = applyEvent(this.rows, ev);
     this.rows = r.rows;

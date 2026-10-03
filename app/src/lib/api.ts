@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AddArgs, BatchResult, Detail, Download, Settings, Suggestion, UiEvent } from "./types";
+import type { AddArgs, BatchResult, Detail, Download, Offer, Settings, Suggestion, UiEvent } from "./types";
 
 export const listDownloads = () => invoke<Download[]>("list_downloads");
 export const getDetail = (id: string) => invoke<Detail | null>("get_detail", { id });
@@ -19,6 +19,9 @@ export const saveSettings = (settings: Settings) => invoke<Settings>("save_setti
 export const openFile = (id: string) => invoke<void>("open_file", { id });
 export const openFolder = (id: string) => invoke<void>("open_folder", { id });
 export const pickFolder = (start: string | null) => invoke<string | null>("pick_folder", { start });
+export const listOffers = () => invoke<Offer[]>("list_offers");
+export const resolveOffer = (offerId: string, reuse: boolean) => invoke<string>("resolve_offer", { offerId, reuse });
+export const refreshUrl = (id: string, url: string) => invoke<void>("refresh_url", { id, url });
 
 export function onEvent(cb: (ev: UiEvent) => void): Promise<UnlistenFn> {
   return listen<UiEvent>("odm://event", (e) => cb(e.payload));

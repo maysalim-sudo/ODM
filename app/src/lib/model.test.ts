@@ -11,6 +11,9 @@ import {
   canCancel,
   canPause,
   canResume,
+  canRefresh,
+  isRiskyFile,
+  addOffer,
   counts,
   COL,
   NAME_MIN,
@@ -366,5 +369,41 @@ describe("CATEGORY_LABELS", () => {
       "Programs",
       "Other",
     ]);
+  });
+});
+
+describe("isRiskyFile", () => {
+  it("flags programs by extension, case-insensitively", () => {
+    expect(isRiskyFile("setup.EXE")).toBe(true);
+    expect(isRiskyFile("script.ps1")).toBe(true);
+    expect(isRiskyFile(".exe")).toBe(true);
+    expect(isRiskyFile("a.tar.gz")).toBe(false);
+    expect(isRiskyFile("noext")).toBe(false);
+    expect(isRiskyFile("movie.mp4")).toBe(false);
+  });
+});
+
+describe("canRefresh", () => {
+  it("is true only for paused and failed rows", () => {
+    expect(canRefresh(toRow(dl("a", { state: "paused" })))).toBe(true);
+    expect(canRefresh(toRow(dl("a", { state: "failed" })))).toBe(true);
+    expect(canRefresh(toRow(dl("a", { state: "downloading" })))).toBe(false);
+    expect(canRefresh(toRow(dl("a", { state: "completed" })))).toBe(false);
+  });
+});
+
+describe("offers", () => {
+  it("addOffer ignores a duplicate offer_id", () => {
+    const o = { offer_id: "o1", existing_id: "e", filename: "f.zip" };
+    const once = addOffer([], o);
+    expect(once).toEqual([o]);
+    expect(addOffer(once, { ...o, filename: "other.zip" })).toBe(once);
+  });
+
+  it("applyEvent leaves rows alone for reuse_offer", () => {
+    const rows = replaceAll([dl("a")]);
+    const r = applyEvent(rows, { type: "reuse_offer", offer: { offer_id: "o", existing_id: "a", filename: "f" } });
+    expect(r.rows).toBe(rows);
+    expect(r.resync).toBe(false);
   });
 });

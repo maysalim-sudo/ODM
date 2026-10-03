@@ -2,10 +2,16 @@
   import * as api from "../lib/api";
   import { downloads } from "../lib/downloads.svelte";
   import { formatBytes, formatEta, formatSpeed, joinPath, percent, stateLabel } from "../lib/format";
+  import { canRefresh, isRiskyFile } from "../lib/model";
   import type { Detail } from "../lib/types";
   import ChunkMap from "./ChunkMap.svelte";
 
-  let { id, onclose }: { id: string | null; onclose: () => void } = $props();
+  let {
+    id,
+    onclose,
+    onrefresh,
+    onrisky,
+  }: { id: string | null; onclose: () => void; onrefresh: () => void; onrisky: () => void } = $props();
 
   let detail = $state<Detail | null>(null);
   let copied = $state(false);
@@ -102,9 +108,15 @@
     </dl>
 
     <footer>
-      <button disabled={row.state !== "completed"} onclick={() => downloads.run(() => api.openFile(row.id))}>
+      <button
+        disabled={row.state !== "completed"}
+        onclick={() => (isRiskyFile(row.filename) ? onrisky() : downloads.run(() => api.openFile(row.id)))}
+      >
         Open file
       </button>
+      {#if canRefresh(row)}
+        <button onclick={onrefresh}>Refresh URL</button>
+      {/if}
       <button onclick={() => downloads.run(() => api.openFolder(row.id))}>Open folder</button>
       <button onclick={copyUrl}>{copied ? "Copied" : "Copy address"}</button>
     </footer>

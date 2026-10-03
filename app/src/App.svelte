@@ -5,7 +5,10 @@
   import BatchDialog from "./components/BatchDialog.svelte";
   import DetailPanel from "./components/DetailPanel.svelte";
   import DownloadTable from "./components/DownloadTable.svelte";
+  import OpenProgramDialog from "./components/OpenProgramDialog.svelte";
+  import RefreshUrlDialog from "./components/RefreshUrlDialog.svelte";
   import RemoveDialog from "./components/RemoveDialog.svelte";
+  import ReuseDialog from "./components/ReuseDialog.svelte";
   import SettingsDialog from "./components/SettingsDialog.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toolbar from "./components/Toolbar.svelte";
@@ -17,13 +20,26 @@
   let settingsOpen = $state(false);
   let removeOpen = $state(false);
   let cancelOpen = $state(false);
+  let refreshOpen = $state(false);
+  let programOpen = $state(false);
+  const detailName = $derived(detailId ? (downloads.rows.get(detailId)?.filename ?? "") : "");
 
   onMount(() => {
     void downloads.init();
   });
 
   function onkeydown(e: KeyboardEvent) {
-    if (addOpen || batchOpen || settingsOpen || removeOpen || cancelOpen) return;
+    if (
+      addOpen ||
+      batchOpen ||
+      settingsOpen ||
+      removeOpen ||
+      cancelOpen ||
+      refreshOpen ||
+      programOpen ||
+      downloads.offers.length > 0
+    )
+      return;
     const t = e.target;
     const typing =
       t instanceof HTMLInputElement ||
@@ -60,7 +76,12 @@
   <div class="body">
     <Sidebar />
     <DownloadTable onopen={(id) => (detailId = id)} />
-    <DetailPanel id={detailId} onclose={() => (detailId = null)} />
+    <DetailPanel
+      id={detailId}
+      onclose={() => (detailId = null)}
+      onrefresh={() => (refreshOpen = true)}
+      onrisky={() => (programOpen = true)}
+    />
   </div>
 </div>
 
@@ -69,6 +90,9 @@
 <CancelDialog open={cancelOpen} onclose={() => (cancelOpen = false)} />
 <RemoveDialog open={removeOpen} onclose={() => (removeOpen = false)} />
 <SettingsDialog open={settingsOpen} onclose={() => (settingsOpen = false)} />
+<RefreshUrlDialog open={refreshOpen} id={detailId} onclose={() => (refreshOpen = false)} />
+<OpenProgramDialog open={programOpen} id={detailId} name={detailName} onclose={() => (programOpen = false)} />
+<ReuseDialog />
 
 <style>
   .app {

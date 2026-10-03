@@ -55,11 +55,18 @@ export interface Detail {
   header_names: string[];
 }
 
+export interface Offer {
+  offer_id: string;
+  existing_id: string;
+  filename: string;
+}
+
 export type UiEvent =
   | { type: "upsert"; download: Download }
   | { type: "removed"; id: string }
   | { type: "progress_batch"; items: Progress[] }
-  | { type: "resync" };
+  | { type: "resync" }
+  | { type: "reuse_offer"; offer: Offer };
 
 export interface Settings {
   download_dir: string;
