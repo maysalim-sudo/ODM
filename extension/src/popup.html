@@ -6,6 +6,22 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
+    <h1>ODM</h1>
+    <p id="status" class="muted">Connecting...</p>
+    <p id="summary"></p>
+    <div id="permission" hidden>
+      <p>ODM needs access to all sites to read download cookies.</p>
+      <button id="allow" type="button">Allow</button>
+    </div>
+    <div id="problem" hidden>
+      <p id="problem-text"></p>
+      <button id="dismiss" type="button">Dismiss</button>
+    </div>
+    <div class="row">
+      <button id="pause" type="button">Pause all</button>
+      <button id="resume" type="button">Resume all</button>
+    </div>
+    <button id="open" type="button" class="primary">Open ODM</button>
     <script src="popup.js"></script>
   </body>
 </html>
