@@ -3,6 +3,7 @@ pub mod category;
 pub mod error;
 pub mod filename;
 pub mod ids;
+pub mod ipc;
 pub mod redact;
 pub mod state;
 

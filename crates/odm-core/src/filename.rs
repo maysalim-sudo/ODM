@@ -6,9 +6,22 @@ const RESERVED: &[&str] = &[
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
+/// Invisible Unicode format characters (bidi overrides, zero-width, BOM, ...)
+/// that a hostile site can use to disguise a file name.
+fn is_format_char(c: char) -> bool {
+    matches!(c,
+        '\u{00AD}' | '\u{061C}' | '\u{180E}'
+        | '\u{200B}'..='\u{200F}'
+        | '\u{202A}'..='\u{202E}'
+        | '\u{2060}'..='\u{2064}'
+        | '\u{2066}'..='\u{2069}'
+        | '\u{FEFF}')
+}
+
 pub fn sanitize(name: &str) -> String {
     let replaced: String = name
         .chars()
+        .filter(|c| !is_format_char(*c))
         .map(|c| match c {
             '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
             c if c.is_control() => '_',
@@ -107,6 +120,14 @@ mod tests {
         );
         assert_eq!(sanitize("  ..name.txt.. "), "name.txt");
         assert_eq!(sanitize("tab\tnew\nline.bin"), "tab_new_line.bin");
+    }
+
+    #[test]
+    fn format_chars_are_stripped() {
+        assert_eq!(sanitize("evil\u{202E}gpj.exe"), "evilgpj.exe");
+        assert_eq!(sanitize("a\u{200B}b\u{200D}c\u{FEFF}.txt"), "abc.txt");
+        assert_eq!(sanitize("\u{2066}x\u{2069}.pdf"), "x.pdf");
+        assert_eq!(sanitize("caf\u{00E9}.txt"), "caf\u{00E9}.txt"); // ordinary letters stay
     }
 
     #[test]
