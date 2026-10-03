@@ -1,5 +1,6 @@
 use odm_appcore::api::{self, AddArgs, BatchResult, Suggestion};
 use odm_appcore::dto::{DetailDto, DownloadDto};
+use odm_appcore::offers::OfferDto;
 use odm_appcore::Settings;
 use std::path::PathBuf;
 use tauri::{AppHandle, State};
@@ -155,4 +156,23 @@ pub async fn pick_folder(app: AppHandle, start: Option<String>) -> Res<Option<St
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_offers(state: State<'_, AppState>) -> Vec<OfferDto> {
+    state.offers.list()
+}
+
+#[tauri::command]
+pub async fn resolve_offer(
+    state: State<'_, AppState>,
+    offer_id: String,
+    reuse: bool,
+) -> Res<String> {
+    api::resolve_offer(&state.manager, &state.offers, &offer_id, reuse).await
+}
+
+#[tauri::command]
+pub async fn refresh_url(state: State<'_, AppState>, id: String, url: String) -> Res<()> {
+    api::refresh_url(&state.manager, &id, &url).await
 }

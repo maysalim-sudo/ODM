@@ -17,7 +17,7 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-pub fn setup(app: &mut App) -> tauri::Result<()> {
+pub fn setup(app: &mut App, background: bool) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show ODM", true, None::<&str>)?;
     let pause = MenuItem::with_id(app, "pause_all", "Pause all", true, None::<&str>)?;
     let resume = MenuItem::with_id(app, "resume_all", "Resume all", true, None::<&str>)?;
@@ -78,7 +78,7 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
         .lock()
         .unwrap()
         .start_minimized;
-    if !start_minimized {
+    if !(start_minimized || background) {
         show_main(app.handle());
     }
     Ok(())

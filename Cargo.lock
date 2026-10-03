@@ -2697,6 +2697,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-appender",
 ]
@@ -2720,6 +2721,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "windows-sys 0.61.2",
+ "winreg",
 ]
 
 [[package]]

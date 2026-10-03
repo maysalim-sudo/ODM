@@ -1,4 +1,5 @@
 use crate::messages::user_message;
+use crate::offers::OfferDto;
 use odm_core::{DownloadState, ErrorKind, OdmError};
 use odm_engine::{ChunkView, ChunkViewState, ProgressSnapshot};
 use odm_store::{ChunkRecord, DownloadRecord};
@@ -111,6 +112,10 @@ pub enum UiEvent {
     },
     /// The UI missed events and must reload the list.
     Resync,
+    /// A browser download matches a paused or failed one; ask whether to continue it.
+    ReuseOffer {
+        offer: OfferDto,
+    },
 }
 
 /// The download in `ev`, if this event says it just completed.

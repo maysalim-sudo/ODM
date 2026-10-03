@@ -10,6 +10,7 @@ pub mod offers;
 pub mod paths;
 #[cfg(windows)]
 pub mod pipe;
+pub mod registration;
 pub mod settings;
 pub mod summary;
 

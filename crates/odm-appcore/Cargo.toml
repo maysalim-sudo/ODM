@@ -19,6 +19,7 @@ tracing-subscriber.workspace = true
 tokio-util.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+winreg = "0.55"
 windows-sys = { workspace = true, features = ["Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading"] }
 
 [dev-dependencies]

@@ -252,3 +252,106 @@ fn completed_download_only_matches_completed_upserts() {
     assert_eq!(completed_download(&done).unwrap().id, "a");
     assert!(completed_download(&UiEvent::Resync).is_none());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_url_api_resumes() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(
+        8 << 20,
+        Faults {
+            bytes_per_sec: Some(1 << 20),
+            ..Default::default()
+        },
+    )
+    .await;
+    let m = manager(d.path()).await;
+    let id = api::add(
+        &m,
+        AddArgs {
+            url: s.url("/file"),
+            start_paused: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    api::refresh_url(&m, &id, &s.url("/file?token=2"))
+        .await
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let (r, _) = m.get(&id).await.unwrap().unwrap();
+        if matches!(
+            r.state,
+            DownloadState::Downloading | DownloadState::Completed
+        ) {
+            assert!(r.url.ends_with("?token=2"));
+            break;
+        }
+        assert!(Instant::now() < deadline, "stuck in {:?}", r.state);
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    m.cancel(&id, true).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resolve_offer_reuse_and_fresh() {
+    use odm_appcore::offers::Offers;
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(
+        8 << 20,
+        Faults {
+            bytes_per_sec: Some(1 << 20),
+            ..Default::default()
+        },
+    )
+    .await;
+    let m = manager(d.path()).await;
+    let existing = api::add(
+        &m,
+        AddArgs {
+            url: s.url("/file"),
+            filename: Some("a.bin".into()),
+            start_paused: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let offers = Offers::default();
+    let mut req = odm_engine::AddRequest::new(s.url("/file?token=2"));
+    req.filename = Some("a.bin".into());
+    req.start_paused = true;
+    let a = offers.create(existing.clone(), "a.bin".into(), req.clone());
+    let got = api::resolve_offer(&m, &offers, &a.offer_id, true)
+        .await
+        .unwrap();
+    assert_eq!(got, existing);
+    assert_eq!(m.list().await.unwrap().len(), 1);
+
+    let b = offers.create(existing.clone(), "a.bin".into(), req);
+    let fresh = api::resolve_offer(&m, &offers, &b.offer_id, false)
+        .await
+        .unwrap();
+    assert_ne!(fresh, existing);
+    assert_eq!(m.list().await.unwrap().len(), 2);
+
+    let err = api::resolve_offer(&m, &offers, "nope", true)
+        .await
+        .unwrap_err();
+    assert_eq!(err, "This offer is no longer available.");
+    m.shutdown().await;
+}
+
+#[test]
+fn reuse_offer_event_json() {
+    let offer = odm_appcore::offers::OfferDto {
+        offer_id: "o".into(),
+        existing_id: "e".into(),
+        filename: "f.zip".into(),
+    };
+    assert_eq!(
+        serde_json::to_value(UiEvent::ReuseOffer { offer }).unwrap(),
+        serde_json::json!({"type":"reuse_offer","offer":{"offer_id":"o","existing_id":"e","filename":"f.zip"}})
+    );
+}

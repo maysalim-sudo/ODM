@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::dto::{chunk_views, to_dto, DetailDto, DownloadDto};
+use crate::offers::Offers;
 use crate::Settings;
 
 pub use crate::messages::user_message;
@@ -153,6 +154,36 @@ pub async fn suggest(url: &str, cfg: &EngineConfig) -> Result<Suggestion, String
         size: p.size,
         resumable: p.supports_range,
     })
+}
+
+/// Gives a paused/failed download a new link (stored headers kept) and resumes it.
+pub async fn refresh_url(m: &ManagerHandle, id: &str, url: &str) -> Result<(), String> {
+    m.refresh_url(id, url.trim().to_string(), None)
+        .await
+        .map_err(msg)?;
+    m.resume(id).await.map_err(msg)
+}
+
+/// reuse = true: refresh the existing download with the offer's link and headers, then resume it.
+/// false: add the offered request as a new download. Returns the download id.
+pub async fn resolve_offer(
+    m: &ManagerHandle,
+    offers: &Offers,
+    offer_id: &str,
+    reuse: bool,
+) -> Result<String, String> {
+    let (offer, req) = offers
+        .take(offer_id)
+        .ok_or_else(|| "This offer is no longer available.".to_string())?;
+    if reuse {
+        m.refresh_url(&offer.existing_id, req.url, Some(req.headers))
+            .await
+            .map_err(msg)?;
+        m.resume(&offer.existing_id).await.map_err(msg)?;
+        Ok(offer.existing_id)
+    } else {
+        m.add(req).await.map_err(msg)
+    }
 }
 
 pub async fn apply_settings(m: &ManagerHandle, s: &Settings) -> Result<(), String> {
