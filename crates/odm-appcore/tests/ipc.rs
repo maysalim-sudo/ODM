@@ -251,3 +251,70 @@ async fn matching_paused_download_creates_an_offer() {
     assert_eq!((f.offers_seen(), f.shows()), (1, 1));
     assert_eq!(f.ctx.manager.list().await.unwrap().len(), 1);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn confirm_setting_adds_paused_and_asks() {
+    let f = fixture().await;
+    let s = server().await;
+    f.ctx.settings.lock().unwrap().confirm_browser_downloads = true;
+    let r = dispatch(
+        &f.ctx,
+        req(
+            cmd::ADD_DOWNLOAD,
+            json!({"url": s.url("/file"), "filename": "a.bin", "source": "menu"}),
+        ),
+    )
+    .await;
+    assert!(r.ok, "{:?}", r.error);
+    let id = r.payload.unwrap()["download_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (rec, _) = f.ctx.manager.get(&id).await.unwrap().unwrap();
+    assert_eq!(rec.state, DownloadState::Paused);
+    assert_eq!(f.ctx.pending.list(), vec![id.clone()]);
+    assert_eq!((f.confirms().len(), f.shows()), (1, 1));
+    assert_eq!(f.confirms().last().cloned(), Some(id));
+
+    f.ctx.settings.lock().unwrap().confirm_browser_downloads = false;
+    let r = dispatch(
+        &f.ctx,
+        req(
+            cmd::ADD_DOWNLOAD,
+            json!({"url": s.url("/file2"), "filename": "b.bin", "source": "menu"}),
+        ),
+    )
+    .await;
+    assert!(r.ok, "{:?}", r.error);
+    let id2 = r.payload.unwrap()["download_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (rec2, _) = f.ctx.manager.get(&id2).await.unwrap().unwrap();
+    assert_ne!(rec2.state, DownloadState::Paused);
+    assert_eq!(f.ctx.pending.list().len(), 1);
+    assert_eq!((f.confirms().len(), f.shows()), (1, 1));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn confirm_setting_applies_to_streams_too() {
+    let f = fixture().await;
+    f.ctx.settings.lock().unwrap().confirm_browser_downloads = true;
+    let r = dispatch(
+        &f.ctx,
+        req(
+            cmd::ADD_STREAM,
+            json!({"page_url": "https://p", "playlist_url": "http://127.0.0.1:9/a.m3u8"}),
+        ),
+    )
+    .await;
+    assert!(r.ok, "{:?}", r.error);
+    let id = r.payload.unwrap()["download_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (rec, _) = f.ctx.manager.get(&id).await.unwrap().unwrap();
+    assert_eq!(rec.state, DownloadState::Paused);
+    assert_eq!(f.ctx.pending.list(), vec![id]);
+    assert_eq!((f.confirms().len(), f.shows()), (1, 1));
+}

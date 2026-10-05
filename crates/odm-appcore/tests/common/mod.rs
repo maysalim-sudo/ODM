@@ -1,4 +1,5 @@
 //! Shared fixture for the IPC tests: a manager on an in-memory store plus counters for the callbacks.
+use odm_appcore::confirm::Pending;
 use odm_appcore::ipc::IpcContext;
 use odm_appcore::offers::Offers;
 use odm_appcore::summary::SpeedBoard;
@@ -15,6 +16,7 @@ pub struct Fixture {
     pub ctx: Arc<IpcContext>,
     pub shows: Arc<AtomicUsize>,
     pub offers_seen: Arc<AtomicUsize>,
+    confirms: Arc<Mutex<Vec<String>>>,
     pub _dir: TempDir,
 }
 
@@ -25,6 +27,11 @@ impl Fixture {
 
     pub fn offers_seen(&self) -> usize {
         self.offers_seen.load(Ordering::SeqCst)
+    }
+
+    /// Ids passed to `on_confirm`, in order.
+    pub fn confirms(&self) -> Vec<String> {
+        self.confirms.lock().unwrap().clone()
     }
 }
 
@@ -40,7 +47,13 @@ pub async fn fixture() -> Fixture {
     let shows = Arc::new(AtomicUsize::new(0));
     let offers_seen = Arc::new(AtomicUsize::new(0));
     let (s, o) = (shows.clone(), offers_seen.clone());
-    let settings = Settings::default();
+    let confirms = Arc::new(Mutex::new(Vec::new()));
+    let c = confirms.clone();
+    // The confirm dialog is on by default; most tests want the plain add-and-start flow.
+    let settings = Settings {
+        confirm_browser_downloads: false,
+        ..Settings::default()
+    };
     let ctx = Arc::new(IpcContext {
         manager,
         settings: Arc::new(Mutex::new(settings)),
@@ -52,11 +65,16 @@ pub async fn fixture() -> Fixture {
         on_offer: Box::new(move |_| {
             o.fetch_add(1, Ordering::SeqCst);
         }),
+        pending: Arc::new(Pending::default()),
+        on_confirm: Box::new(move |id| {
+            c.lock().unwrap().push(id.to_string());
+        }),
     });
     Fixture {
         ctx,
         shows,
         offers_seen,
+        confirms,
         _dir: dir,
     }
 }

@@ -260,6 +260,25 @@ pub fn set_placement(
     Ok(())
 }
 
+/// Changes the name and/or folder. A given name is locked against the probe; a given folder ends auto-placement.
+pub fn set_target(
+    c: &Connection,
+    id: &str,
+    filename: Option<&str>,
+    save_dir: Option<&str>,
+) -> rusqlite::Result<()> {
+    c.execute(
+        "UPDATE downloads SET
+            filename = COALESCE(?2, filename),
+            filename_locked = CASE WHEN ?2 IS NOT NULL THEN 1 ELSE filename_locked END,
+            save_dir = COALESCE(?3, save_dir),
+            auto_place = CASE WHEN ?3 IS NOT NULL THEN 0 ELSE auto_place END
+         WHERE id=?1",
+        params![id, filename, save_dir],
+    )?;
+    Ok(())
+}
+
 pub fn count_by_state(c: &Connection) -> rusqlite::Result<Vec<(DownloadState, u64)>> {
     let mut st = c.prepare("SELECT state, COUNT(*) FROM downloads GROUP BY state")?;
     let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;

@@ -164,6 +164,16 @@ impl Store {
         self.call(move |c| repo::set_placement(c, &id, &category, &save_dir))
             .await
     }
+    pub async fn set_target(
+        &self,
+        id: &str,
+        filename: Option<String>,
+        save_dir: Option<String>,
+    ) -> Result<(), StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::set_target(c, &id, filename.as_deref(), save_dir.as_deref()))
+            .await
+    }
     pub async fn replace_segments(
         &self,
         id: &str,

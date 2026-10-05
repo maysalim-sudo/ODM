@@ -27,6 +27,8 @@ pub struct Settings {
     pub close_to_tray: bool,
     pub start_minimized: bool,
     pub notifications: bool,
+    /// Ask where to save (and whether to start) when the browser hands ODM a download.
+    pub confirm_browser_downloads: bool,
 }
 
 fn default_folders() -> BTreeMap<String, String> {
@@ -57,6 +59,7 @@ impl Default for Settings {
             close_to_tray: true,
             start_minimized: false,
             notifications: true,
+            confirm_browser_downloads: true,
         }
     }
 }

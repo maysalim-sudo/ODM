@@ -116,6 +116,10 @@ pub enum UiEvent {
     ReuseOffer {
         offer: OfferDto,
     },
+    /// A browser download was added paused; ask where to save it and whether to start it.
+    ConfirmDownload {
+        id: String,
+    },
 }
 
 /// The download in `ev`, if this event says it just completed.

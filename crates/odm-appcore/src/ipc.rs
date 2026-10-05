@@ -1,5 +1,6 @@
 //! The IPC command dispatcher: plain async logic against `ManagerHandle`, no transport.
 use crate::capture::{normalize_headers, skip_reason};
+use crate::confirm::Pending;
 use crate::messages::user_message;
 use crate::offers::{find_reusable, OfferDto, Offers};
 use crate::summary::SpeedBoard;
@@ -21,6 +22,8 @@ pub struct IpcContext {
     pub offers: Arc<Offers>,
     pub show_window: Box<dyn Fn() + Send + Sync>,
     pub on_offer: Box<dyn Fn(&OfferDto) + Send + Sync>,
+    pub pending: Arc<Pending>,
+    pub on_confirm: Box<dyn Fn(&str) + Send + Sync>,
 }
 
 /// Milliseconds since the Unix epoch.
@@ -100,6 +103,20 @@ async fn get_summary(ctx: &IpcContext, id: Option<String>) -> Response {
     )
 }
 
+fn confirm_wanted(ctx: &IpcContext) -> bool {
+    ctx.settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .confirm_browser_downloads
+}
+
+/// The download was added paused: queue it for the "New download" dialog and bring the window up.
+fn ask_to_confirm(ctx: &IpcContext, download_id: &str) {
+    ctx.pending.push(download_id.to_string());
+    (ctx.on_confirm)(download_id);
+    (ctx.show_window)();
+}
+
 /// Always an explicit click in the browser, so the capture filters do not apply.
 async fn add_stream(ctx: &IpcContext, id: Option<String>, payload: Value) -> Response {
     let p: AddStream = match serde_json::from_value(payload) {
@@ -127,15 +144,22 @@ async fn add_stream(ctx: &IpcContext, id: Option<String>, payload: Value) -> Res
     if let Some(c) = p.cookies.as_deref().filter(|c| !c.is_empty()) {
         headers.push(("Cookie".into(), c.to_string()));
     }
-    let req = StreamRequest {
+    let mut req = StreamRequest {
         playlist_url: p.playlist_url,
         page_url: Some(p.page_url).filter(|u| !u.is_empty()),
         page_title: p.page_title.filter(|t| !t.trim().is_empty()),
         headers: normalize_headers(headers),
         ..Default::default()
     };
+    let confirm = confirm_wanted(ctx);
+    req.start_paused = confirm;
     match ctx.manager.add_stream(req).await {
-        Ok(download_id) => reply(id, &Added { download_id }),
+        Ok(download_id) => {
+            if confirm {
+                ask_to_confirm(ctx, &download_id);
+            }
+            reply(id, &Added { download_id })
+        }
         Err(e) => Response::err(id, code::ADD_FAILED, user_message(&e)),
     }
 }
@@ -194,7 +218,7 @@ async fn add_download(ctx: &IpcContext, id: Option<String>, payload: Value) -> R
         .map(str::trim)
         .filter(|f| !f.is_empty())
         .map(str::to_string);
-    let req = AddRequest {
+    let mut req = AddRequest {
         filename: basename.clone(),
         page_url: p.referrer.clone(),
         headers,
@@ -223,8 +247,15 @@ async fn add_download(ctx: &IpcContext, id: Option<String>, payload: Value) -> R
         }
     }
 
+    let confirm = confirm_wanted(ctx);
+    req.start_paused = confirm;
     match ctx.manager.add(req).await {
-        Ok(download_id) => reply(id, &Added { download_id }),
+        Ok(download_id) => {
+            if confirm {
+                ask_to_confirm(ctx, &download_id);
+            }
+            reply(id, &Added { download_id })
+        }
         Err(e) => Response::err(id, code::ADD_FAILED, user_message(&e)),
     }
 }

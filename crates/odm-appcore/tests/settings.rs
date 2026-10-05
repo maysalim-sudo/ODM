@@ -248,3 +248,15 @@ fn concurrent_saves_do_not_clash() {
         "left over: {names:?}"
     );
 }
+
+#[test]
+fn confirm_browser_downloads_defaults_true_and_parses() {
+    assert!(Settings::default().confirm_browser_downloads);
+    let (s, w) = Settings::from_json(r#"{"confirm_browser_downloads": false}"#);
+    assert!(!s.confirm_browser_downloads && w.is_empty());
+    let (s, w) = Settings::from_json(r#"{"confirm_browser_downloads": "no"}"#);
+    assert!(s.confirm_browser_downloads);
+    assert_eq!(w.len(), 1);
+    let (s, w) = Settings::from_json("{}");
+    assert!(s.confirm_browser_downloads && w.is_empty());
+}

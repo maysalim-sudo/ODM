@@ -435,3 +435,31 @@ async fn hls_meta_upsert() {
     s.set_hls_meta("h", m("second")).await.unwrap();
     assert_eq!(s.get_hls_meta("h").await.unwrap().unwrap(), m("second"));
 }
+
+#[tokio::test]
+async fn set_target_updates_and_locks() {
+    let s = Store::open_in_memory().unwrap();
+    let mut r = rec("a");
+    r.auto_place = true;
+    s.insert_download(r).await.unwrap();
+
+    s.set_target("a", Some("new.zip".into()), None)
+        .await
+        .unwrap();
+    let d = s.get_download("a").await.unwrap().unwrap();
+    assert_eq!(
+        (d.filename.as_str(), d.save_dir.as_str()),
+        ("new.zip", "C:/dl")
+    );
+    assert!(d.filename_locked && d.auto_place);
+
+    s.set_target("a", None, Some("D:/else".into()))
+        .await
+        .unwrap();
+    let d = s.get_download("a").await.unwrap().unwrap();
+    assert_eq!(
+        (d.filename.as_str(), d.save_dir.as_str()),
+        ("new.zip", "D:/else")
+    );
+    assert!(d.filename_locked && !d.auto_place);
+}

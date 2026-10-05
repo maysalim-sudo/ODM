@@ -421,3 +421,90 @@ async fn add_with_stream_flag_adds_hls_download_for_the_chosen_variant() {
     let meta = m.store().get_hls_meta(&id).await.unwrap().unwrap();
     assert!(meta.variant_url.ends_with("/media.m3u8"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn confirm_actions() {
+    use odm_appcore::api::ConfirmArgs;
+    use odm_appcore::confirm::Pending;
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(1 << 20, Faults::default()).await;
+    let m = manager(d.path()).await;
+    let pending = Pending::default();
+    let add = |name: &'static str| {
+        let (m, url) = (m.clone(), s.url("/file"));
+        async move {
+            api::add(
+                &m,
+                AddArgs {
+                    url,
+                    filename: Some(name.into()),
+                    start_paused: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let args = |id: &str, action: &str, filename: Option<&str>| ConfirmArgs {
+        id: id.into(),
+        filename: filename.map(Into::into),
+        save_dir: None,
+        action: action.into(),
+    };
+
+    let a = add("a.bin").await;
+    pending.push(a.clone());
+    api::confirm_download(&m, &pending, args(&a, "start", Some("renamed.bin")))
+        .await
+        .unwrap();
+    assert!(pending.list().is_empty());
+    wait_completed(&m, &a).await;
+    let (rec, _) = m.get(&a).await.unwrap().unwrap();
+    assert_eq!(rec.filename, "renamed.bin");
+    assert!(d.path().join("renamed.bin").exists());
+
+    let b = add("b.bin").await;
+    pending.push(b.clone());
+    api::confirm_download(&m, &pending, args(&b, "later", Some("   ")))
+        .await
+        .unwrap();
+    assert!(pending.list().is_empty());
+    let (rec, _) = m.get(&b).await.unwrap().unwrap();
+    assert_eq!(
+        (rec.state, rec.filename.as_str()),
+        (DownloadState::Paused, "b.bin")
+    );
+
+    let c = add("c.bin").await;
+    pending.push(c.clone());
+    api::confirm_download(&m, &pending, args(&c, "cancel", None))
+        .await
+        .unwrap();
+    assert!(pending.list().is_empty());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while m.get(&c).await.unwrap().is_some() {
+        assert!(Instant::now() < deadline, "record not removed");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+
+    let err = api::confirm_download(&m, &pending, args(&b, "nope", None))
+        .await
+        .unwrap_err();
+    assert_eq!(err, "Unknown action.");
+    // An unknown id is fine for pending, and "later" on a vanished record is not an error to surface.
+    pending.push("ghost".into());
+    api::confirm_download(&m, &pending, args("ghost", "later", None))
+        .await
+        .unwrap();
+    assert!(pending.list().is_empty());
+    m.shutdown().await;
+}
+
+#[test]
+fn confirm_download_event_json() {
+    assert_eq!(
+        serde_json::to_value(UiEvent::ConfirmDownload { id: "x".into() }).unwrap(),
+        serde_json::json!({"type":"confirm_download","id":"x"})
+    );
+}

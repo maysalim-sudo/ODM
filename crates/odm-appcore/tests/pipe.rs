@@ -63,6 +63,7 @@ async fn show_window_reaches_the_context() {
     assert!(recv(&mut c).await.ok);
     assert_eq!(f.shows(), 1);
     assert_eq!(f.offers_seen(), 0);
+    assert!(f.confirms().is_empty());
     stop.cancel();
 }
 

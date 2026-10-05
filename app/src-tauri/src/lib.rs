@@ -2,6 +2,7 @@ mod commands;
 mod shell;
 
 use odm_appcore::api::{store_open_message, user_message};
+use odm_appcore::confirm::Pending;
 use odm_appcore::dto::{CompletionTracker, UiEvent};
 use odm_appcore::ipc::IpcContext;
 use odm_appcore::offers::Offers;
@@ -27,6 +28,8 @@ pub struct AppState {
     pub paths: AppPaths,
     /// Browser downloads that match a paused or failed one, waiting for the user's choice.
     pub offers: Arc<Offers>,
+    /// Browser downloads added paused that wait for the "New download" dialog.
+    pub pending: Arc<Pending>,
     /// Cancelled on exit to stop the browser-integration pipe server.
     pub ipc_stop: CancellationToken,
     /// Downloads already announced with a notification.
@@ -89,12 +92,14 @@ pub fn run() {
             };
             let settings = Arc::new(Mutex::new(settings));
             let offers = Arc::new(Offers::default());
+            let pending = Arc::new(Pending::default());
             let ipc_stop = CancellationToken::new();
             app.manage(AppState {
                 manager: manager.clone(),
                 settings: settings.clone(),
                 paths,
                 offers: offers.clone(),
+                pending: pending.clone(),
                 ipc_stop: ipc_stop.clone(),
                 completions: Mutex::new(CompletionTracker::default()),
                 quitting: AtomicBool::new(false),
@@ -107,6 +112,7 @@ pub fn run() {
             let speeds = tauri::async_runtime::block_on(async { summary::track(&manager) });
             let show_handle = handle.clone();
             let offer_handle = handle.clone();
+            let confirm_handle = handle.clone();
             let ctx = Arc::new(IpcContext {
                 manager: manager.clone(),
                 settings,
@@ -124,6 +130,13 @@ pub fn run() {
                     };
                     if let Err(e) = offer_handle.emit(EVENT, &ev) {
                         tracing::warn!("could not send an offer to the window: {e}");
+                    }
+                }),
+                pending,
+                on_confirm: Box::new(move |id| {
+                    let ev = UiEvent::ConfirmDownload { id: id.to_string() };
+                    if let Err(e) = confirm_handle.emit(EVENT, &ev) {
+                        tracing::warn!("could not send a confirmation to the window: {e}");
                     }
                 }),
             });

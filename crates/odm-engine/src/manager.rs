@@ -70,6 +70,12 @@ enum Cmd {
         Option<Vec<(String, String)>>,
         oneshot::Sender<Result<(), OdmError>>,
     ),
+    SetTarget(
+        String,
+        Option<String>,
+        Option<PathBuf>,
+        oneshot::Sender<Result<(), OdmError>>,
+    ),
     Remove(String, bool),
     PauseAll,
     ResumeAll,
@@ -189,6 +195,20 @@ impl ManagerHandle {
             .await?;
         rx.await.map_err(|_| closed())?
     }
+    /// Change name and/or folder of a download that has not transferred any byte yet (state Paused or
+    /// Queued, no chunk with written > 0, not active). The name is sanitized and becomes locked (the
+    /// probe won't rename it); a folder turns off auto-placement.
+    pub async fn set_target(
+        &self,
+        id: &str,
+        filename: Option<String>,
+        save_dir: Option<PathBuf>,
+    ) -> Result<(), OdmError> {
+        let (tx, rx) = oneshot::channel();
+        self.send(Cmd::SetTarget(id.into(), filename, save_dir, tx))
+            .await?;
+        rx.await.map_err(|_| closed())?
+    }
     pub async fn remove(&self, id: &str, delete_file: bool) -> Result<(), OdmError> {
         self.send(Cmd::Remove(id.into(), delete_file)).await
     }
@@ -294,6 +314,10 @@ impl Manager {
                 Cmd::Cancel(id, delete) => self.cancel(&id, delete).await,
                 Cmd::RefreshUrl(id, url, headers, reply) => {
                     let r = self.refresh_url(&id, url, headers).await;
+                    let _ = reply.send(r);
+                }
+                Cmd::SetTarget(id, name, dir, reply) => {
+                    let r = self.set_target(&id, name, dir).await;
                     let _ = reply.send(r);
                 }
                 Cmd::Remove(id, delete) => self.remove(&id, delete).await,
@@ -507,6 +531,44 @@ impl Manager {
             self.env.store.set_headers(id, h).await.map_err(store_err)?;
         }
         Ok(())
+    }
+
+    async fn set_target(
+        &mut self,
+        id: &str,
+        filename: Option<String>,
+        save_dir: Option<PathBuf>,
+    ) -> Result<(), OdmError> {
+        let started = || OdmError::new(ErrorKind::Other, "this download has already started");
+        if self.active.contains_key(id)
+            || !matches!(
+                self.state_of(id).await,
+                Some(DownloadState::Paused | DownloadState::Queued)
+            )
+        {
+            return Err(started());
+        }
+        let written: u64 = self
+            .env
+            .store
+            .get_chunks(id)
+            .await
+            .map_err(store_err)?
+            .iter()
+            .map(|c| c.written)
+            .sum();
+        if written > 0 {
+            return Err(started());
+        }
+        let name = filename
+            .map(|n| filename::sanitize(&n))
+            .filter(|n| !n.is_empty());
+        let dir = save_dir.map(|d| d.to_string_lossy().into_owned());
+        self.env
+            .store
+            .set_target(id, name, dir)
+            .await
+            .map_err(store_err)
     }
 
     fn request_stop(&mut self, id: &str, stop: Stop) -> bool {

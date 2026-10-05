@@ -541,3 +541,61 @@ async fn refresh_url_refuses_active_and_bad_scheme() {
         .is_err());
     m.cancel(&id, true).await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn set_target_renames_and_moves_before_start() {
+    let d = tempfile::tempdir().unwrap();
+    let d2 = tempfile::tempdir().unwrap();
+    let s = TestServer::start(MB, Faults::default()).await;
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let id = m
+        .add(AddRequest {
+            start_paused: true,
+            ..AddRequest::new(s.url("/file"))
+        })
+        .await
+        .unwrap();
+    m.set_target(
+        &id,
+        Some("new name.zip".into()),
+        Some(d2.path().to_path_buf()),
+    )
+    .await
+    .unwrap();
+    m.resume(&id).await.unwrap();
+    let r = wait_state(m.store(), &id, DownloadState::Completed, 20).await;
+    assert_eq!(final_path(&r), d2.path().join("new name.zip"));
+    assert_eq!(std::fs::read(final_path(&r)).unwrap(), body(MB));
+    m.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn set_target_refuses_after_bytes_were_written() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(
+        12 * MB,
+        Faults {
+            bytes_per_sec: Some(MB / 2),
+            ..Default::default()
+        },
+    )
+    .await;
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let id = m.add(AddRequest::new(s.url("/file"))).await.unwrap();
+    wait_bytes(m.store(), &id).await;
+    let err = m
+        .set_target(&id, Some("x.bin".into()), None)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("already started"), "{err}");
+
+    m.pause(&id).await.unwrap();
+    wait_state(m.store(), &id, DownloadState::Paused, 20).await;
+    assert!(m.set_target(&id, Some("x.bin".into()), None).await.is_err());
+    m.cancel(&id, true).await.unwrap();
+    m.shutdown().await;
+}

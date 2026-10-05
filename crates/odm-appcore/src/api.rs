@@ -7,6 +7,7 @@ use odm_engine::{AddRequest, EngineConfig, ManagerHandle, StreamRequest};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::confirm::Pending;
 use crate::dto::{chunk_views, to_dto, DetailDto, DownloadDto};
 use crate::offers::Offers;
 use crate::Settings;
@@ -296,6 +297,39 @@ pub async fn resolve_offer(
     } else {
         m.add(req).await.map_err(msg)
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConfirmArgs {
+    pub id: String,
+    pub filename: Option<String>,
+    pub save_dir: Option<String>,
+    /// "start", "later" or "cancel".
+    pub action: String,
+}
+
+/// The user's answer to the "New download" dialog for a download that was added paused.
+pub async fn confirm_download(
+    m: &ManagerHandle,
+    pending: &Pending,
+    a: ConfirmArgs,
+) -> Result<(), String> {
+    if !matches!(a.action.as_str(), "start" | "later" | "cancel") {
+        return Err("Unknown action.".into());
+    }
+    pending.remove(&a.id);
+    if a.action == "cancel" {
+        return m.remove(&a.id, false).await.map_err(msg);
+    }
+    let (name, dir) = (given(a.filename), given(a.save_dir).map(PathBuf::from));
+    if name.is_some() || dir.is_some() {
+        // A download that has already started keeps its name and folder.
+        let _ = m.set_target(&a.id, name, dir).await;
+    }
+    if a.action == "start" {
+        m.resume(&a.id).await.map_err(msg)?;
+    }
+    Ok(())
 }
 
 pub async fn apply_settings(m: &ManagerHandle, s: &Settings) -> Result<(), String> {
