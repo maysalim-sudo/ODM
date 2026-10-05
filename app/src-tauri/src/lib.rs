@@ -187,6 +187,8 @@ pub fn run() {
             commands::pick_folder,
             commands::list_offers,
             commands::resolve_offer,
+            commands::list_pending_confirms,
+            commands::confirm_download,
             commands::refresh_url,
         ])
         .build(tauri::generate_context!())

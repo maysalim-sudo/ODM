@@ -103,7 +103,8 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
     case "resync":
       return { rows, resync: true };
     case "reuse_offer":
-      // Offers are not rows; the store handles them before this function.
+    case "confirm_download":
+      // Offers and confirmations are not rows; the store handles them before this function.
       return { rows, resync: false };
   }
 }
@@ -194,6 +195,16 @@ export function isRiskyFile(name: string): boolean {
 /** The list with `o` added, or the same list when its offer_id is already there. */
 export function addOffer(list: Offer[], o: Offer): Offer[] {
   return list.some((x) => x.offer_id === o.offer_id) ? list : [...list, o];
+}
+
+/** The first pending id whose row is paused, i.e. the next "New download" dialog to show. */
+export function nextConfirm(ids: string[], rows: Row[]): Row | undefined {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  for (const id of ids) {
+    const row = byId.get(id);
+    if (row?.state === "paused") return row;
+  }
+  return undefined;
 }
 
 export interface Segment {

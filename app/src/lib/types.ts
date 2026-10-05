@@ -73,7 +73,8 @@ export type UiEvent =
   | { type: "removed"; id: string }
   | { type: "progress_batch"; items: Progress[] }
   | { type: "resync" }
-  | { type: "reuse_offer"; offer: Offer };
+  | { type: "reuse_offer"; offer: Offer }
+  | { type: "confirm_download"; id: string };
 
 export interface Settings {
   download_dir: string;
@@ -91,6 +92,7 @@ export interface Settings {
   close_to_tray: boolean;
   start_minimized: boolean;
   notifications: boolean;
+  confirm_browser_downloads: boolean;
 }
 
 export interface AddArgs {
@@ -105,6 +107,13 @@ export interface AddArgs {
   variant_url?: string | null;
   /** HLS: add `url` as a video stream. */
   stream?: boolean;
+}
+
+export interface ConfirmArgs {
+  id: string;
+  filename?: string | null;
+  save_dir?: string | null;
+  action: "start" | "later" | "cancel";
 }
 
 export interface Suggestion {

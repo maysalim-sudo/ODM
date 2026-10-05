@@ -1,6 +1,6 @@
 import * as api from "./api";
-import { ReloadGate, addOffer, applyEvent, counts, keepVisible, visible, type Filter, type Row, type SortDir, type SortKey } from "./model";
-import type { Offer, UiEvent } from "./types";
+import { ReloadGate, addOffer, applyEvent, counts, keepVisible, nextConfirm, visible, type Filter, type Row, type SortDir, type SortKey } from "./model";
+import type { ConfirmArgs, Offer, UiEvent } from "./types";
 
 class DownloadsStore {
   rows = $state<Map<string, Row>>(new Map());
@@ -14,8 +14,13 @@ class DownloadsStore {
   /** Browser downloads that match an unfinished one; the first is shown to the user. */
   offers = $state<Offer[]>([]);
 
+  /** Browser downloads added paused that wait for the "New download" dialog, oldest first. */
+  confirms = $state<string[]>([]);
+
   visible = $derived(visible(this.rows, this.filter, this.sortKey, this.sortDir));
   counts = $derived(counts(this.rows));
+  /** The download the "New download" dialog is about, if any. */
+  confirmRow = $derived(nextConfirm(this.confirms, [...this.rows.values()]));
   selectedRows = $derived([...this.selected].map((id) => this.rows.get(id)).filter((r): r is Row => !!r));
 
   private gate = new ReloadGate();
@@ -27,6 +32,7 @@ class DownloadsStore {
     this.unlisten = await api.onEvent((ev) => this.handle(ev));
     try {
       for (const o of await api.listOffers()) this.offers = addOffer(this.offers, o);
+      for (const id of await api.listPendingConfirms()) this.addConfirm(id);
     } catch (e) {
       this.error = api.errorText(e);
     }
@@ -39,6 +45,36 @@ class DownloadsStore {
     this.offers = this.offers.filter((o) => o.offer_id !== offer.offer_id);
   }
 
+  private addConfirm(id: string): void {
+    if (!this.confirms.includes(id)) this.confirms = [...this.confirms, id];
+  }
+
+  /** Forget pending ids whose download is gone or no longer paused. Ids without a row yet are kept. */
+  private pruneConfirms(): void {
+    const kept = this.confirms.filter((id) => {
+      const r = this.rows.get(id);
+      return r === undefined || r.state === "paused";
+    });
+    if (kept.length !== this.confirms.length) this.confirms = kept;
+  }
+
+  /**
+   * Send the user's choice, then drop the id so the next dialog can show. Throws the command's message
+   * on failure; the id stays when it does.
+   */
+  async confirm(args: ConfirmArgs, dontAskAgain: boolean): Promise<void> {
+    await api.confirmDownload(args);
+    this.confirms = this.confirms.filter((id) => id !== args.id);
+    if (dontAskAgain) {
+      try {
+        const s = await api.getSettings();
+        await api.saveSettings({ ...s, confirm_browser_downloads: false });
+      } catch (e) {
+        this.error = api.errorText(e);
+      }
+    }
+  }
+
   async reload(): Promise<void> {
     const ticket = this.gate.begin();
     try {
@@ -47,6 +83,8 @@ class DownloadsStore {
       if (next) {
         this.rows = next;
         this.pruneSelection();
+        // After a full reload a pending id without a row has really gone.
+        this.confirms = this.confirms.filter((id) => next.has(id) && next.get(id)?.state === "paused");
         this.loaded = true;
         this.error = null;
       }
@@ -60,11 +98,16 @@ class DownloadsStore {
       this.offers = addOffer(this.offers, ev.offer);
       return;
     }
+    if (ev.type === "confirm_download") {
+      this.addConfirm(ev.id);
+      return;
+    }
     this.gate.record(ev);
     const r = applyEvent(this.rows, ev);
     this.rows = r.rows;
     if (r.resync) void this.reload();
     this.pruneSelection();
+    this.pruneConfirms();
   }
 
   /** Drop selected rows that are gone or hidden by the current filter. */

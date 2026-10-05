@@ -14,6 +14,7 @@ import {
   canRefresh,
   isRiskyFile,
   addOffer,
+  nextConfirm,
   counts,
   COL,
   NAME_MIN,
@@ -326,6 +327,7 @@ describe("coerceSettings", () => {
     close_to_tray: true,
     start_minimized: false,
     notifications: true,
+    confirm_browser_downloads: true,
   };
   it("replaces emptied number fields with the previously loaded value", () => {
     const form = { ...base, max_connections: null, speed_limit_kbps: Number.NaN, max_concurrent: 4.4 };
@@ -406,6 +408,26 @@ describe("offers", () => {
     const r = applyEvent(rows, { type: "reuse_offer", offer: { offer_id: "o", existing_id: "a", filename: "f" } });
     expect(r.rows).toBe(rows);
     expect(r.resync).toBe(false);
+  });
+});
+
+describe("confirms", () => {
+  it("applyEvent leaves rows alone for confirm_download", () => {
+    const rows = replaceAll([dl("a", { state: "paused" })]);
+    const r = applyEvent(rows, { type: "confirm_download", id: "a" });
+    expect(r.rows).toBe(rows);
+    expect(r.resync).toBe(false);
+  });
+
+  it("nextConfirm returns the first pending id whose row is paused", () => {
+    const rows = [
+      toRow(dl("a", { state: "downloading" })),
+      toRow(dl("b", { state: "paused" })),
+      toRow(dl("c", { state: "paused" })),
+    ];
+    expect(nextConfirm(["gone", "a", "c", "b"], rows)?.id).toBe("c");
+    expect(nextConfirm(["gone", "a"], rows)).toBeUndefined();
+    expect(nextConfirm([], rows)).toBeUndefined();
   });
 });
 

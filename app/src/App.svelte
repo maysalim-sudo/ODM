@@ -9,6 +9,7 @@
   import RefreshUrlDialog from "./components/RefreshUrlDialog.svelte";
   import RemoveDialog from "./components/RemoveDialog.svelte";
   import ReuseDialog from "./components/ReuseDialog.svelte";
+  import ConfirmDialog from "./components/ConfirmDialog.svelte";
   import SettingsDialog from "./components/SettingsDialog.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toolbar from "./components/Toolbar.svelte";
@@ -93,6 +94,7 @@
 <RefreshUrlDialog open={refreshOpen} id={detailId} onclose={() => (refreshOpen = false)} />
 <OpenProgramDialog open={programOpen} id={detailId} name={detailName} onclose={() => (programOpen = false)} />
 <ReuseDialog />
+<ConfirmDialog />
 
 <style>
   .app {

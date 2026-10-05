@@ -1,4 +1,4 @@
-use odm_appcore::api::{self, AddArgs, BatchResult, Suggestion};
+use odm_appcore::api::{self, AddArgs, BatchResult, ConfirmArgs, Suggestion};
 use odm_appcore::dto::{DetailDto, DownloadDto};
 use odm_appcore::offers::OfferDto;
 use odm_appcore::Settings;
@@ -170,6 +170,16 @@ pub async fn resolve_offer(
     reuse: bool,
 ) -> Res<String> {
     api::resolve_offer(&state.manager, &state.offers, &offer_id, reuse).await
+}
+
+#[tauri::command]
+pub fn list_pending_confirms(state: State<'_, AppState>) -> Vec<String> {
+    state.pending.list()
+}
+
+#[tauri::command]
+pub async fn confirm_download(state: State<'_, AppState>, args: ConfirmArgs) -> Res<()> {
+    api::confirm_download(&state.manager, &state.pending, args).await
 }
 
 #[tauri::command]

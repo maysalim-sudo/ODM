@@ -127,6 +127,7 @@
 
         <h3>Browser</h3>
         <p class="hint">These apply once the ODM browser extension is installed.</p>
+        <label class="check"><input type="checkbox" bind:checked={s.confirm_browser_downloads} /><span>Ask before downloading from the browser</span></label>
         <label class="check"><input type="checkbox" bind:checked={s.capture_enabled} /><span>Take over downloads started in the browser</span></label>
         <label class="field">
           <span>Leave files smaller than this many MB to the browser</span>
