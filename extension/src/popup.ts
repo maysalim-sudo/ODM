@@ -23,9 +23,10 @@ async function refreshSummary(): Promise<void> {
 }
 
 async function init(): Promise<void> {
-  const { response: r, failure } = await sendDetailed<{ version: string }>("PING", {}, 2000);
+  const { response: r, failure, detail } = await sendDetailed<{ version: string }>("PING", {}, 2000);
   if (r === null) {
-    setStatus(FAILURE_TEXT[failure ?? "other"]);
+    // The browser's own reason helps when the helper can't be started.
+    setStatus(failure === "other" && detail ? `${FAILURE_TEXT.other} (${detail})` : FAILURE_TEXT[failure ?? "other"]);
   } else if (r.ok) {
     setStatus(`Connected to ODM ${r.payload?.version ?? ""}`.trim());
     await refreshSummary();

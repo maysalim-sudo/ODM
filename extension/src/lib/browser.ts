@@ -9,7 +9,7 @@ export async function sendDetailed<T>(
   cmd: string,
   payload?: object,
   timeoutMs?: number,
-): Promise<{ response: OdmResponse<T> | null; failure?: SendFailure }> {
+): Promise<{ response: OdmResponse<T> | null; failure?: SendFailure; detail?: string }> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(TIMEOUT_SENTINEL), timeoutMs ?? CAPTURE_TIMEOUT_MS);
@@ -21,7 +21,8 @@ export async function sendDetailed<T>(
     ]);
     return { response };
   } catch (e) {
-    return { response: null, failure: classifySendError(e) };
+    const detail = e === TIMEOUT_SENTINEL ? "timed out" : e instanceof Error ? e.message : String(e);
+    return { response: null, failure: classifySendError(e), detail };
   } finally {
     clearTimeout(timer);
   }

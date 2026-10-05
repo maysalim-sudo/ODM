@@ -1,5 +1,5 @@
 import { AltTracker } from "./lib/alt";
-import { ext, cookiesFor, send } from "./lib/browser";
+import { ext, cookiesFor, send, sendDetailed } from "./lib/browser";
 import {
   ClaimSet,
   captureUrl,
@@ -119,8 +119,8 @@ async function handle(item: DownloadLike, storeId?: string): Promise<void> {
   if (!shouldOffer(view, alt.active(Date.now()))) return;
   const cookies = await cookiesFor(captureUrl(view), storeId);
   const payload = toCapturePayload(view, cookies, navigator.userAgent, Date.now());
-  const r = await send("ADD_DOWNLOAD", payload);
-  if (!r) console.warn("ODM did not answer; the browser keeps the download.");
+  const { response: r, failure, detail } = await sendDetailed("ADD_DOWNLOAD", payload);
+  if (!r) console.warn(`ODM did not answer (${failure}: ${detail}); the browser keeps the download.`);
   if (shouldCancelBrowserDownload(r)) {
     try {
       await ext.downloads.cancel(item.id);
