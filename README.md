@@ -2,19 +2,32 @@
 
 A personal download manager for Windows. It downloads files over several connections at once, resumes after a pause or a crash, and keeps a queue with speed and concurrency limits.
 
-## Status
+It takes over downloads from Chrome, Edge, Brave, Vivaldi, Opera, Firefox and Floorp. It also finds the videos a page plays and downloads them: plain video files, HLS streams, and, through yt-dlp, videos on YouTube, Facebook, Instagram, X, TikTok, Vimeo and more.
 
-- Done: the download engine, the command-line tool, the desktop app, browser integration (Chrome/Chromium, Edge, Firefox/Floorp) and HLS video streams.
-- Also done: an unsigned per-user installer. Everything planned for v1 is built.
+ODM is a personal project, shared as is. It is unsigned and has no auto-update.
 
-## Requirements
+## Quick start (no building)
+
+1. **Install the app.** Download `ODM_x.y.z_x64-setup.exe` from the [Releases](../../releases) page and run it. It installs for your user only and needs no admin rights. Because it is unsigned, Windows SmartScreen may warn you: choose **More info → Run anyway**.
+2. **Start ODM once.** It registers its browser helper on first start.
+3. **Add the extension.**
+   - Chrome, Edge, Vivaldi and other Chromium browsers: unzip `odm-extension-chromium.zip` from the same release, open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and pick the unzipped folder. Keep that folder where it is.
+   - Firefox and Floorp: see "Browser integration" below.
+4. **Optional tools,** found automatically on `PATH`, or set in Settings:
+   - [FFmpeg](https://ffmpeg.org/) for HLS streams and for site videos (`winget install Gyan.FFmpeg`).
+   - [yt-dlp](https://github.com/yt-dlp/yt-dlp) for YouTube, Facebook and other sites (`winget install yt-dlp.yt-dlp`).
+   - [Node.js](https://nodejs.org/), which yt-dlp needs to read YouTube.
+
+Only download what you have the right to. Respect each site's terms.
+
+## Building from source: requirements
 
 - Windows 10 or 11 with the WebView2 runtime (included in Windows 11)
 - Rust (stable, MSVC toolchain) and the Visual Studio C++ Build Tools
 - Node 22.12 or newer and pnpm
 - TypeScript is pinned to version 6 because the current `svelte-check` does not accept TypeScript 7.
 
-## Install
+## Building the installer
 
     node scripts/release.mjs
 
@@ -76,6 +89,10 @@ Some servers refuse extra connections (HTTP 429). ODM then keeps downloading wit
 ## Where ODM keeps its files
 
 `%APPDATA%\ODM\` holds the database (`odm.db`), `settings.json` and `logs\`. Set the `ODM_DATA_DIR` environment variable to use another folder, for example to try a build without touching your real data.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
 
 ## Tests
 

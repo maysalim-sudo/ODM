@@ -46,6 +46,9 @@
   }
 </script>
 
+<!-- A fresh Modal per offer: after Escape the browser has closed the native dialog, and the next
+     queued offer needs it opened again. -->
+{#key offer?.offer_id}
 <Modal {open} title="Continue the earlier download?" onclose={dismiss} width={440}>
   {#if offer}
     <p class="hint">
@@ -61,3 +64,4 @@
     </div>
   {/if}
 </Modal>
+{/key}
