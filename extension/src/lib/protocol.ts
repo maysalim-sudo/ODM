@@ -25,6 +25,13 @@ export type AddStreamPayload = {
   cookies?: string;
 };
 
+export type AddPagePayload = {
+  page_url: string;
+  page_title?: string;
+  headers: Record<string, string>;
+  cookies?: string;
+};
+
 export function makeRequest(cmd: string, payload: object = {}): { id: string; cmd: string; payload: object } {
   return { id: crypto.randomUUID(), cmd, payload };
 }

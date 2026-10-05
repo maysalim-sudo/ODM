@@ -82,6 +82,7 @@
         category: category || null,
         connections: toInt(connections, defaultConnections),
         ...(suggestion?.is_stream ? { stream: true, variant_url: variantUrl || null } : {}),
+        ...(suggestion?.is_page ? { page: true } : {}),
       });
       onclose();
     } catch (err) {
@@ -102,6 +103,8 @@
     <p class="hint">
       {#if checking}
         Checking the address…
+      {:else if suggestion?.is_page}
+        This page's video will be downloaded with yt-dlp.
       {:else if suggestion?.is_stream}
         Video stream · downloaded in parts and merged into one file with FFmpeg
       {:else if suggestion}
@@ -148,10 +151,12 @@
           {/each}
         </select>
       </label>
-      <label class="field" style="width:140px">
-        <span>Connections</span>
-        <input type="number" min="1" max="32" bind:value={connections} />
-      </label>
+      {#if !suggestion?.is_page}
+        <label class="field" style="width:140px">
+          <span>Connections</span>
+          <input type="number" min="1" max="32" bind:value={connections} />
+        </label>
+      {/if}
     </div>
 
     {#if error}<p class="form-error" role="alert">{error}</p>{/if}

@@ -1,6 +1,7 @@
 import { ext, send, sendDetailed } from "./lib/browser";
 import { statusLine } from "./lib/format";
 import { errorText, type SendFailure } from "./lib/protocol";
+import { isSitePage } from "./lib/sites";
 import type { Stream } from "./lib/streams";
 
 const FAILURE_TEXT: Record<SendFailure, string> = {
@@ -65,9 +66,36 @@ async function showVideos(): Promise<void> {
   const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
   if (tab?.id === undefined) return;
   const tabId = tab.id;
-  const list = (await ext.runtime.sendMessage({ type: "odm-list-streams", tabId })) as Stream[] | undefined;
-  if (!Array.isArray(list) || list.length === 0) return;
+  const found = (await ext.runtime.sendMessage({ type: "odm-list-streams", tabId })) as Stream[] | undefined;
+  const list = Array.isArray(found) ? found : [];
+  const pageUrl = tab.url ?? "";
+  const sitePage = isSitePage(pageUrl);
+  if (list.length === 0 && !sitePage) return;
   const ul = $("video-list");
+  if (sitePage) {
+    const li = el(ul, "li");
+    const line = el(li, "div", "line");
+    const name = el(line, "span", "name", "Download this page's video");
+    name.title = pageUrl;
+    const note = el(li, "p", "note");
+    note.hidden = true;
+    const button = el(line, "button", undefined, "Download") as HTMLButtonElement;
+    button.type = "button";
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      note.textContent = "Sending...";
+      note.hidden = false;
+      try {
+        const r = (await ext.runtime.sendMessage({ type: "odm-add-page", url: pageUrl, tabId })) as
+          | { ok: boolean; message: string }
+          | undefined;
+        note.textContent = r?.message ?? "ODM did not answer.";
+      } catch {
+        note.textContent = "ODM did not answer.";
+      }
+      button.disabled = false;
+    });
+  }
   for (const s of list) {
     const li = el(ul, "li");
     const line = el(li, "div", "line");

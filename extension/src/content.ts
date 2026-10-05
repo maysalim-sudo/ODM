@@ -1,3 +1,5 @@
+import { isSitePage, pageAddress } from "./lib/sites";
+
 function notify(down: boolean): void {
   try {
     const p = chrome.runtime.sendMessage({ type: "odm-alt", down });
@@ -169,6 +171,12 @@ const MESSAGE_MS = 4000;
   let sending = false;
   let ui: { host: HTMLElement; wrap: HTMLElement; button: HTMLButtonElement; msg: HTMLElement } | null = null;
 
+  /** The links of the post (feed item) that holds the video, for finding the video's own page. */
+  const postLinks = (v: HTMLVideoElement): string[] => {
+    const post = v.closest('[role="article"]');
+    return post ? Array.from(post.querySelectorAll("a[href]"), (a) => (a as HTMLAnchorElement).href) : [];
+  };
+
   const bigEnough = (v: HTMLVideoElement): boolean => {
     const r = v.getBoundingClientRect();
     return r.width >= MIN_VIDEO_WIDTH && r.height >= MIN_VIDEO_HEIGHT;
@@ -221,7 +229,11 @@ const MESSAGE_MS = 4000;
       msg.hidden = false;
       let reply: AddReply;
       try {
-        const r = (await chrome.runtime.sendMessage({ type: "odm-add-video", src: video.currentSrc })) as AddReply | undefined;
+        // On a video site the page is the thing to download (yt-dlp finds the media); elsewhere the file or stream.
+        const message = isSitePage(location.href)
+          ? { type: "odm-add-page", url: pageAddress(location.href, postLinks(video)) }
+          : { type: "odm-add-video", src: video.currentSrc };
+        const r = (await chrome.runtime.sendMessage(message)) as AddReply | undefined;
         reply = r ?? { ok: false, message: "ODM did not answer." };
       } catch {
         reply = { ok: false, message: "ODM did not answer." };

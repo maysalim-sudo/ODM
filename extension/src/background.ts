@@ -12,6 +12,7 @@ import {
 } from "./lib/capture";
 import { MENU_ID } from "./lib/ids";
 import { errorText } from "./lib/protocol";
+import { isSitePage, toPagePayload } from "./lib/sites";
 import { StreamStore, classify, responseSize, toStreamPayload, toVideoFilePayload, type Stream } from "./lib/streams";
 
 const alt = new AltTracker();
@@ -85,6 +86,17 @@ async function addStream(tabId: number | undefined, url: string | undefined, tab
   return r?.ok ? { ok: true, message: "Sent to ODM." } : { ok: false, message: errorText(r) };
 }
 
+/** Sends a site page (YouTube, Facebook…) to ODM, which downloads its video with yt-dlp. Only a click gets here. */
+async function addPage(tabId: number | undefined, url: string | undefined, tab?: chrome.tabs.Tab): Promise<Reply> {
+  if (!url || !isSitePage(url)) return { ok: false, message: "This page is not a supported video site." };
+  const page = tabId === undefined ? tab : await pageOf(tabId, tab);
+  const storeId = (page as { cookieStoreId?: string } | undefined)?.cookieStoreId;
+  const cookies = await cookiesFor(url, storeId);
+  const payload = toPagePayload(url, page?.title, cookies, navigator.userAgent);
+  const r = await send("ADD_PAGE", payload, 15000);
+  return r?.ok ? { ok: true, message: "Sent to ODM." } : { ok: false, message: errorText(r) };
+}
+
 const NOT_SEEN = "ODM hasn't seen this video's source yet. Play it for a few seconds and try again.";
 
 /** The button on a video element: the video's own http(s) source, else the tab's best listed item. */
@@ -116,6 +128,10 @@ ext.runtime.onMessage.addListener((msg: unknown, sender: chrome.runtime.MessageS
       return false;
     case "odm-add-video":
       void addVideo(sender.tab?.id, m.src, sender.tab).then(sendResponse);
+      return true;
+    case "odm-add-page":
+      // A content script is identified by its sender; the popup names the tab.
+      void addPage(sender.tab?.id ?? m.tabId, m.url, sender.tab).then(sendResponse);
       return true;
     case "odm-add-stream":
       // A content script is identified by its sender; the popup names the tab.

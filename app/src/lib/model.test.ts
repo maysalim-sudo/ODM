@@ -321,6 +321,7 @@ describe("coerceSettings", () => {
     connect_timeout_s: 20,
     read_timeout_s: 60,
     ffmpeg_path: "",
+    ytdlp_path: "",
     capture_enabled: true,
     min_capture_bytes: 1048576,
     skip_hosts: [],

@@ -86,6 +86,7 @@ export interface Settings {
   connect_timeout_s: number;
   read_timeout_s: number;
   ffmpeg_path: string;
+  ytdlp_path: string;
   capture_enabled: boolean;
   min_capture_bytes: number;
   skip_hosts: string[];
@@ -107,6 +108,8 @@ export interface AddArgs {
   variant_url?: string | null;
   /** HLS: add `url` as a video stream. */
   stream?: boolean;
+  /** Site page (YouTube, Facebook…): add `url` as a video downloaded with yt-dlp. */
+  page?: boolean;
 }
 
 export interface ConfirmArgs {
@@ -123,6 +126,8 @@ export interface Suggestion {
   resumable: boolean;
   variants: Variant[];
   is_stream: boolean;
+  /** `url` is a page of a video site; yt-dlp finds the media. */
+  is_page: boolean;
 }
 
 export interface Variant {

@@ -72,7 +72,7 @@
       <button onclick={onclose} aria-label="Close details">Close</button>
     </header>
 
-    {#if row.kind !== "hls"}
+    {#if row.kind !== "hls" && row.kind !== "site"}
       <section>
         <ChunkMap {chunks} total={row.size} />
       </section>
@@ -105,8 +105,13 @@
         <dt>Redirects to</dt>
         <dd class="wrap">{detail.final_url}</dd>
       {/if}
-      <dt>Connections</dt>
-      <dd>Up to {row.max_connections}</dd>
+      {#if row.kind === "site"}
+        <dt>Method</dt>
+        <dd>Downloaded with yt-dlp</dd>
+      {:else}
+        <dt>Connections</dt>
+        <dd>Up to {row.max_connections}</dd>
+      {/if}
       {#if detail && detail.header_names.length > 0}
         <dt>Sent headers</dt>
         <dd class="wrap">{detail.header_names.join(", ")}</dd>

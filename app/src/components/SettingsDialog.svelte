@@ -119,6 +119,11 @@
           <span>FFmpeg location (used for video streams; leave empty to find it automatically)</span>
           <input bind:value={s.ffmpeg_path} />
         </label>
+        <label class="field">
+          <span>yt-dlp path</span>
+          <input bind:value={s.ytdlp_path} />
+          <span class="hint">Leave empty to find yt-dlp automatically.</span>
+        </label>
 
         <h3>Window</h3>
         <label class="check"><input type="checkbox" bind:checked={s.close_to_tray} /><span>Keep running in the tray when the window is closed</span></label>
