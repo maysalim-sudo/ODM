@@ -107,24 +107,63 @@ export class StreamStore {
   }
 }
 
+/** The Referer and Origin the browser itself sent when it fetched a URL. */
+export type SentHeaders = { referer?: string; origin?: string };
+
+/**
+ * Players embedded from another site (common on video and anime sites) fetch their streams with the
+ * embed's address as Referer and Origin, and the video server refuses anything else. Remembering what
+ * the browser sent lets ODM repeat it exactly.
+ */
+export class SentHeaderCache {
+  private map = new Map<string, SentHeaders>();
+
+  constructor(private readonly limit = 500) {}
+
+  remember(url: string, headers: { name: string; value?: string }[]): void {
+    const find = (n: string) => headers.find((h) => h.name.toLowerCase() === n)?.value || undefined;
+    const sent = { referer: find("referer"), origin: find("origin") };
+    if (!sent.referer && !sent.origin) return;
+    const key = withoutFragment(url);
+    this.map.delete(key);
+    this.map.set(key, sent);
+    if (this.map.size > this.limit) this.map.delete(this.map.keys().next().value as string);
+  }
+
+  get(url: string): SentHeaders | undefined {
+    return this.map.get(withoutFragment(url));
+  }
+}
+
+function withOrigin(headers: Record<string, string>, sent?: SentHeaders): Record<string, string> {
+  return sent?.origin ? { ...headers, Origin: sent.origin } : headers;
+}
+
 export function toStreamPayload(
   s: Stream,
   pageUrl: string,
   pageTitle: string | undefined,
   cookies: Cookie[],
   userAgent: string,
+  sent?: SentHeaders,
 ): AddStreamPayload {
   return {
     page_url: pageUrl,
     page_title: pageTitle?.trim() ? pageTitle : undefined,
     playlist_url: s.url,
-    headers: { "User-Agent": userAgent, Referer: pageUrl },
+    headers: withOrigin({ "User-Agent": userAgent, Referer: sent?.referer ?? pageUrl }, sent),
     cookies: cookieHeader(cookies),
   };
 }
 
 /** A plain video file as a menu-style download; the page is the referrer. */
-export function toVideoFilePayload(s: Stream, pageUrl: string, cookies: Cookie[], userAgent: string): AddDownloadPayload {
+export function toVideoFilePayload(
+  s: Stream,
+  pageUrl: string,
+  cookies: Cookie[],
+  userAgent: string,
+  sent?: SentHeaders,
+): AddDownloadPayload {
   let filename: string | undefined;
   try {
     filename = basename(decodeURIComponent(new URL(s.url).pathname));
@@ -134,8 +173,8 @@ export function toVideoFilePayload(s: Stream, pageUrl: string, cookies: Cookie[]
   return {
     url: s.url,
     filename,
-    referrer: pageUrl || undefined,
-    headers: { "User-Agent": userAgent },
+    referrer: sent?.referer ?? (pageUrl || undefined),
+    headers: withOrigin({ "User-Agent": userAgent }, sent),
     cookies: cookieHeader(cookies),
     source: "menu",
   };

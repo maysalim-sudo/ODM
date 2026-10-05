@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MIN_VIDEO_BYTES, StreamStore, classify, responseSize, streamLabel, toStreamPayload, toVideoFilePayload } from "./streams";
+import { MIN_VIDEO_BYTES, SentHeaderCache, StreamStore, classify, responseSize, streamLabel, toStreamPayload, toVideoFilePayload } from "./streams";
 
 describe("classify", () => {
   it("detects HLS by path, ignoring the query", () => {
@@ -175,5 +175,54 @@ describe("toVideoFilePayload", () => {
     expect(p.url).toBe("https://cdn.x/v/clip.mp4?sig=1");
     expect(p.headers["User-Agent"]).toBe("UA/1");
     expect(p.cookies).toBe("a=1; b=2");
+  });
+});
+
+describe("SentHeaderCache", () => {
+  it("remembers the Referer and Origin the browser sent, by URL without fragment", () => {
+    const c = new SentHeaderCache();
+    c.remember("https://cdn.x/p/master.m3u8#t=1", [
+      { name: "referer", value: "https://player.embed.example/e/abc" },
+      { name: "ORIGIN", value: "https://player.embed.example" },
+      { name: "Accept", value: "*/*" },
+    ]);
+    expect(c.get("https://cdn.x/p/master.m3u8")).toEqual({
+      referer: "https://player.embed.example/e/abc",
+      origin: "https://player.embed.example",
+    });
+    expect(c.get("https://cdn.x/other.m3u8")).toBeUndefined();
+  });
+  it("ignores requests that sent neither header and forgets the oldest past its limit", () => {
+    const c = new SentHeaderCache(2);
+    c.remember("https://a/1", [{ name: "Accept", value: "*/*" }]);
+    expect(c.get("https://a/1")).toBeUndefined();
+    c.remember("https://a/1", [{ name: "Referer", value: "https://r/1" }]);
+    c.remember("https://a/2", [{ name: "Referer", value: "https://r/2" }]);
+    c.remember("https://a/3", [{ name: "Referer", value: "https://r/3" }]);
+    expect(c.get("https://a/1")).toBeUndefined();
+    expect(c.get("https://a/3")).toEqual({ referer: "https://r/3", origin: undefined });
+  });
+});
+
+describe("payloads use the headers the player sent", () => {
+  const sent = { referer: "https://player.embed.example/e/abc", origin: "https://player.embed.example" };
+  it("stream: Referer and Origin come from the player, not the page", () => {
+    const s = { url: "https://cdn.x/master.m3u8", kind: "hls" as const, label: "x", supported: true };
+    const p = toStreamPayload(s, "https://anime.example/watch/1", "Ep 1", [], "UA", sent);
+    expect(p.headers.Referer).toBe(sent.referer);
+    expect(p.headers.Origin).toBe(sent.origin);
+    expect(p.page_url).toBe("https://anime.example/watch/1");
+  });
+  it("stream: without recorded headers the page is the Referer and there is no Origin", () => {
+    const s = { url: "https://cdn.x/master.m3u8", kind: "hls" as const, label: "x", supported: true };
+    const p = toStreamPayload(s, "https://site/", "T", [], "UA");
+    expect(p.headers.Referer).toBe("https://site/");
+    expect(p.headers.Origin).toBeUndefined();
+  });
+  it("file: the player's Referer becomes the referrer, Origin is passed on", () => {
+    const s = { url: "https://cdn.x/v/clip.mp4", kind: "file" as const, label: "x", supported: true, size: 5e6 };
+    const p = toVideoFilePayload(s, "https://anime.example/watch/1", [], "UA", sent);
+    expect(p.referrer).toBe(sent.referer);
+    expect(p.headers.Origin).toBe(sent.origin);
   });
 });

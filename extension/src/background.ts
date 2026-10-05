@@ -13,11 +13,13 @@ import {
 import { MENU_ID } from "./lib/ids";
 import { errorText } from "./lib/protocol";
 import { isSitePage, toPagePayload } from "./lib/sites";
-import { StreamStore, classify, responseSize, toStreamPayload, toVideoFilePayload, type Stream } from "./lib/streams";
+import { SentHeaderCache, StreamStore, classify, responseSize, toStreamPayload, toVideoFilePayload, type Stream } from "./lib/streams";
 
 const alt = new AltTracker();
 // Lost when the service worker restarts; the badge resets with it.
 const streams = new StreamStore();
+// Referer/Origin the browser sent for media requests, so ODM can repeat them (embedded players need this).
+const sentHeaders = new SentHeaderCache(2000);
 const BADGE_COLOR = "#6366f1";
 /** How long onCreated waits for onDeterminingFilename before taking the download itself. */
 const CREATED_FALLBACK_MS = 500;
@@ -66,7 +68,7 @@ async function pageOf(tabId: number, tab?: chrome.tabs.Tab): Promise<chrome.tabs
 async function sendFile(stream: Stream, page: chrome.tabs.Tab): Promise<Reply> {
   const storeId = (page as { cookieStoreId?: string }).cookieStoreId;
   const cookies = await cookiesFor(stream.url, storeId);
-  const payload = toVideoFilePayload(stream, page.url ?? "", cookies, navigator.userAgent);
+  const payload = toVideoFilePayload(stream, page.url ?? "", cookies, navigator.userAgent, sentHeaders.get(stream.url));
   const r = await send("ADD_DOWNLOAD", payload, 15000);
   return r?.ok ? { ok: true, message: "Sent to ODM." } : { ok: false, message: errorText(r) };
 }
@@ -81,7 +83,7 @@ async function addStream(tabId: number | undefined, url: string | undefined, tab
   const pageUrl = page.url ?? "";
   const storeId = (page as { cookieStoreId?: string }).cookieStoreId;
   const cookies = await cookiesFor(stream.url, storeId);
-  const payload = toStreamPayload(stream, pageUrl, page.title, cookies, navigator.userAgent);
+  const payload = toStreamPayload(stream, pageUrl, page.title, cookies, navigator.userAgent, sentHeaders.get(stream.url));
   const r = await send("ADD_STREAM", payload, 15000);
   return r?.ok ? { ok: true, message: "Sent to ODM." } : { ok: false, message: errorText(r) };
 }
@@ -141,6 +143,15 @@ ext.runtime.onMessage.addListener((msg: unknown, sender: chrome.runtime.MessageS
       return false;
   }
 });
+
+// Chromium only reveals Referer and Origin to extensions that ask for "extraHeaders"; Firefox rejects that flag.
+ext.webRequest.onSendHeaders.addListener(
+  (details) => {
+    if (details.tabId >= 0 && details.requestHeaders) sentHeaders.remember(details.url, details.requestHeaders);
+  },
+  { urls: ["<all_urls>"], types: ["xmlhttprequest", "media", "other"] },
+  (__TARGET__ === "chromium" ? ["requestHeaders", "extraHeaders"] : ["requestHeaders"]) as chrome.webRequest.OnSendHeadersOptions[],
+);
 
 ext.webRequest.onHeadersReceived.addListener(
   (details) => {
