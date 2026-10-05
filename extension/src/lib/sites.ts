@@ -15,6 +15,15 @@ export const SITE_HOSTS: string[] = [
   "dailymotion.com",
   "twitch.tv",
   "reddit.com",
+  // Adult video sites with yt-dlp extractors; their direct video links are signed per player session.
+  "pornhub.com",
+  "xvideos.com",
+  "xhamster.com",
+  "xnxx.com",
+  "redtube.com",
+  "youporn.com",
+  "spankbang.com",
+  "eporner.com",
 ];
 
 function hostIs(url: URL, host: string): boolean {

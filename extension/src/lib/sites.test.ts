@@ -1,22 +1,15 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { SITE_HOSTS, isSitePage, pageAddress, toPagePayload } from "./sites";
 
 describe("SITE_HOSTS", () => {
   it("lists the same sites as the app", () => {
-    expect(SITE_HOSTS).toEqual([
-      "youtube.com",
-      "youtu.be",
-      "facebook.com",
-      "fb.watch",
-      "instagram.com",
-      "x.com",
-      "twitter.com",
-      "tiktok.com",
-      "vimeo.com",
-      "dailymotion.com",
-      "twitch.tv",
-      "reddit.com",
-    ]);
+    // Read the engine's list from its source, so the two can never drift apart.
+    const rust = readFileSync(new URL("../../../crates/odm-engine/src/site/mod.rs", import.meta.url), "utf8");
+    const block = rust.slice(rust.indexOf("pub const SITE_HOSTS"), rust.indexOf("];", rust.indexOf("pub const SITE_HOSTS")));
+    const hosts = [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(hosts.length).toBeGreaterThan(10);
+    expect(SITE_HOSTS).toEqual(hosts);
   });
 });
 
@@ -84,5 +77,22 @@ describe("toPagePayload", () => {
     const p = toPagePayload("https://youtu.be/abc", "  ", [], "UA");
     expect(p.cookies).toBeUndefined();
     expect(p.page_title).toBeUndefined();
+  });
+});
+
+describe("adult video sites go to yt-dlp", () => {
+  it("accepts the big ones yt-dlp supports, with their regional subdomains", () => {
+    for (const u of [
+      "https://www.pornhub.com/view_video.php?viewkey=abc",
+      "https://de.pornhub.com/view_video.php?viewkey=abc",
+      "https://www.xvideos.com/video123/x",
+      "https://xhamster.com/videos/x-1",
+      "https://www.xnxx.com/video-1/x",
+      "https://www.redtube.com/123",
+      "https://www.youporn.com/watch/1/x/",
+      "https://spankbang.com/abc/video/x",
+      "https://www.eporner.com/video-abc/x/",
+    ]) expect(isSitePage(u)).toBe(true);
+    expect(isSitePage("https://notpornhub.com/x")).toBe(false);
   });
 });

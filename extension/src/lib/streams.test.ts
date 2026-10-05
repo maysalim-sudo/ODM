@@ -226,3 +226,12 @@ describe("payloads use the headers the player sent", () => {
     expect(p.headers.Origin).toBe(sent.origin);
   });
 });
+
+describe("stream pieces are not videos", () => {
+  it("never lists HLS/DASH segments as video files", () => {
+    expect(classify("https://cdn.x/hls/v.mp4/seg-3-v1-a1.m4s", "video/mp4", 5e6)).toBeNull();
+    expect(classify("https://cdn.x/hls/seg_000004.ts", "video/mp2t", 5e6)).toBeNull();
+    expect(classify("https://cdn.x/chunk.m4s?x=1", "application/octet-stream", 5e6)).toBeNull();
+    expect(classify("https://cdn.x/full/movie.mp4", "video/mp4", 5e6)).toBe("file");
+  });
+});

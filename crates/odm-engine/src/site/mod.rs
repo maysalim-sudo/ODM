@@ -26,6 +26,15 @@ pub const SITE_HOSTS: &[&str] = &[
     "dailymotion.com",
     "twitch.tv",
     "reddit.com",
+    // Adult video sites with yt-dlp extractors; their direct video links are signed per player session.
+    "pornhub.com",
+    "xvideos.com",
+    "xhamster.com",
+    "xnxx.com",
+    "redtube.com",
+    "youporn.com",
+    "spankbang.com",
+    "eporner.com",
 ];
 
 /// Whether `host` is one of `SITE_HOSTS` or a subdomain of one.
@@ -186,6 +195,24 @@ mod tests {
             "v.mp4",
             "D:/out",
         )
+    }
+
+    #[test]
+    fn adult_sites_use_ytdlp() {
+        for h in [
+            "www.pornhub.com",
+            "de.pornhub.com",
+            "xvideos.com",
+            "xhamster.com",
+            "www.xnxx.com",
+            "redtube.com",
+            "youporn.com",
+            "spankbang.com",
+            "www.eporner.com",
+        ] {
+            assert!(is_site_host(h), "{h}");
+        }
+        assert!(!is_site_host("notpornhub.com"));
     }
 
     #[test]

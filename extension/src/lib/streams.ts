@@ -9,6 +9,7 @@ export type Stream = { url: string; kind: StreamKind; label: string; supported: 
 export const MIN_VIDEO_BYTES = 2 * 1024 * 1024;
 const VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime", "video/x-matroska", "video/ogg"];
 const VIDEO_EXTENSIONS = [".mp4", ".webm", ".mov", ".mkv", ".m4v"];
+const SEGMENT_EXTENSIONS = [".m4s", ".ts", ".m4f", ".cmfv", ".cmfa"];
 
 const HLS_TYPES = ["application/vnd.apple.mpegurl", "application/x-mpegurl", "audio/mpegurl"];
 
@@ -39,6 +40,8 @@ export function classify(url: string, contentType: string | undefined, size?: nu
   const type = (contentType ?? "").split(";")[0].trim().toLowerCase();
   if (path.endsWith(".m3u8") || HLS_TYPES.includes(type)) return "hls";
   if (path.endsWith(".mpd") || type === "application/dash+xml") return "dash";
+  // A segment of an HLS/DASH stream is never a whole video on its own.
+  if (SEGMENT_EXTENSIONS.some((e) => path.endsWith(e)) || /(^|\/)seg[-_]?\d/.test(path)) return null;
   const byType = VIDEO_TYPES.includes(type);
   const byExtension = (type === "" || type === "application/octet-stream") && VIDEO_EXTENSIONS.some((e) => path.endsWith(e));
   if ((byType || byExtension) && size !== undefined && size >= MIN_VIDEO_BYTES) return "file";
