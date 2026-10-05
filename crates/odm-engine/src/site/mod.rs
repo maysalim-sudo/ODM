@@ -123,6 +123,9 @@ pub fn build_args(
         "--no-colors",
         "--continue",
         "--no-mtime",
+        // --print implies --quiet, which would hide the progress and merge lines.
+        "--progress",
+        "--no-quiet",
         "-f",
         "bv*+ba/b",
         "--merge-output-format",
@@ -218,6 +221,9 @@ mod tests {
             "--no-colors",
             "--continue",
             "--no-mtime",
+            // --print implies --quiet, which would hide the progress and merge lines.
+            "--progress",
+            "--no-quiet",
             "-f",
             "bv*+ba/b",
             "--merge-output-format",
