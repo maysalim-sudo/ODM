@@ -1,6 +1,7 @@
 import { AltTracker } from "./lib/alt";
 import { ext, cookiesFor, send } from "./lib/browser";
 import {
+  ClaimSet,
   captureUrl,
   isHttp,
   shouldCancelBrowserDownload,
@@ -17,6 +18,8 @@ const alt = new AltTracker();
 // Lost when the service worker restarts; the badge resets with it.
 const streams = new StreamStore();
 const BADGE_COLOR = "#6366f1";
+/** How long onCreated waits for onDeterminingFilename before taking the download itself. */
+const CREATED_FALLBACK_MS = 500;
 let badgeTimer: ReturnType<typeof setTimeout> | undefined;
 
 async function flagError(message: string): Promise<void> {
@@ -117,6 +120,7 @@ async function handle(item: DownloadLike, storeId?: string): Promise<void> {
   const cookies = await cookiesFor(captureUrl(view), storeId);
   const payload = toCapturePayload(view, cookies, navigator.userAgent, Date.now());
   const r = await send("ADD_DOWNLOAD", payload);
+  if (!r) console.warn("ODM did not answer; the browser keeps the download.");
   if (shouldCancelBrowserDownload(r)) {
     try {
       await ext.downloads.cancel(item.id);
@@ -134,9 +138,27 @@ async function handle(item: DownloadLike, storeId?: string): Promise<void> {
 }
 
 if (__TARGET__ === "chromium") {
+  // Chrome normally reports a new download through onDeterminingFilename, with its final name and size.
+  // Vivaldi (its own "Download?" dialog) and Chrome with "ask where to save" never fire it, so
+  // onCreated is the fallback. It waits briefly so onDeterminingFilename wins when it does fire.
+  const claims = new ClaimSet();
   ext.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    if (!claims.claim(item.id)) {
+      suggest();
+      return false;
+    }
     void handle(item).finally(() => suggest());
     return true;
+  });
+  ext.downloads.onCreated.addListener((item: DownloadLike) => {
+    setTimeout(() => {
+      void (async () => {
+        const [fresh] = await ext.downloads.search({ id: item.id });
+        // A finished download can no longer be cancelled; handing it over would duplicate it.
+        if (!fresh || fresh.state !== "in_progress" || !claims.claim(item.id)) return;
+        await handle(fresh);
+      })().catch(() => {});
+    }, CREATED_FALLBACK_MS);
   });
 } else {
   ext.downloads.onCreated.addListener((item: DownloadLike) => {

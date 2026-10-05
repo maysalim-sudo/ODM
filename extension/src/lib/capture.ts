@@ -72,3 +72,20 @@ export function toMenuPayload(
 export function shouldCancelBrowserDownload(r: OdmResponse | null): boolean {
   return r?.ok === true;
 }
+
+/**
+ * Chromium browsers report a new download through two events, and some (Vivaldi, or Chrome with
+ * "ask where to save" on) skip `onDeterminingFilename`. Whichever handler claims an id first owns it.
+ */
+export class ClaimSet {
+  private ids: number[] = [];
+
+  constructor(private readonly limit = 200) {}
+
+  claim(id: number): boolean {
+    if (this.ids.includes(id)) return false;
+    this.ids.push(id);
+    if (this.ids.length > this.limit) this.ids.shift();
+    return true;
+  }
+}

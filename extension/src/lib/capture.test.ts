@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ClaimSet,
   basename,
   captureUrl,
   cookieHeader,
@@ -86,5 +87,22 @@ describe("shouldCancelBrowserDownload", () => {
     expect(shouldCancelBrowserDownload(null)).toBe(false);
     expect(shouldCancelBrowserDownload({ id: "1", ok: false })).toBe(false);
     expect(shouldCancelBrowserDownload({} as never)).toBe(false);
+  });
+});
+
+describe("ClaimSet", () => {
+  it("lets each download be claimed once", () => {
+    const c = new ClaimSet();
+    expect(c.claim(7)).toBe(true);
+    expect(c.claim(7)).toBe(false);
+    expect(c.claim(8)).toBe(true);
+  });
+  it("forgets old ids beyond its limit", () => {
+    const c = new ClaimSet(2);
+    c.claim(1);
+    c.claim(2);
+    c.claim(3);
+    expect(c.claim(1)).toBe(true);
+    expect(c.claim(3)).toBe(false);
   });
 });
