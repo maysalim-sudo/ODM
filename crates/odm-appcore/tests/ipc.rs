@@ -384,3 +384,38 @@ async fn add_page_rejects_bad_payload_and_scheme() {
     let r = dispatch(&f.ctx, req(cmd::ADD_PAGE, json!({"page_url": "ftp://x/y"}))).await;
     assert_eq!(r.error.unwrap().code, code::ADD_FAILED);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dispatched_requests_update_contact() {
+    let f = fixture().await;
+    assert!(f.ctx.contact.get().is_none());
+    let r = dispatch(&f.ctx, req(cmd::PING, json!({}))).await;
+    assert!(r.ok);
+    let (t, command) = f.ctx.contact.get().unwrap();
+    assert_eq!(command, cmd::PING);
+    assert!(now_ms().abs_diff(t) < 1000);
+    dispatch(&f.ctx, req("NOPE", json!({}))).await;
+    assert_eq!(f.ctx.contact.get().unwrap().1, "NOPE");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn add_download_passes_filesize_hint() {
+    let f = fixture().await;
+    f.ctx.settings.lock().unwrap().confirm_browser_downloads = true;
+    let r = dispatch(
+        &f.ctx,
+        req(
+            cmd::ADD_DOWNLOAD,
+            json!({"url": "http://127.0.0.1:9/never", "filesize": 123456, "source": "menu"}),
+        ),
+    )
+    .await;
+    assert!(r.ok, "{:?}", r.error);
+    let id = r.payload.unwrap()["download_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (rec, _) = f.ctx.manager.get(&id).await.unwrap().unwrap();
+    assert_eq!(rec.state, DownloadState::Paused);
+    assert_eq!(rec.size, Some(123_456));
+}

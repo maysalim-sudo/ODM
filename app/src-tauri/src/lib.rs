@@ -133,6 +133,7 @@ pub fn run() {
                     }
                 }),
                 pending,
+                contact: Arc::new(odm_appcore::integration::Contact::default()),
                 on_confirm: Box::new(move |id| {
                     let ev = UiEvent::ConfirmDownload { id: id.to_string() };
                     if let Err(e) = confirm_handle.emit(EVENT, &ev) {

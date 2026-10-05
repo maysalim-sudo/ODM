@@ -1,6 +1,7 @@
 //! The IPC command dispatcher: plain async logic against `ManagerHandle`, no transport.
 use crate::capture::{normalize_headers, skip_reason};
 use crate::confirm::Pending;
+use crate::integration::Contact;
 use crate::messages::user_message;
 use crate::offers::{find_reusable, OfferDto, Offers};
 use crate::summary::SpeedBoard;
@@ -25,6 +26,7 @@ pub struct IpcContext {
     pub on_offer: Box<dyn Fn(&OfferDto) + Send + Sync>,
     pub pending: Arc<Pending>,
     pub on_confirm: Box<dyn Fn(&str) + Send + Sync>,
+    pub contact: Arc<Contact>,
 }
 
 /// Milliseconds since the Unix epoch.
@@ -49,6 +51,7 @@ fn internal(id: Option<String>, e: &odm_core::OdmError) -> Response {
 /// Handles one request. Never panics; always echoes `req.id`.
 pub async fn dispatch(ctx: &IpcContext, req: Request) -> Response {
     let id = req.id.clone();
+    ctx.contact.record(&req.cmd);
     match req.cmd.as_str() {
         cmd::PING => reply(
             id,
@@ -269,6 +272,7 @@ async fn add_download(ctx: &IpcContext, id: Option<String>, payload: Value) -> R
         filename: basename.clone(),
         page_url: p.referrer.clone(),
         headers,
+        size_hint: p.filesize,
         ..AddRequest::new(p.url.clone())
     };
 

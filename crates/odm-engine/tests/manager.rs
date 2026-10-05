@@ -363,6 +363,28 @@ async fn start_paused_and_bad_urls() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn size_hint_sets_initial_size() {
+    let d = tempfile::tempdir().unwrap();
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let mut r = AddRequest::new("http://127.0.0.1:9/never");
+    r.start_paused = true;
+    r.size_hint = Some(123_456);
+    let id = m.add(r).await.unwrap();
+    let rec = m.store().get_download(&id).await.unwrap().unwrap();
+    assert_eq!(rec.size, Some(123_456));
+    let mut zero = AddRequest::new("http://127.0.0.1:9/never");
+    zero.start_paused = true;
+    zero.size_hint = Some(0);
+    let id = m.add(zero).await.unwrap();
+    assert_eq!(
+        m.store().get_download(&id).await.unwrap().unwrap().size,
+        None
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn url_scheme_check_ignores_case() {
     let d = tempfile::tempdir().unwrap();
     let s = TestServer::start(1000, Faults::default()).await;

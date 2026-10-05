@@ -27,6 +27,8 @@ pub struct AddRequest {
     pub page_title: Option<String>,
     pub priority: i64,
     pub start_paused: bool,
+    /// The size the browser already reported; the probe overwrites it.
+    pub size_hint: Option<u64>,
 }
 
 impl AddRequest {
@@ -466,6 +468,7 @@ impl Manager {
         rec.page_url = req.page_url;
         rec.page_title = req.page_title;
         rec.priority = req.priority;
+        rec.size = req.size_hint.filter(|&n| n > 0);
         if req.start_paused {
             rec.state = DownloadState::Paused;
         }

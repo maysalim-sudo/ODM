@@ -4,6 +4,7 @@ pub mod bridge;
 pub mod capture;
 pub mod confirm;
 pub mod dto;
+pub mod integration;
 pub mod ipc;
 pub mod logging;
 pub mod messages;

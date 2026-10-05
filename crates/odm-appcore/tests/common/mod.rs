@@ -1,5 +1,6 @@
 //! Shared fixture for the IPC tests: a manager on an in-memory store plus counters for the callbacks.
 use odm_appcore::confirm::Pending;
+use odm_appcore::integration::Contact;
 use odm_appcore::ipc::IpcContext;
 use odm_appcore::offers::Offers;
 use odm_appcore::summary::SpeedBoard;
@@ -69,6 +70,7 @@ pub async fn fixture() -> Fixture {
         on_confirm: Box::new(move |id| {
             c.lock().unwrap().push(id.to_string());
         }),
+        contact: Arc::new(Contact::default()),
     });
     Fixture {
         ctx,
