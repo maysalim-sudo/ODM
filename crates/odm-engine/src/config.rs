@@ -20,6 +20,10 @@ pub struct EngineConfig {
     pub ffmpeg_path: Option<PathBuf>,
     /// Whether to look for FFmpeg on `PATH` when `ffmpeg_path` is unset or missing.
     pub ffmpeg_search_path: bool,
+    /// yt-dlp executable used for site videos; well-known places are searched when unset.
+    pub ytdlp_path: Option<PathBuf>,
+    /// Whether to look for yt-dlp on `PATH` and in the WinGet folders when `ytdlp_path` is unset or missing.
+    pub ytdlp_search: bool,
 }
 
 impl Default for EngineConfig {
@@ -45,6 +49,8 @@ impl Default for EngineConfig {
             user_agent: format!("ODM/{}", env!("CARGO_PKG_VERSION")),
             ffmpeg_path: None,
             ffmpeg_search_path: true,
+            ytdlp_path: None,
+            ytdlp_search: true,
         }
     }
 }

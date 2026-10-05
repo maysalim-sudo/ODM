@@ -260,3 +260,15 @@ fn confirm_browser_downloads_defaults_true_and_parses() {
     let (s, w) = Settings::from_json("{}");
     assert!(s.confirm_browser_downloads && w.is_empty());
 }
+
+#[test]
+fn ytdlp_path_reaches_the_engine_config() {
+    let mut s = odm_appcore::Settings::default();
+    assert!(s.ytdlp_path.is_empty());
+    assert!(s.to_engine_config().ytdlp_path.is_none());
+    s.ytdlp_path = "  C:/tools/yt-dlp.exe ".into();
+    assert_eq!(
+        s.to_engine_config().ytdlp_path,
+        Some(std::path::PathBuf::from("C:/tools/yt-dlp.exe"))
+    );
+}

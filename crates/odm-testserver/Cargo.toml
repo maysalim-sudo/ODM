@@ -12,3 +12,13 @@ bytes.workspace = true
 futures-util.workspace = true
 aes.workspace = true
 cbc.workspace = true
+
+[[bin]]
+name = "fake-ytdlp"
+path = "src/bin/fake-ytdlp.rs"
+
+[dev-dependencies]
+odm-core.workspace = true
+odm-engine.workspace = true
+odm-store.workspace = true
+tempfile.workspace = true

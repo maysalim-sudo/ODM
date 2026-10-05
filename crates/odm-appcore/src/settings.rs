@@ -21,6 +21,7 @@ pub struct Settings {
     pub connect_timeout_s: u64,
     pub read_timeout_s: u64,
     pub ffmpeg_path: String,
+    pub ytdlp_path: String,
     pub capture_enabled: bool,
     pub min_capture_bytes: u64,
     pub skip_hosts: Vec<String>,
@@ -53,6 +54,7 @@ impl Default for Settings {
             connect_timeout_s: 30,
             read_timeout_s: 60,
             ffmpeg_path: String::new(),
+            ytdlp_path: String::new(),
             capture_enabled: true,
             min_capture_bytes: 1 << 20,
             skip_hosts: Vec::new(),
@@ -215,6 +217,9 @@ impl Settings {
             read_timeout: Duration::from_secs(self.read_timeout_s),
             speed_limit_bps: self.speed_limit_kbps.saturating_mul(1024),
             ffmpeg_path: Some(self.ffmpeg_path.trim())
+                .filter(|p| !p.is_empty())
+                .map(PathBuf::from),
+            ytdlp_path: Some(self.ytdlp_path.trim())
                 .filter(|p| !p.is_empty())
                 .map(PathBuf::from),
             ..EngineConfig::default()

@@ -3,7 +3,8 @@ use odm_engine::download::build_client;
 use odm_engine::hls::output_name;
 use odm_engine::hls::playlist::{parse, Playlist, Variant};
 use odm_engine::retry::{classify_status, http_err};
-use odm_engine::{AddRequest, EngineConfig, ManagerHandle, StreamRequest};
+use odm_engine::site::is_site_page_url;
+use odm_engine::{AddRequest, EngineConfig, ManagerHandle, SiteRequest, StreamRequest};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -57,9 +58,21 @@ pub struct AddArgs {
     pub variant_url: Option<String>,
     /// `url` is an HLS playlist: add it as a video stream.
     pub stream: bool,
+    /// `url` is a page of a video site: add it as a site download (yt-dlp).
+    pub page: bool,
 }
 
 pub async fn add(m: &ManagerHandle, a: AddArgs) -> Result<String, String> {
+    if a.page {
+        let req = SiteRequest {
+            page_url: a.url.trim().to_string(),
+            filename: given(a.filename),
+            save_dir: given(a.save_dir).map(PathBuf::from),
+            start_paused: a.start_paused,
+            ..Default::default()
+        };
+        return m.add_site(req).await.map_err(msg);
+    }
     if a.stream {
         let req = StreamRequest {
             playlist_url: a.url.trim().to_string(),
@@ -161,6 +174,8 @@ pub struct Suggestion {
     /// Quality choices of an HLS master playlist, best first. Empty for files and media playlists.
     pub variants: Vec<VariantDto>,
     pub is_stream: bool,
+    /// `url` is a page of a video site that yt-dlp downloads; nothing was probed.
+    pub is_page: bool,
 }
 
 /// `"1280×720 · 2.5 Mbit/s"`, or just the speed when the resolution is unknown.
@@ -232,12 +247,25 @@ fn stream_suggestion(url: &str, playlist: Playlist) -> Suggestion {
         resumable: true,
         variants,
         is_stream: true,
+        is_page: false,
     }
 }
 
 /// Ask the server what this URL is, to pre-fill the Add dialog.
 pub async fn suggest(url: &str, cfg: &EngineConfig) -> Result<Suggestion, String> {
     let url = url.trim();
+    if is_site_page_url(url) {
+        // yt-dlp works out the media; there is nothing to probe.
+        return Ok(Suggestion {
+            filename: "video.mp4".into(),
+            size: None,
+            category: "video".into(),
+            resumable: true,
+            variants: Vec::new(),
+            is_stream: false,
+            is_page: true,
+        });
+    }
     let client = build_client(cfg);
     if path_is_m3u8(url) {
         return Ok(stream_suggestion(url, fetch_playlist(&client, url).await?));
@@ -266,6 +294,7 @@ pub async fn suggest(url: &str, cfg: &EngineConfig) -> Result<Suggestion, String
         resumable: p.supports_range,
         variants: Vec::new(),
         is_stream: false,
+        is_page: false,
     })
 }
 

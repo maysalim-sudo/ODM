@@ -8,7 +8,7 @@ use odm_core::filename;
 
 /// Replaces characters a file name cannot hold with spaces and tidies the spacing,
 /// so a page title like `Test: clip?` becomes `Test clip`.
-fn title_to_stem(title: &str) -> String {
+pub(crate) fn title_to_stem(title: &str) -> String {
     let spaced: String = title
         .chars()
         .map(|c| match c {
@@ -20,7 +20,7 @@ fn title_to_stem(title: &str) -> String {
     filename::sanitize(&tidy)
 }
 
-fn with_mp4(name: &str) -> String {
+pub(crate) fn with_mp4(name: &str) -> String {
     let base = name
         .strip_suffix(".m3u8")
         .or_else(|| name.strip_suffix(".M3U8"))

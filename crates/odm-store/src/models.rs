@@ -78,6 +78,16 @@ impl DownloadRecord {
     }
 }
 
+impl DownloadRecord {
+    /// A site video fetched by yt-dlp; `url` is the page address.
+    pub fn new_site(id: &str, page_url: &str, filename: &str, save_dir: &str) -> Self {
+        Self {
+            kind: "site".into(),
+            ..Self::new_file(id, page_url, filename, save_dir)
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SegmentRecord {
     pub idx: u32,

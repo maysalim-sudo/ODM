@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::download::{build_client, part_path, run_download, transition, DownloadEnv, Outcome};
 use crate::hls::run::{run_hls, temp_dir};
+use crate::site::{run_site, temp_dir as site_temp_dir};
 use crate::{EngineConfig, EngineEvent, SpeedLimiter};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
@@ -50,6 +51,17 @@ pub struct StreamRequest {
     pub start_paused: bool,
 }
 
+/// A video on a site page (YouTube, Facebook…), downloaded by yt-dlp.
+#[derive(Debug, Clone, Default)]
+pub struct SiteRequest {
+    pub page_url: String,
+    pub page_title: Option<String>,
+    pub filename: Option<String>,
+    pub save_dir: Option<PathBuf>,
+    pub headers: Vec<(String, String)>,
+    pub start_paused: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Stop {
     Pause,
@@ -61,6 +73,7 @@ enum Stop {
 enum Cmd {
     Add(AddRequest, oneshot::Sender<Result<String, OdmError>>),
     AddStream(StreamRequest, oneshot::Sender<Result<String, OdmError>>),
+    AddSite(SiteRequest, oneshot::Sender<Result<String, OdmError>>),
     Pause(String),
     Resume(String),
     Cancel(String, bool),
@@ -124,8 +137,14 @@ fn is_http_url(url: &str) -> bool {
 /// HLS stream its segment directory.
 fn remove_partials(rec: &DownloadRecord) {
     let _ = std::fs::remove_file(part_path(rec));
-    if rec.kind == "hls" {
-        let _ = std::fs::remove_dir_all(temp_dir(rec));
+    match rec.kind.as_str() {
+        "hls" => {
+            let _ = std::fs::remove_dir_all(temp_dir(rec));
+        }
+        "site" => {
+            let _ = std::fs::remove_dir_all(site_temp_dir(rec));
+        }
+        _ => {}
     }
 }
 
@@ -170,6 +189,12 @@ impl ManagerHandle {
     pub async fn add_stream(&self, req: StreamRequest) -> Result<String, OdmError> {
         let (tx, rx) = oneshot::channel();
         self.send(Cmd::AddStream(req, tx)).await?;
+        rx.await.map_err(|_| closed())?
+    }
+    /// Adds the video of a site page; yt-dlp works out the actual media.
+    pub async fn add_site(&self, req: SiteRequest) -> Result<String, OdmError> {
+        let (tx, rx) = oneshot::channel();
+        self.send(Cmd::AddSite(req, tx)).await?;
         rx.await.map_err(|_| closed())?
     }
     pub async fn pause(&self, id: &str) -> Result<(), OdmError> {
@@ -303,6 +328,10 @@ impl Manager {
             match cmd {
                 Cmd::Add(req, reply) => {
                     let r = self.add(req).await;
+                    let _ = reply.send(r);
+                }
+                Cmd::AddSite(req, reply) => {
+                    let r = self.add_site(req).await;
                     let _ = reply.send(r);
                 }
                 Cmd::AddStream(req, reply) => {
@@ -495,6 +524,40 @@ impl Manager {
                     map_url: None,
                 },
             )
+            .await
+            .map_err(store_err)?;
+        let _ = self.env.events.send(EngineEvent::Added { id: id.clone() });
+        if !req.start_paused {
+            self.schedule().await;
+        }
+        Ok(id)
+    }
+
+    async fn add_site(&mut self, req: SiteRequest) -> Result<String, OdmError> {
+        if !is_http_url(&req.page_url) {
+            return Err(OdmError::new(
+                ErrorKind::Other,
+                "only http(s) URLs are supported",
+            ));
+        }
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let name = crate::site::output_name(req.filename.as_deref(), req.page_title.as_deref());
+        let dir = req
+            .save_dir
+            .clone()
+            .unwrap_or_else(|| self.env.config.save_dir_for("video"));
+        let mut rec = DownloadRecord::new_site(&id, &req.page_url, &name, &dir.to_string_lossy());
+        rec.category = "video".into();
+        rec.filename_locked = req.filename.is_some();
+        rec.max_connections = self.env.config.max_connections.clamp(1, 32);
+        rec.page_url = Some(req.page_url);
+        rec.page_title = req.page_title;
+        if req.start_paused {
+            rec.state = DownloadState::Paused;
+        }
+        self.env
+            .store
+            .insert_download_with_headers(rec, req.headers)
             .await
             .map_err(store_err)?;
         let _ = self.env.events.send(EngineEvent::Added { id: id.clone() });
@@ -729,14 +792,14 @@ impl Manager {
             // here instead of skipping `Finished` and wedging the id in `active`.
             let inner_id = task_id.clone();
             let out = match tokio::spawn(async move {
-                let is_hls = matches!(
-                    env.store.get_download(&inner_id).await,
-                    Ok(Some(r)) if r.kind == "hls"
-                );
-                if is_hls {
-                    run_hls(&env, &inner_id, task_cancel).await
-                } else {
-                    run_download(&env, &inner_id, task_cancel).await
+                let kind = match env.store.get_download(&inner_id).await {
+                    Ok(Some(r)) => r.kind,
+                    _ => String::new(),
+                };
+                match kind.as_str() {
+                    "hls" => run_hls(&env, &inner_id, task_cancel).await,
+                    "site" => run_site(&env, &inner_id, task_cancel).await,
+                    _ => run_download(&env, &inner_id, task_cancel).await,
                 }
             })
             .await

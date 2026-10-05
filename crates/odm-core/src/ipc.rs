@@ -12,6 +12,7 @@ pub mod cmd {
     pub const PING: &str = "PING";
     pub const ADD_DOWNLOAD: &str = "ADD_DOWNLOAD";
     pub const ADD_STREAM: &str = "ADD_STREAM";
+    pub const ADD_PAGE: &str = "ADD_PAGE";
     pub const GET_SUMMARY: &str = "GET_SUMMARY";
     pub const PAUSE_ALL: &str = "PAUSE_ALL";
     pub const RESUME_ALL: &str = "RESUME_ALL";
@@ -131,6 +132,18 @@ pub struct AddStream {
     pub cookies: Option<String>,
 }
 
+/// A site page (YouTube, Facebook…) whose video yt-dlp downloads.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AddPage {
+    pub page_url: String,
+    #[serde(default)]
+    pub page_title: Option<String>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default)]
+    pub cookies: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct PingReply {
     pub version: String,
@@ -150,7 +163,10 @@ pub struct Added {
 
 /// Commands for which the host may start ODM when the pipe is missing.
 pub fn starts_app(cmd: &str) -> bool {
-    matches!(cmd, cmd::ADD_DOWNLOAD | cmd::ADD_STREAM | cmd::SHOW_WINDOW)
+    matches!(
+        cmd,
+        cmd::ADD_DOWNLOAD | cmd::ADD_STREAM | cmd::ADD_PAGE | cmd::SHOW_WINDOW
+    )
 }
 
 #[derive(Debug)]
@@ -314,7 +330,12 @@ mod tests {
 
     #[test]
     fn only_add_and_show_start_the_app() {
-        for c in [cmd::ADD_DOWNLOAD, cmd::ADD_STREAM, cmd::SHOW_WINDOW] {
+        for c in [
+            cmd::ADD_DOWNLOAD,
+            cmd::ADD_STREAM,
+            cmd::ADD_PAGE,
+            cmd::SHOW_WINDOW,
+        ] {
             assert!(starts_app(c));
         }
         for c in [

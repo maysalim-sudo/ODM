@@ -2853,6 +2853,10 @@ dependencies = [
  "bytes",
  "cbc",
  "futures-util",
+ "odm-core",
+ "odm-engine",
+ "odm-store",
+ "tempfile",
  "tokio",
 ]
 

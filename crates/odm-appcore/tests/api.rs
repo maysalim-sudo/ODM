@@ -508,3 +508,47 @@ fn confirm_download_event_json() {
         serde_json::json!({"type":"confirm_download","id":"x"})
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn suggest_marks_site_pages() {
+    // No network: a site page is recognised from its address alone.
+    let sug = api::suggest(
+        "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        &EngineConfig::default(),
+    )
+    .await
+    .unwrap();
+    assert!(sug.is_page);
+    assert!(!sug.is_stream);
+    assert_eq!(sug.filename, "video.mp4");
+    assert_eq!(sug.category, "video");
+    assert_eq!(sug.size, None);
+    assert!(sug.resumable);
+    assert!(sug.variants.is_empty());
+    let s = TestServer::start(5000, Faults::default()).await;
+    let plain = api::suggest(&s.url("/file"), &EngineConfig::default())
+        .await
+        .unwrap();
+    assert!(!plain.is_page);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn add_with_page_flag_adds_a_site_download() {
+    let d = tempfile::tempdir().unwrap();
+    let m = manager(d.path()).await;
+    let id = api::add(
+        &m,
+        AddArgs {
+            url: "https://www.youtube.com/watch?v=abc".into(),
+            page: true,
+            start_paused: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let (rec, _) = m.get(&id).await.unwrap().unwrap();
+    assert_eq!(rec.kind, "site");
+    assert_eq!(rec.url, "https://www.youtube.com/watch?v=abc");
+    assert_eq!(rec.state, DownloadState::Paused);
+}

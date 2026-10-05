@@ -6,10 +6,11 @@ use crate::offers::{find_reusable, OfferDto, Offers};
 use crate::summary::SpeedBoard;
 use crate::Settings;
 use odm_core::ipc::{
-    cmd, code, AddDownload, AddStream, Added, PingReply, Request, Response, Source, Summary,
+    cmd, code, AddDownload, AddPage, AddStream, Added, PingReply, Request, Response, Source,
+    Summary,
 };
 use odm_core::{filename, redact_url, DownloadState};
-use odm_engine::{AddRequest, ManagerHandle, StreamRequest};
+use odm_engine::{AddRequest, ManagerHandle, SiteRequest, StreamRequest};
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -69,6 +70,7 @@ pub async fn dispatch(ctx: &IpcContext, req: Request) -> Response {
             Response::ok(id, serde_json::json!({}))
         }
         cmd::ADD_STREAM => add_stream(ctx, id, req.payload).await,
+        cmd::ADD_PAGE => add_page(ctx, id, req.payload).await,
         cmd::ADD_DOWNLOAD => add_download(ctx, id, req.payload).await,
         other => {
             let shown: String = other.chars().take(64).collect();
@@ -154,6 +156,51 @@ async fn add_stream(ctx: &IpcContext, id: Option<String>, payload: Value) -> Res
     let confirm = confirm_wanted(ctx);
     req.start_paused = confirm;
     match ctx.manager.add_stream(req).await {
+        Ok(download_id) => {
+            if confirm {
+                ask_to_confirm(ctx, &download_id);
+            }
+            reply(id, &Added { download_id })
+        }
+        Err(e) => Response::err(id, code::ADD_FAILED, user_message(&e)),
+    }
+}
+
+/// Always an explicit click in the browser. yt-dlp finds the media on the page.
+async fn add_page(ctx: &IpcContext, id: Option<String>, payload: Value) -> Response {
+    let p: AddPage = match serde_json::from_value(payload) {
+        Ok(p) => p,
+        Err(e) => return Response::err(id, code::BAD_PAYLOAD, e.to_string()),
+    };
+    tracing::info!(
+        cmd = cmd::ADD_PAGE,
+        url = %redact_url(&p.page_url),
+        headers = ?p.headers.keys().collect::<Vec<_>>(),
+        "ipc request"
+    );
+    let mut headers: Vec<(String, String)> = p
+        .headers
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    if !headers
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("referer"))
+    {
+        headers.push(("Referer".into(), p.page_url.clone()));
+    }
+    if let Some(c) = p.cookies.as_deref().filter(|c| !c.is_empty()) {
+        headers.push(("Cookie".into(), c.to_string()));
+    }
+    let confirm = confirm_wanted(ctx);
+    let req = SiteRequest {
+        page_url: p.page_url,
+        page_title: p.page_title.filter(|t| !t.trim().is_empty()),
+        headers: normalize_headers(headers),
+        start_paused: confirm,
+        ..Default::default()
+    };
+    match ctx.manager.add_site(req).await {
         Ok(download_id) => {
             if confirm {
                 ask_to_confirm(ctx, &download_id);

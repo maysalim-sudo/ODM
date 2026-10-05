@@ -318,3 +318,69 @@ async fn confirm_setting_applies_to_streams_too() {
     assert_eq!(f.ctx.pending.list(), vec![id]);
     assert_eq!((f.confirms().len(), f.shows()), (1, 1));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn add_page_adds_site_download() {
+    let f = fixture().await;
+    f.ctx.settings.lock().unwrap().ytdlp_path = "Z:/nope/yt-dlp.exe".into();
+    let r = dispatch(
+        &f.ctx,
+        req(
+            cmd::ADD_PAGE,
+            json!({
+                "page_url": "https://www.youtube.com/watch?v=abc",
+                "page_title": "Clip",
+                "cookies": "a=1",
+            }),
+        ),
+    )
+    .await;
+    assert!(r.ok, "{:?}", r.error);
+    let id = r.payload.unwrap()["download_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (rec, _) = f.ctx.manager.get(&id).await.unwrap().unwrap();
+    assert_eq!(rec.kind, "site");
+    assert_eq!(rec.url, "https://www.youtube.com/watch?v=abc");
+    assert_eq!(rec.filename, "Clip.mp4");
+    let headers = f.ctx.manager.store().get_headers(&id).await.unwrap();
+    assert!(headers.contains(&("Cookie".into(), "a=1".into())));
+    assert!(headers.contains(&(
+        "Referer".into(),
+        "https://www.youtube.com/watch?v=abc".into()
+    )));
+    let _ = f.ctx.manager.cancel(&id, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn add_page_respects_confirm_setting() {
+    let f = fixture().await;
+    f.ctx.settings.lock().unwrap().confirm_browser_downloads = true;
+    let r = dispatch(
+        &f.ctx,
+        req(
+            cmd::ADD_PAGE,
+            json!({"page_url": "https://www.youtube.com/watch?v=abc"}),
+        ),
+    )
+    .await;
+    assert!(r.ok, "{:?}", r.error);
+    let id = r.payload.unwrap()["download_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (rec, _) = f.ctx.manager.get(&id).await.unwrap().unwrap();
+    assert_eq!(rec.state, DownloadState::Paused);
+    assert_eq!(f.ctx.pending.list(), vec![id]);
+    assert_eq!((f.confirms().len(), f.shows()), (1, 1));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn add_page_rejects_bad_payload_and_scheme() {
+    let f = fixture().await;
+    let r = dispatch(&f.ctx, req(cmd::ADD_PAGE, json!({}))).await;
+    assert_eq!(r.error.unwrap().code, code::BAD_PAYLOAD);
+    let r = dispatch(&f.ctx, req(cmd::ADD_PAGE, json!({"page_url": "ftp://x/y"}))).await;
+    assert_eq!(r.error.unwrap().code, code::ADD_FAILED);
+}
