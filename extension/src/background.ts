@@ -12,7 +12,7 @@ import {
 } from "./lib/capture";
 import { MENU_ID } from "./lib/ids";
 import { errorText } from "./lib/protocol";
-import { StreamStore, classify, toStreamPayload } from "./lib/streams";
+import { StreamStore, classify, responseSize, toStreamPayload, toVideoFilePayload, type Stream } from "./lib/streams";
 
 const alt = new AltTracker();
 // Lost when the service worker restarts; the badge resets with it.
@@ -52,18 +52,31 @@ function clearStreams(tabId: number): void {
 
 type Reply = { ok: boolean; message: string };
 
+async function pageOf(tabId: number, tab?: chrome.tabs.Tab): Promise<chrome.tabs.Tab | null> {
+  if (tab) return tab;
+  try {
+    return await ext.tabs.get(tabId);
+  } catch {
+    return null;
+  }
+}
+
+/** Sends one plain video file to ODM as a download. */
+async function sendFile(stream: Stream, page: chrome.tabs.Tab): Promise<Reply> {
+  const storeId = (page as { cookieStoreId?: string }).cookieStoreId;
+  const cookies = await cookiesFor(stream.url, storeId);
+  const payload = toVideoFilePayload(stream, page.url ?? "", cookies, navigator.userAgent);
+  const r = await send("ADD_DOWNLOAD", payload, 15000);
+  return r?.ok ? { ok: true, message: "Sent to ODM." } : { ok: false, message: errorText(r) };
+}
+
 /** Sends one listed stream to ODM. Only a click in the popup or the page button gets here. */
 async function addStream(tabId: number | undefined, url: string | undefined, tab?: chrome.tabs.Tab): Promise<Reply> {
   const stream = tabId === undefined ? undefined : streams.list(tabId).find((s) => s.url === url && s.supported);
   if (tabId === undefined || !stream) return { ok: false, message: "That video is no longer listed. Reload the page." };
-  let page = tab;
-  if (!page) {
-    try {
-      page = await ext.tabs.get(tabId);
-    } catch {
-      return { ok: false, message: "The tab is gone." };
-    }
-  }
+  const page = await pageOf(tabId, tab);
+  if (!page) return { ok: false, message: "The tab is gone." };
+  if (stream.kind === "file") return sendFile(stream, page);
   const pageUrl = page.url ?? "";
   const storeId = (page as { cookieStoreId?: string }).cookieStoreId;
   const cookies = await cookiesFor(stream.url, storeId);
@@ -72,8 +85,27 @@ async function addStream(tabId: number | undefined, url: string | undefined, tab
   return r?.ok ? { ok: true, message: "Sent to ODM." } : { ok: false, message: errorText(r) };
 }
 
+const NOT_SEEN = "ODM hasn't seen this video's source yet. Play it for a few seconds and try again.";
+
+/** The button on a video element: the video's own http(s) source, else the tab's best listed item. */
+async function addVideo(tabId: number | undefined, src: string | undefined, tab?: chrome.tabs.Tab): Promise<Reply> {
+  if (tabId === undefined) return { ok: false, message: NOT_SEEN };
+  const page = await pageOf(tabId, tab);
+  if (!page) return { ok: false, message: "The tab is gone." };
+  if (src && isHttp(src)) {
+    return sendFile({ url: src, kind: "file", label: src, supported: true }, page);
+  }
+  const supported = streams.list(tabId).filter((s) => s.supported);
+  const hls = supported.find((s) => s.kind === "hls");
+  const largest = supported
+    .filter((s) => s.kind === "file")
+    .reduce<Stream | undefined>((best, s) => (!best || (s.size ?? 0) > (best.size ?? 0) ? s : best), undefined);
+  const pick = hls ?? largest;
+  return pick ? addStream(tabId, pick.url, page) : { ok: false, message: NOT_SEEN };
+}
+
 ext.runtime.onMessage.addListener((msg: unknown, sender: chrome.runtime.MessageSender, sendResponse: (r: unknown) => void) => {
-  const m = msg as { type?: string; down?: boolean; tabId?: number; url?: string } | null;
+  const m = msg as { type?: string; down?: boolean; tabId?: number; url?: string; src?: string } | null;
   switch (m?.type) {
     case "odm-alt":
       if (m.down) alt.down(Date.now());
@@ -82,6 +114,9 @@ ext.runtime.onMessage.addListener((msg: unknown, sender: chrome.runtime.MessageS
     case "odm-list-streams":
       sendResponse(streams.list(m.tabId ?? sender.tab?.id ?? -1));
       return false;
+    case "odm-add-video":
+      void addVideo(sender.tab?.id, m.src, sender.tab).then(sendResponse);
+      return true;
     case "odm-add-stream":
       // A content script is identified by its sender; the popup names the tab.
       void addStream(sender.tab?.id ?? m.tabId, m.url, sender.tab).then(sendResponse);
@@ -95,8 +130,10 @@ ext.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (details.tabId < 0) return;
     const type = details.responseHeaders?.find((h) => h.name.toLowerCase() === "content-type")?.value;
-    const kind = classify(details.url, type);
-    if (!kind || !streams.add(details.tabId, details.url, kind)) return;
+    const header = (name: string) => details.responseHeaders?.find((h) => h.name.toLowerCase() === name)?.value;
+    const size = responseSize(header("content-length"), header("content-range"));
+    const kind = classify(details.url, type, size);
+    if (!kind || !streams.add(details.tabId, details.url, kind, size)) return;
     updateStreamBadge(details.tabId);
     void Promise.resolve(
       ext.tabs.sendMessage(details.tabId, { type: "odm-streams", streams: streams.list(details.tabId) }),

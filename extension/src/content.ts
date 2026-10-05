@@ -141,3 +141,142 @@ if (window.top === window) {
     // Extension context invalidated after a reload.
   }
 }
+
+// Hover button on <video> elements, in every frame because embedded players often live in iframes.
+// Nothing is sent until the user clicks it.
+const VIDEO_CSS = `
+  :host { all: initial; }
+  .wrap { position: fixed; z-index: 2147483647; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+    font: 13px/1.4 system-ui, sans-serif; color: #e0e0e6; }
+  button { font: inherit; color: inherit; background: #14141c; border: 1px solid #6366f1; border-radius: 8px;
+    padding: 7px 10px; cursor: pointer; font-weight: 600; }
+  button:hover { background: #1f1f2b; }
+  button:disabled { cursor: default; opacity: 0.7; }
+  .msg { max-width: 260px; padding: 6px 8px; border: 1px solid #2a2a3a; border-radius: 8px; background: #0f0f14;
+    color: #e0e0e6; font-size: 12px; overflow-wrap: anywhere; }
+  [hidden] { display: none !important; }
+`;
+const MIN_VIDEO_WIDTH = 200;
+const MIN_VIDEO_HEIGHT = 120;
+const HIDE_DELAY_MS = 1500;
+const MESSAGE_MS = 4000;
+
+{
+  const watched = new WeakSet<HTMLVideoElement>();
+  let current: HTMLVideoElement | null = null;
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
+  let messageTimer: ReturnType<typeof setTimeout> | undefined;
+  let sending = false;
+  let ui: { host: HTMLElement; wrap: HTMLElement; button: HTMLButtonElement; msg: HTMLElement } | null = null;
+
+  const bigEnough = (v: HTMLVideoElement): boolean => {
+    const r = v.getBoundingClientRect();
+    return r.width >= MIN_VIDEO_WIDTH && r.height >= MIN_VIDEO_HEIGHT;
+  };
+
+  const place = () => {
+    if (!ui || !current) return;
+    const r = current.getBoundingClientRect();
+    ui.wrap.style.top = `${Math.max(8, r.top + 8)}px`;
+    ui.wrap.style.right = `${Math.max(8, window.innerWidth - Math.min(r.right, window.innerWidth) + 8)}px`;
+  };
+
+  const hide = () => {
+    clearTimeout(hideTimer);
+    if (sending || !ui) return;
+    ui.host.hidden = true;
+    ui.msg.hidden = true;
+    current = null;
+  };
+  const scheduleHide = () => {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hide, HIDE_DELAY_MS);
+  };
+
+  const build = () => {
+    const host = document.createElement("div");
+    const root = host.attachShadow({ mode: "closed" });
+    const style = document.createElement("style");
+    style.textContent = VIDEO_CSS;
+    root.appendChild(style);
+    const wrap = document.createElement("div");
+    wrap.className = "wrap";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Download with ODM";
+    const msg = document.createElement("div");
+    msg.className = "msg";
+    msg.hidden = true;
+    wrap.append(button, msg);
+    root.appendChild(wrap);
+    host.addEventListener("mouseenter", () => clearTimeout(hideTimer));
+    host.addEventListener("mouseleave", scheduleHide);
+    button.addEventListener("click", async () => {
+      const video = current;
+      if (!video || sending) return;
+      sending = true;
+      button.disabled = true;
+      clearTimeout(messageTimer);
+      msg.textContent = "Sending…";
+      msg.hidden = false;
+      let reply: AddReply;
+      try {
+        const r = (await chrome.runtime.sendMessage({ type: "odm-add-video", src: video.currentSrc })) as AddReply | undefined;
+        reply = r ?? { ok: false, message: "ODM did not answer." };
+      } catch {
+        reply = { ok: false, message: "ODM did not answer." };
+      }
+      sending = false;
+      button.disabled = false;
+      msg.textContent = reply.message;
+      messageTimer = setTimeout(() => {
+        msg.hidden = true;
+      }, MESSAGE_MS);
+    });
+    document.documentElement.appendChild(host);
+    ui = { host, wrap, button, msg };
+  };
+
+  const show = (video: HTMLVideoElement) => {
+    clearTimeout(hideTimer);
+    if (document.fullscreenElement || !bigEnough(video)) return;
+    if (!ui) build();
+    if (!ui) return;
+    current = video;
+    ui.host.hidden = false;
+    place();
+  };
+
+  const watch = (video: HTMLVideoElement) => {
+    if (watched.has(video)) return;
+    watched.add(video);
+    video.addEventListener("mouseenter", () => show(video));
+    video.addEventListener("mousemove", () => show(video));
+    video.addEventListener("mouseleave", scheduleHide);
+  };
+
+  const scan = (root: ParentNode) => {
+    if (root instanceof HTMLVideoElement) watch(root);
+    root.querySelectorAll("video").forEach(watch);
+  };
+
+  scan(document);
+  new MutationObserver((records) => {
+    for (const rec of records) {
+      rec.addedNodes.forEach((n) => {
+        if (n instanceof Element) scan(n);
+      });
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
+
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (!sending) hide();
+    },
+    true,
+  );
+  document.addEventListener("fullscreenchange", () => {
+    if (document.fullscreenElement) hide();
+  });
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { StreamStore, classify, streamLabel, toStreamPayload } from "./streams";
+import { MIN_VIDEO_BYTES, StreamStore, classify, responseSize, streamLabel, toStreamPayload, toVideoFilePayload } from "./streams";
 
 describe("classify", () => {
   it("detects HLS by path, ignoring the query", () => {
@@ -99,5 +99,81 @@ describe("toStreamPayload", () => {
     const p = toStreamPayload(stream, "https://site/", "  ", [], "UA");
     expect(p.cookies).toBeUndefined();
     expect(p.page_title).toBeUndefined();
+  });
+});
+
+const MB = 1024 * 1024;
+
+describe("responseSize", () => {
+  it("prefers the total from Content-Range", () => {
+    expect(responseSize("100", undefined)).toBe(100);
+    expect(responseSize(undefined, "bytes 0-1023/5000000")).toBe(5000000);
+    expect(responseSize("1024", "bytes 0-1023/5000000")).toBe(5000000);
+  });
+
+  it("is undefined when no number is available", () => {
+    expect(responseSize(undefined, "bytes 0-1/*")).toBeUndefined();
+    expect(responseSize("abc", undefined)).toBeUndefined();
+  });
+});
+
+describe("classify plain video files", () => {
+  it("needs a video type and at least the minimum size", () => {
+    expect(MIN_VIDEO_BYTES).toBe(2 * MB);
+    expect(classify("https://x/a", "video/mp4", 3 * MB)).toBe("file");
+    expect(classify("https://x/a", "video/mp4", 1 * MB)).toBeNull();
+    expect(classify("https://x/a", "video/mp4")).toBeNull();
+  });
+
+  it("falls back to the extension when the type is missing or generic", () => {
+    expect(classify("https://x/a.webm", "application/octet-stream", 5 * MB)).toBe("file");
+    expect(classify("https://x/a.mkv", undefined, 5 * MB)).toBe("file");
+    expect(classify("https://x/a.txt", "application/octet-stream", 5 * MB)).toBeNull();
+  });
+
+  it("never lists googlevideo.com", () => {
+    expect(classify("https://rr1---sn.googlevideo.com/videoplayback?id=1", "video/mp4", 50 * MB)).toBeNull();
+  });
+
+  it("keeps HLS independent of size", () => {
+    expect(classify("https://x/a.m3u8", undefined)).toBe("hls");
+  });
+});
+
+describe("StreamStore files", () => {
+  it("labels a file with name, size and host", () => {
+    const s = new StreamStore();
+    s.add(1, "https://cdn.example.com/v/clip.mp4", "file", 12.3 * MB);
+    const [f] = s.list(1);
+    expect(f.label).toBe("clip.mp4 · 12.3 MB · cdn.example.com");
+    expect(f.supported).toBe(true);
+  });
+
+  it("fills a missing size on a repeat add and returns false", () => {
+    const s = new StreamStore();
+    const u = "https://cdn.example.com/clip.mp4";
+    expect(s.add(1, u, "file")).toBe(true);
+    expect(s.add(1, u, "file", 3 * MB)).toBe(false);
+    expect(s.list(1)[0].size).toBe(3 * MB);
+  });
+
+  it("counts files", () => {
+    const s = new StreamStore();
+    s.add(1, "https://x/a.mp4", "file", 3 * MB);
+    s.add(1, "https://x/a.m3u8", "hls");
+    expect(s.count(1)).toBe(2);
+  });
+});
+
+describe("toVideoFilePayload", () => {
+  it("builds a menu download with the page as referrer", () => {
+    const stream = { url: "https://cdn.x/v/clip.mp4?sig=1", kind: "file" as const, label: "x", supported: true };
+    const p = toVideoFilePayload(stream, "https://site.example/watch", [{ name: "a", value: "1" }, { name: "b", value: "2" }], "UA/1");
+    expect(p.source).toBe("menu");
+    expect(p.referrer).toBe("https://site.example/watch");
+    expect(p.filename).toBe("clip.mp4");
+    expect(p.url).toBe("https://cdn.x/v/clip.mp4?sig=1");
+    expect(p.headers["User-Agent"]).toBe("UA/1");
+    expect(p.cookies).toBe("a=1; b=2");
   });
 });
