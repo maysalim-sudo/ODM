@@ -9,11 +9,13 @@
   import RefreshUrlDialog from "./components/RefreshUrlDialog.svelte";
   import RemoveDialog from "./components/RemoveDialog.svelte";
   import ReuseDialog from "./components/ReuseDialog.svelte";
+  import BrowserDialog from "./components/BrowserDialog.svelte";
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
   import SettingsDialog from "./components/SettingsDialog.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toolbar from "./components/Toolbar.svelte";
   import { downloads } from "./lib/downloads.svelte";
+  import { integration } from "./lib/integration.svelte";
 
   let detailId = $state<string | null>(null);
   let addOpen = $state(false);
@@ -23,10 +25,12 @@
   let cancelOpen = $state(false);
   let refreshOpen = $state(false);
   let programOpen = $state(false);
+  let browserOpen = $state(false);
   const detailName = $derived(detailId ? (downloads.rows.get(detailId)?.filename ?? "") : "");
 
   onMount(() => {
     void downloads.init();
+    return integration.startPolling();
   });
 
   function onkeydown(e: KeyboardEvent) {
@@ -38,6 +42,7 @@
       cancelOpen ||
       refreshOpen ||
       programOpen ||
+      browserOpen ||
       downloads.offers.length > 0
     )
       return;
@@ -75,7 +80,7 @@
     </div>
   {/if}
   <div class="body">
-    <Sidebar />
+    <Sidebar onbrowser={() => (browserOpen = true)} />
     <DownloadTable onopen={(id) => (detailId = id)} />
     <DetailPanel
       id={detailId}
@@ -93,6 +98,13 @@
 <SettingsDialog open={settingsOpen} onclose={() => (settingsOpen = false)} />
 <RefreshUrlDialog open={refreshOpen} id={detailId} onclose={() => (refreshOpen = false)} />
 <OpenProgramDialog open={programOpen} id={detailId} name={detailName} onclose={() => (programOpen = false)} />
+<BrowserDialog
+  open={browserOpen}
+  onclose={() => {
+    browserOpen = false;
+    void integration.refresh();
+  }}
+/>
 <ReuseDialog />
 <ConfirmDialog />
 

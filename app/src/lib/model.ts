@@ -1,4 +1,4 @@
-import type { ChunkState, ChunkView, Download, DownloadState, Offer, SegmentProgress, Settings, UiEvent } from "./types";
+import type { ChunkState, ChunkView, Download, DownloadState, IntegrationStatus, Offer, SegmentProgress, Settings, UiEvent } from "./types";
 
 /** A list row: the stored download plus live values from progress events. */
 export interface Row extends Download {
@@ -332,4 +332,26 @@ export function shouldCloseOnBackdrop(downOnBackdrop: boolean, upOnBackdrop: boo
 /** The file name after a probe: auto-fill unless the user typed their own. */
 export function nextFilename(current: string, lastAuto: string | null, suggested: string): string {
   return current === "" || current === lastAuto ? suggested : current;
+}
+
+/** How long ago `ms` was, in plain words. A clock slightly ahead counts as "just now". */
+export function relativeTime(ms: number, now: number): string {
+  const sec = Math.max(0, (now - ms) / 1000);
+  if (sec < 45) return "just now";
+  const min = sec / 60;
+  if (min < 90) return `${Math.max(1, Math.round(min))} min ago`;
+  const h = min / 60;
+  if (h < 36) return `${Math.round(h)} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+
+/** The first thing wrong with the browser connection, in a sentence; null when all is ready. */
+export function integrationProblem(s: IntegrationStatus): string | null {
+  if (!s.host_found) return "The browser helper is missing next to ODM.";
+  if (!s.pipe_running) return "ODM couldn't open its connection for browsers. Another copy of ODM may be running.";
+  const bad = s.browsers.find((b) => b.status !== "ok");
+  if (!bad) return null;
+  if (bad.status === "missing") return `${bad.browser} is not registered.`;
+  if (bad.status === "wrong_path") return `${bad.browser} is registered for another copy of ODM.`;
+  return `The registration file for ${bad.browser} is damaged.`;
 }

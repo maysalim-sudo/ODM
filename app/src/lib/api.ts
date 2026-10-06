@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AddArgs, BatchResult, ConfirmArgs, Detail, Download, Offer, Settings, Suggestion, UiEvent } from "./types";
+import type { AddArgs, BatchResult, ConfirmArgs, Detail, Download, IntegrationStatus, Offer, Settings, Suggestion, UiEvent } from "./types";
 
 export const listDownloads = () => invoke<Download[]>("list_downloads");
 export const getDetail = (id: string) => invoke<Detail | null>("get_detail", { id });
@@ -24,6 +24,11 @@ export const resolveOffer = (offerId: string, reuse: boolean) => invoke<string>(
 export const listPendingConfirms = () => invoke<string[]>("list_pending_confirms");
 export const confirmDownload = (args: ConfirmArgs) => invoke<void>("confirm_download", { args });
 export const refreshUrl = (id: string, url: string) => invoke<void>("refresh_url", { id, url });
+export const integrationStatus = () => invoke<IntegrationStatus>("integration_status");
+/** Resolves with the ODM version that answered through the browser helper. */
+export const integrationTest = () => invoke<string>("integration_test");
+export const integrationRepair = () => invoke<IntegrationStatus>("integration_repair");
+export const openExtensionFolder = (kind: "chromium" | "firefox") => invoke<void>("open_extension_folder", { kind });
 
 export function onEvent(cb: (ev: UiEvent) => void): Promise<UnlistenFn> {
   return listen<UiEvent>("odm://event", (e) => cb(e.payload));

@@ -1,9 +1,11 @@
 use odm_appcore::api::{self, AddArgs, BatchResult, ConfirmArgs, Suggestion};
 use odm_appcore::dto::{DetailDto, DownloadDto};
+use odm_appcore::integration::{self, IntegrationStatus};
 use odm_appcore::offers::OfferDto;
 use odm_appcore::Settings;
 use std::path::PathBuf;
-use tauri::{AppHandle, State};
+use std::sync::atomic::Ordering;
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
@@ -185,4 +187,63 @@ pub async fn confirm_download(state: State<'_, AppState>, args: ConfirmArgs) -> 
 #[tauri::command]
 pub async fn refresh_url(state: State<'_, AppState>, id: String, url: String) -> Res<()> {
     api::refresh_url(&state.manager, &id, &url).await
+}
+
+/// ODM and the browser helper that sits next to it.
+fn exe_paths() -> Res<(PathBuf, PathBuf)> {
+    let app = std::env::current_exe().map_err(|_| "ODM could not find its own location.")?;
+    let host = app.with_file_name("odm-host.exe");
+    Ok((app, host))
+}
+
+fn current_status(state: &AppState, host: &std::path::Path) -> IntegrationStatus {
+    integration::status(
+        host,
+        state.pipe_running.load(Ordering::SeqCst),
+        &state.contact,
+    )
+}
+
+#[tauri::command]
+pub fn integration_status(state: State<'_, AppState>) -> Res<IntegrationStatus> {
+    let (_, host) = exe_paths()?;
+    Ok(current_status(&state, &host))
+}
+
+#[tauri::command]
+pub async fn integration_test() -> Res<String> {
+    let (_, host) = exe_paths()?;
+    tauri::async_runtime::spawn_blocking(move || integration::self_test(&host))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn integration_repair(state: State<'_, AppState>) -> Res<IntegrationStatus> {
+    let (app, host) = exe_paths()?;
+    let h = host.clone();
+    tauri::async_runtime::spawn_blocking(move || integration::repair(&h, &app))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(current_status(&state, &host))
+}
+
+#[tauri::command]
+pub fn open_extension_folder(app: AppHandle, kind: String) -> Res<()> {
+    let sub = match kind.as_str() {
+        "chromium" | "firefox" => kind.as_str(),
+        _ => return Err("Unknown browser type.".into()),
+    };
+    let dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| e.to_string())?
+        .join("extension")
+        .join(sub);
+    if !dir.is_dir() {
+        return Err("The extension files are not included in this copy of ODM.".into());
+    }
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| e.to_string())
 }

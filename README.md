@@ -48,6 +48,8 @@ Build a standalone executable (written to `target/debug/odm-app.exe`):
     cd app
     pnpm tauri build --debug --no-bundle
 
+The app bundles the built extension (`extension/dist`) and Tauri fails the build if it is missing, so build the extension first (see "Browser integration"), as `node scripts/release.mjs` does. This also applies to `cargo check` and `cargo clippy` of the whole workspace. In ODM, the sidebar's **Browser** chip opens a panel that shows what is registered, tests the connection, repairs the registration and opens the bundled extension folders.
+
 ## Browser integration
 
 1. Build the browser helper next to the app: `cargo build -p odm-host` (or `--release` for a release build of the app). ODM registers it for Chrome, Edge, Brave, Vivaldi, Opera, Chromium, Firefox and Floorp the first time it starts, and again whenever it is moved.

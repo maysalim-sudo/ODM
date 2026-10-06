@@ -4,6 +4,7 @@ mod shell;
 use odm_appcore::api::{store_open_message, user_message};
 use odm_appcore::confirm::Pending;
 use odm_appcore::dto::{CompletionTracker, UiEvent};
+use odm_appcore::integration::Contact;
 use odm_appcore::ipc::IpcContext;
 use odm_appcore::offers::Offers;
 #[cfg(windows)]
@@ -11,7 +12,7 @@ use odm_appcore::pipe;
 use odm_appcore::{bridge, logging, registration, summary, AppPaths, Settings};
 use odm_engine::ManagerHandle;
 use odm_store::Store;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{Emitter, Manager, RunEvent};
@@ -36,6 +37,10 @@ pub struct AppState {
     pub completions: Mutex<CompletionTracker>,
     /// Set while the quit flow runs, so it cannot start twice.
     pub quitting: AtomicBool,
+    /// The last request a browser sent, shared with the IPC dispatcher.
+    pub contact: Arc<Contact>,
+    /// True once the browser-integration pipe is bound.
+    pub pipe_running: AtomicBool,
 }
 
 fn start_engine(paths: &AppPaths, settings: &Settings) -> Result<ManagerHandle, String> {
@@ -94,6 +99,7 @@ pub fn run() {
             let offers = Arc::new(Offers::default());
             let pending = Arc::new(Pending::default());
             let ipc_stop = CancellationToken::new();
+            let contact = Arc::new(Contact::default());
             app.manage(AppState {
                 manager: manager.clone(),
                 settings: settings.clone(),
@@ -103,6 +109,8 @@ pub fn run() {
                 ipc_stop: ipc_stop.clone(),
                 completions: Mutex::new(CompletionTracker::default()),
                 quitting: AtomicBool::new(false),
+                contact: contact.clone(),
+                pipe_running: AtomicBool::new(false),
             });
             // Keep the log flushing for as long as the app runs.
             app.manage(Mutex::new(log_guard));
@@ -133,7 +141,7 @@ pub fn run() {
                     }
                 }),
                 pending,
-                contact: Arc::new(odm_appcore::integration::Contact::default()),
+                contact,
                 on_confirm: Box::new(move |id| {
                     let ev = UiEvent::ConfirmDownload { id: id.to_string() };
                     if let Err(e) = confirm_handle.emit(EVENT, &ev) {
@@ -146,7 +154,10 @@ pub fn run() {
                 ctx,
                 ipc_stop,
             )) {
-                Ok(_) => {}
+                Ok(_) => app
+                    .state::<AppState>()
+                    .pipe_running
+                    .store(true, Ordering::SeqCst),
                 Err(e) => tracing::error!("browser integration is unavailable: {e}"),
             }
             if let Ok(app_exe) = std::env::current_exe() {
@@ -191,6 +202,10 @@ pub fn run() {
             commands::list_pending_confirms,
             commands::confirm_download,
             commands::refresh_url,
+            commands::integration_status,
+            commands::integration_test,
+            commands::integration_repair,
+            commands::open_extension_folder,
         ])
         .build(tauri::generate_context!())
         .expect("error while building ODM");

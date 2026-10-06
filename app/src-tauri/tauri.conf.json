@@ -30,6 +30,10 @@
     "active": true,
     "targets": ["nsis"],
     "externalBin": ["binaries/odm-host"],
+    "resources": {
+      "../../extension/dist/chromium/": "extension/chromium/",
+      "../../extension/dist/firefox/": "extension/firefox/"
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",

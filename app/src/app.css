@@ -9,6 +9,7 @@
   --accent-light: #818cf8;
   --error: #ef4444;
   --success: #22c55e;
+  --warn: #f59e0b;
   --radius: 6px;
   color-scheme: dark;
 }

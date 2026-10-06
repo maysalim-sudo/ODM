@@ -13,6 +13,8 @@ import {
   canResume,
   canRefresh,
   isRiskyFile,
+  integrationProblem,
+  relativeTime,
   addOffer,
   nextConfirm,
   counts,
@@ -29,7 +31,7 @@ import {
   visible,
   visibleColumns,
 } from "./model";
-import type { Download } from "./types";
+import type { Download, IntegrationStatus } from "./types";
 
 function dl(id: string, patch: Partial<Download> = {}): Download {
   return {
@@ -471,5 +473,66 @@ describe("progressPct", () => {
     }).rows;
     expect(rows.get("a")!.segments).toEqual({ done: 3, total: 12 });
     expect(progressPct(rows.get("a")!)).toBe(25);
+  });
+});
+
+describe("relativeTime", () => {
+  const now = 1_000_000_000_000;
+  const ago = (s: number) => relativeTime(now - s * 1000, now);
+
+  it("says just now under 45 seconds, also for a clock a little ahead", () => {
+    expect(ago(0)).toBe("just now");
+    expect(ago(44)).toBe("just now");
+    expect(relativeTime(now + 5000, now)).toBe("just now");
+  });
+
+  it("counts minutes up to 90 minutes", () => {
+    expect(ago(45)).toBe("1 min ago");
+    expect(ago(180)).toBe("3 min ago");
+    expect(ago(89 * 60)).toBe("89 min ago");
+  });
+
+  it("counts hours up to 36 hours, then days", () => {
+    expect(ago(90 * 60)).toBe("2 h ago");
+    expect(ago(2 * 3600)).toBe("2 h ago");
+    expect(ago(35 * 3600)).toBe("35 h ago");
+    expect(ago(36 * 3600)).toBe("2 days ago");
+    expect(ago(5 * 86400)).toBe("5 days ago");
+  });
+});
+
+describe("integrationProblem", () => {
+  const ok = (browser: string) => ({ browser, status: "ok" as const, detail: "Ready." });
+  const base: IntegrationStatus = {
+    host_found: true,
+    pipe_running: true,
+    browsers: [ok("Chrome"), ok("Edge")],
+    last_contact_ms: null,
+    last_command: null,
+  };
+
+  it("is null when everything is ready", () => {
+    expect(integrationProblem(base)).toBeNull();
+  });
+
+  it("names the missing helper first", () => {
+    const s = { ...base, host_found: false, pipe_running: false };
+    expect(integrationProblem(s)).toBe("The browser helper is missing next to ODM.");
+  });
+
+  it("explains a pipe that is not running", () => {
+    expect(integrationProblem({ ...base, pipe_running: false })).toBe(
+      "ODM couldn't open its connection for browsers. Another copy of ODM may be running.",
+    );
+  });
+
+  it("names the first browser that is not ready", () => {
+    const with_ = (status: "missing" | "wrong_path" | "broken") => ({
+      ...base,
+      browsers: [ok("Chrome"), { browser: "Edge", status, detail: "" }, { browser: "Brave", status: "missing" as const, detail: "" }],
+    });
+    expect(integrationProblem(with_("missing"))).toBe("Edge is not registered.");
+    expect(integrationProblem(with_("wrong_path"))).toBe("Edge is registered for another copy of ODM.");
+    expect(integrationProblem(with_("broken"))).toBe("The registration file for Edge is damaged.");
   });
 });

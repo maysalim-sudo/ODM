@@ -141,3 +141,20 @@ export interface BatchResult {
   added: string[];
   rejected: string[];
 }
+
+export type CheckStatus = "ok" | "missing" | "wrong_path" | "broken";
+
+export interface BrowserCheck {
+  browser: string;
+  status: CheckStatus;
+  detail: string;
+}
+
+export interface IntegrationStatus {
+  host_found: boolean;
+  pipe_running: boolean;
+  browsers: BrowserCheck[];
+  /** Epoch ms of the last request from a browser. */
+  last_contact_ms: number | null;
+  last_command: string | null;
+}
