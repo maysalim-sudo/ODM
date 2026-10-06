@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { SITE_HOSTS, isSitePage, pageAddress, toPagePayload } from "./sites";
+import { SITE_HOSTS, isSitePage, pageAddress, toPagePayload, visibleStreams } from "./sites";
 
 describe("SITE_HOSTS", () => {
   it("lists the same sites as the app", () => {
@@ -94,5 +94,17 @@ describe("adult video sites go to yt-dlp", () => {
       "https://www.eporner.com/video-abc/x/",
     ]) expect(isSitePage(u)).toBe(true);
     expect(isSitePage("https://notpornhub.com/x")).toBe(false);
+  });
+});
+
+describe("visibleStreams", () => {
+  const list = [{ url: "https://cdn.x/master.m3u8", kind: "hls" as const, label: "x", supported: true }];
+  it("hides detected stream links on yt-dlp sites, where only the page download works", () => {
+    expect(visibleStreams("https://www.pornhub.com/view_video.php?viewkey=a", list)).toEqual([]);
+    expect(visibleStreams("https://www.youtube.com/watch?v=a", list)).toEqual([]);
+  });
+  it("keeps them everywhere else", () => {
+    expect(visibleStreams("https://anime.example/watch/1", list)).toEqual(list);
+    expect(visibleStreams(undefined, list)).toEqual(list);
   });
 });

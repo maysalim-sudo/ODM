@@ -1,4 +1,4 @@
-import { isSitePage, pageAddress } from "./lib/sites";
+import { isSitePage, pageAddress, visibleStreams } from "./lib/sites";
 
 function notify(down: boolean): void {
   try {
@@ -135,7 +135,7 @@ if (window.top === window) {
     chrome.runtime.onMessage.addListener((msg: unknown) => {
       const m = msg as { type?: string; streams?: PageStream[] } | null;
       if (m?.type === "odm-streams" && Array.isArray(m.streams)) {
-        streams = m.streams;
+        streams = visibleStreams(location.href, m.streams);
         render();
       }
     });

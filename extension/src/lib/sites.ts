@@ -79,3 +79,11 @@ export function toPagePayload(pageUrl: string, title: string | undefined, cookie
     cookies: cookieHeader(cookies),
   };
 }
+
+/**
+ * On a yt-dlp site the links the extension sees are signed for the page's own player and fail when
+ * fetched separately (HTTP 403/410), so only the page download is offered there.
+ */
+export function visibleStreams<T>(pageUrl: string | undefined, streams: T[]): T[] {
+  return pageUrl && isSitePage(pageUrl) ? [] : streams;
+}

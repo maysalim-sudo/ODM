@@ -1,7 +1,7 @@
 import { ext, send, sendDetailed } from "./lib/browser";
 import { statusLine } from "./lib/format";
 import { errorText, type SendFailure } from "./lib/protocol";
-import { isSitePage } from "./lib/sites";
+import { isSitePage, visibleStreams } from "./lib/sites";
 import type { Stream } from "./lib/streams";
 
 const FAILURE_TEXT: Record<SendFailure, string> = {
@@ -67,8 +67,8 @@ async function showVideos(): Promise<void> {
   if (tab?.id === undefined) return;
   const tabId = tab.id;
   const found = (await ext.runtime.sendMessage({ type: "odm-list-streams", tabId })) as Stream[] | undefined;
-  const list = Array.isArray(found) ? found : [];
   const pageUrl = tab.url ?? "";
+  const list = visibleStreams(pageUrl, Array.isArray(found) ? found : []);
   const sitePage = isSitePage(pageUrl);
   if (list.length === 0 && !sitePage) return;
   const ul = $("video-list");
