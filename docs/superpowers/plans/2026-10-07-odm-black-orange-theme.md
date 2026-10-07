@@ -17,7 +17,7 @@
 - Keep existing variable names (`--bg`, `--surface`, `--surface-2`, `--border`, `--text`, `--muted`, `--accent`, `--accent-light`, `--error`, `--success`, `--warn`, `--radius`).
 - No hex or `rgb()` literal in any `app/src/components/*.svelte` or `app/src/App.svelte` style block after Task 1.
 - Old palette values must not appear anywhere in `app/src` or `extension/src`: `#6366f1 #818cf8 #0f0f14 #14141c #1a1a24 #1e1e28 #e0e0e6 #6b6b80 #ef4444 #22c55e #f59e0b #7578f3 #1f1f2b #2a2a3a`.
-- Text pairs ≥ 4.5:1; borders, focus rings and state marks ≥ 3:1. `--idle` is never used for text.
+- Text pairs ≥ 4.5:1 (spec palette is pre-checked); borders, focus rings and state marks ≥ 3:1. `--idle` is never used for text.
 - No layout, copy or component-structure changes. No imitation of any other site's logo or wordmark.
 - UI animation ≤ 200ms, easing `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)`; nothing animates on keyboard navigation or row selection.
 - App checks: `pnpm check`, `pnpm test`, `pnpm build` in `app/`. Extension checks: `pnpm check`, `pnpm test`, `pnpm build` in `extension/`.
@@ -25,7 +25,7 @@
 ## Review Focus
 
 1. **Badge on an orange background:** Chrome and Firefox draw white badge text by default (2.1:1 on #ffa31a). Expect dark, readable text. Task 3 sets the text colour and tests the pair.
-2. **The in-page bar on bright and dark websites:** it floats over arbitrary pages. Expect it to stay readable on white and on black pages. Task 3 keeps an opaque `#1a1a1a` body and a 1px `#ffa31a` border, and tests text on that body.
+2. **The in-page bar on bright and dark websites:** it floats over arbitrary pages. Expect it to stay readable on white and on black pages. Task 3 keeps an opaque `#1b1b1b` body and a 1px `#ffa31a` border, and tests text on that body.
 3. **Selected row vs hover vs progress fill:** all now warm. Expect the selected row to read as selected, hovered or not. Task 1 tests that text holds ≥ 10:1 on `--selected` and `--selected-hover`, and that `--selected-hover` differs from `--surface-2`.
 4. **Chunk states told apart by colour alone:** orange, green and violet have near-equal lightness (≤ 1.4:1 apart). Expect the state to be readable without colour. The chunk-map legend words and the failed segment's outline stay; Task 1's test asserts the `.seg.failed` outline rule still exists.
 5. **Windows High Contrast (forced colours):** expect buttons and inputs to keep visible edges. Task 2 adds a `@media (forced-colors: active)` rule giving buttons `border-color: ButtonText` and checks it in the guard test.
@@ -42,6 +42,7 @@
 - Modify: `app/src/components/BrowserDialog.svelte` `.pill`, `.pill.ok` (→ `var(--warn-tint)`, `var(--success-tint)`)
 - Modify: `app/src/components/DownloadTable.svelte` selected rows (→ `var(--selected)`, `var(--selected-hover)`)
 - Modify: `app/src/app.css` `button.primary` colour `#fff` → `var(--on-accent)`
+- Modify: `app/src/components/Sidebar.svelte` (`button.active` → orange pill), `DetailPanel.svelte` and `DownloadTable.svelte` (heading and `th` weight 700)
 - Create: `app/src/lib/theme.test.ts`
 
 **Interfaces:**
@@ -54,17 +55,17 @@ Reads `../app.css`, every `../components/*.svelte` and `../App.svelte` as text (
 ```ts
 test("root variables match the spec palette", () => {
   expect(vars).toMatchObject({
-    "--bg": "#0f0f0f", "--surface": "#1a1a1a", "--surface-2": "#262626", "--border": "#2d2d2d",
-    "--text": "#e5e2e1", "--muted": "#a18d7a", "--accent": "#ffa31a", "--accent-light": "#ffc98e",
-    "--on-accent": "#2b1700", "--error": "#ffb4ab", "--error-tint": "#352928", "--success": "#34d399",
-    "--success-tint": "#152e25", "--warn": "#a78bfa", "--warn-tint": "#2a2539", "--info": "#60a5fa",
-    "--idle": "#6b7280", "--selected": "#312411", "--selected-hover": "#3f2d11",
+    "--bg": "#000000", "--surface": "#1b1b1b", "--surface-2": "#2f2f2f", "--border": "#3a3a3a",
+    "--text": "#ffffff", "--muted": "#a0a0a0", "--accent": "#ffa31a", "--accent-light": "#ffb84d",
+    "--on-accent": "#000000", "--error": "#ff6b6b", "--error-tint": "#291111", "--success": "#34d399",
+    "--success-tint": "#082218", "--warn": "#a78bfa", "--warn-tint": "#211c32", "--info": "#60a5fa",
+    "--idle": "#6b7280", "--selected": "#291a04", "--selected-hover": "#382406", "--radius": "4px",
   });
 });
 test.each([
-  ["--text", "--bg", 4.5], ["--text", "--selected", 10], ["--text", "--selected-hover", 10],
+  ["--text", "--bg", 4.5], ["--text", "--selected", 10], ["--text", "--selected-hover", 10], ["--muted", "--selected", 4.5],
   ["--muted", "--bg", 4.5], ["--muted", "--surface", 4.5], ["--muted", "--surface-2", 4.5],
-  ["--accent-light", "--surface-2", 4.5], ["--on-accent", "--accent", 4.5], ["--on-accent", "--accent-light", 4.5],
+  ["--accent", "--surface-2", 4.5], ["--on-accent", "--accent", 4.5], ["--on-accent", "--accent-light", 4.5],
   ["--error", "--surface-2", 4.5], ["--error", "--error-tint", 4.5], ["--success", "--success-tint", 4.5],
   ["--warn", "--warn-tint", 4.5], ["--warn", "--surface-2", 4.5], ["--info", "--surface", 4.5],
   ["--accent-light", "--surface", 3],
@@ -74,17 +75,18 @@ test("no colour literals in component styles", () => {
   for (const [file, src] of componentStyles) expect(src, file).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i);
 });
 test("no old palette values left", () => { for (const old of OLD) expect(allAppSource).not.toContain(old); });
+test("active sidebar item is an orange pill", () => expect(sidebarSrc).toMatch(/button\.active\s*\{[^}]*background:\s*var\(--accent\)/));
 test("failed chunk keeps its outline", () => expect(chunkMapSrc).toMatch(/\.seg\.failed\s*\{[^}]*outline:/));
 ```
 
-`OLD` is the Global Constraints list. `componentStyles` is the `<style>` block of each `.svelte` file.
+`OLD` is the Global Constraints list. `sidebarSrc`, `chunkMapSrc`, `modalSrc` are those components' `<style>` blocks. `componentStyles` is the `<style>` block of each `.svelte` file.
 
 - [ ] **Step 2: Run it to see it fail**
 
 Run: `cd app && pnpm test -- theme`
 Expected: FAIL on the palette values and the literals in Modal/ChunkMap.
 
-- [ ] **Step 3: Update `:root` in `app/src/app.css`** with every spec palette row (keep `--radius: 6px` and `color-scheme: dark`), and set `button.primary { color: var(--on-accent) }`.
+- [ ] **Step 3: Update `:root` in `app/src/app.css`** with every spec palette row (set `--radius: 4px`, add `--radius-lg: 8px`, keep `color-scheme: dark`, font stack `"Segoe UI", Arial, system-ui, sans-serif`), and apply the spec's Character table: `button { font-weight: 600 }`, `button.primary { color: var(--on-accent); font-weight: 700 }`, modal and pill radius → `var(--radius-lg)`, Modal/DetailPanel `h2` and table `th` weight 700, Sidebar `button.active` → `background: var(--accent); border-color: var(--accent); color: var(--on-accent)` with its `.count` also `var(--on-accent)`.
 
 - [ ] **Step 4: Replace the literals and `color-mix()` calls** in the five component files listed above with the matching variables.
 
@@ -150,12 +152,12 @@ test("dialog enters with @starting-style", () => expect(modalSrc).toMatch(/@star
 - Modify: `extension/src/popup.css:1-7` and the `.primary` / button rules
 
 **Interfaces:**
-- Produces: `export const THEME: { bg, surface, surface2, border, text, muted, accent, accentLight, onAccent, error, onError }` (all `#rrggbb` strings, values from the spec: `onError` = `#690005`) and `export const BADGE: { bg: string; text: string }`, `export const BADGE_ERROR: { bg: string; text: string }`.
+- Produces: `export const THEME: { bg, surface, surface2, border, text, muted, accent, accentLight, onAccent, error, onError }` (all `#rrggbb` strings, values from the spec) and `export const BADGE: { bg: string; text: string }`, `export const BADGE_ERROR: { bg: string; text: string }`.
 
 - [ ] **Step 1: Write `theme.test.ts`** (same `contrast` helper as Task 1):
 
 ```ts
-test("palette", () => expect(THEME).toMatchObject({ bg: "#0f0f0f", surface: "#1a1a1a", accent: "#ffa31a", text: "#e5e2e1", muted: "#a18d7a" }));
+test("palette", () => expect(THEME).toMatchObject({ bg: "#000000", surface: "#1b1b1b", accent: "#ffa31a", accentLight: "#ffb84d", onAccent: "#000000", text: "#ffffff", muted: "#a0a0a0", error: "#ff6b6b", onError: "#000000" }));
 test("badge text readable", () => {
   expect(contrast(BADGE.text, BADGE.bg)).toBeGreaterThanOrEqual(4.5);
   expect(contrast(BADGE_ERROR.text, BADGE_ERROR.bg)).toBeGreaterThanOrEqual(4.5);
@@ -177,16 +179,16 @@ test("popup.css uses the theme values", () => {
 
 - [ ] **Step 3: Create `theme.ts`** with the constants. `BADGE = { bg: THEME.accent, text: THEME.onAccent }`, `BADGE_ERROR = { bg: THEME.error, text: THEME.onError }`.
 
-- [ ] **Step 4: Use it.** In `content.ts` build `SHADOW_CSS` and `VIDEO_CSS` with template interpolation of `THEME.*`: bar and hover button body `surface`, border `accent`, hover `surface2`, list and message `bg` with `border` hairline, close and message text `muted`, `.dl` fill `accent` with `onAccent` text and `accentLight` hover. In `background.ts` replace `BADGE_COLOR` with `BADGE`/`BADGE_ERROR`, and call `ext.action.setBadgeTextColor?.({ color })` next to each `setBadgeBackgroundColor` (optional call: older browsers lack it). In `popup.css` set the same five `:root` values, `button.primary { color: #2b1700 }`, and add the Task 2 press and fine-pointer hover rules.
+- [ ] **Step 4: Use it.** In `content.ts` build `SHADOW_CSS` and `VIDEO_CSS` with template interpolation of `THEME.*`: bar and hover button body `surface`, border `accent`, hover `surface2`, list and message `bg` with `border` hairline, close and message text `muted`, `.dl` fill `accent` with `onAccent` text and `accentLight` hover. In `background.ts` replace `BADGE_COLOR` with `BADGE`/`BADGE_ERROR`, and call `ext.action.setBadgeTextColor?.({ color })` next to each `setBadgeBackgroundColor` (optional call: older browsers lack it). In `popup.css` set the same five `:root` values, `button.primary { color: #000000; font-weight: 700 }`, radius 4px, and add the Task 2 press and fine-pointer hover rules.
 
 - [ ] **Step 5: Run checks** — `cd extension && pnpm test && pnpm check && pnpm build`, expected PASS and `dist/chromium`, `dist/firefox` built.
 
 - [ ] **Step 6: Commit** — `git add extension/src && git commit -m "feat(extension): black and orange theme, readable badge"`
 
-### Task 4: App icon (only if the user approves)
+### Task 4: App icon (approved; done first, see commit "feat: orange app icon")
 
 **Files:**
-- Modify: `app/app-icon.svg` (rect fill `#ffa31a`, both strokes `#0f0f0f`; geometry unchanged)
+- Modify: `app/app-icon.svg` (rect fill `#ffa31a`, both strokes `#000000`; geometry unchanged)
 - Regenerate: everything under `app/src-tauri/icons/`
 
 - [ ] **Step 1: Edit the SVG** fills as above.

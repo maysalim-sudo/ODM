@@ -1,68 +1,80 @@
 # ODM black and orange theme — design
 
-**Status:** agreed in conversation on 2026-10-07; icon decision pending (see "Open decision").
+**Status:** agreed in conversation on 2026-10-07, including the orange app icon.
 **Branch:** `claude/theme-black-orange`. The first version stays untouched on `claude/relaxed-shannon-u4f79v`.
 
 ## Goal
 
-Re-skin the desktop app and the browser extension from the current indigo-on-blue-black look to a black and orange look: near-black surfaces, one orange accent (#FFA31A), warm grey secondary text. Same layout, same components, same copy. ODM keeps its own name and arrow mark; it does not imitate any other site's logo or wordmark.
+Re-skin the desktop app and the browser extension to a high-contrast black, white and orange look: true black window, flat dark-grey panels, pure white text, neutral greys, one loud orange (#FFA31A) with black text on it, bold compact type and small corners. Same layout, same components, same copy. ODM keeps its own name and arrow mark; it does not imitate any other site's logo or wordmark (no word split across an orange box).
 
 ## Palette
 
-Source palette supplied by the user (Material 3 dark amber scheme plus custom surface and status colours). ODM uses this subset. Variable names in `app/src/app.css` stay as they are so components keep working; new names are added where the old UI used literals or `color-mix()`.
+Variable names in `app/src/app.css` stay as they are so components keep working; new names are added where the old UI used literals or `color-mix()`.
 
-| ODM variable | Value | Source token | Use |
-|---|---|---|---|
-| `--bg` | `#0f0f0f` | surface-base | window, inputs |
-| `--surface` | `#1a1a1a` | surface-card | toolbar, sidebar, detail panel, dialogs, table header |
-| `--surface-2` | `#262626` | surface-raised | buttons, hover, active item, empty tracks |
-| `--border` | `#2d2d2d` | border-deep | hairlines (decorative) |
-| `--text` | `#e5e2e1` | on-surface | primary text |
-| `--muted` | `#a18d7a` | outline | labels, headers, counts, hints |
-| `--accent` | `#ffa31a` | primary-container | primary button, progress fill, button hover border |
-| `--accent-light` | `#ffc98e` | primary | focus ring, active sidebar label, active chunk, primary button hover |
-| `--on-accent` | `#2b1700` | on-primary-fixed | label on accent and accent-light fills |
-| `--error` | `#ffb4ab` | error | failed text, failed bars and chunks |
-| `--error-tint` | `#352928` | error mixed 16% into bg | error banner background |
-| `--success` | `#34d399` | status-shipped | completed, connected |
-| `--success-tint` | `#152e25` | success mixed 16% into bg | OK pill |
-| `--warn` | `#a78bfa` | status-spark | needs attention, retrying chunks (moved off amber, which is now the brand) |
-| `--warn-tint` | `#2a2539` | warn mixed 18% into bg | warn pill |
-| `--info` | `#60a5fa` | status-drafting | queued (new) |
-| `--idle` | `#6b7280` | status-archived | paused, cancelled bars only — never text (3.96:1) |
-| `--selected` | `#312411` | accent mixed 14% into bg | selected table row |
-| `--selected-hover` | `#3f2d11` | accent mixed 20% into bg | selected row under the pointer |
-| `--backdrop` | `rgba(0, 0, 0, 0.6)` | — | modal scrim |
-| `--shadow-dialog` | `0 20px 60px rgba(0, 0, 0, 0.7)` | — | modal shadow |
+| ODM variable | Value | Use |
+|---|---|---|
+| `--bg` | `#000000` | window, inputs |
+| `--surface` | `#1b1b1b` | toolbar, sidebar, detail panel, dialogs, table header |
+| `--surface-2` | `#2f2f2f` | buttons, hover, empty tracks |
+| `--border` | `#3a3a3a` | hairlines |
+| `--text` | `#ffffff` | primary text |
+| `--muted` | `#a0a0a0` | labels, headers, counts, hints |
+| `--accent` | `#ffa31a` | primary button, active sidebar pill, progress fill, button hover border |
+| `--accent-light` | `#ffb84d` | primary button and active pill hover, focus ring, active chunk |
+| `--on-accent` | `#000000` | text on accent and accent-light fills |
+| `--error` | `#ff6b6b` | failed text, failed bars and chunks |
+| `--error-tint` | `#291111` | error banner background (error 16% into bg) |
+| `--success` | `#34d399` | completed, connected |
+| `--success-tint` | `#082218` | OK pill (success 16% into bg) |
+| `--warn` | `#a78bfa` | needs attention, retrying chunks (off amber, which is now the brand) |
+| `--warn-tint` | `#211c32` | warn pill (warn 20% into bg) |
+| `--info` | `#60a5fa` | queued |
+| `--idle` | `#6b7280` | paused and cancelled bars only, never text |
+| `--selected` | `#291a04` | selected table row (accent 16% into bg) |
+| `--selected-hover` | `#382406` | selected row under the pointer (accent 22% into bg) |
+| `--backdrop` | `rgba(0, 0, 0, 0.7)` | modal scrim |
+| `--shadow-dialog` | `0 20px 60px rgba(0, 0, 0, 0.8)` | modal shadow |
+| `--radius` | `4px` | was 6px; dialogs and pills keep 8px (`--radius-lg`) |
 
-Checked contrast (WCAG 2): text on bg 14.9, muted on bg 6.03 and on surface 5.48, accent-light on surface-2 10.1, on-accent on accent 8.57 and on accent-light 11.4, error on surface-2 8.9, warn on surface-2 5.56, info on surface 6.85, text on selected 11.7 and on selected-hover 10.2, each status colour on its tint 5.4 or more.
+Checked contrast (WCAG 2): text on bg 21, on surface-2 13.4, on selected 16.9, on selected-hover 14.8; muted on bg 8.0, on surface 6.6, on surface-2 5.1, on selected 6.5; on-accent on accent 10.5 and on accent-light 12.2; accent on surface-2 6.7; error on surface-2 4.8; warn on surface 6.3; info on surface-2 5.3; each status colour on its tint 6.0 or more; border on bg 1.85 (decorative).
 
-## Interaction polish (from the design-engineering review)
+## Character
+
+| Element | Look |
+|---|---|
+| Primary button | solid `--accent`, weight 700, `--on-accent` text; hover `--accent-light` |
+| Other buttons | `--surface-2`, white text, weight 600; hover border `--accent` |
+| Active sidebar filter | solid `--accent` pill with `--on-accent` text and count (was a grey box with an indigo label) |
+| Titles, table headers | weight 700 |
+| Progress bar | `--accent` fill on `--surface-2`, like a player's scrub bar |
+| Corners | 4px controls, 8px dialogs and pills |
+| Font | `"Segoe UI", Arial, system-ui, sans-serif` |
+
+## Interaction polish (design-engineering review)
 
 | Before | After | Why |
 |---|---|---|
 | Buttons change border instantly, no press state | `:active { transform: scale(0.97) }`, `transition: transform 160ms var(--ease-out), border-color 120ms ease, background-color 120ms ease` | Press feedback tells the user the click landed |
 | Hover styles apply on touch too | Hover rules inside `@media (hover: hover) and (pointer: fine)` | No sticky hover on touch screens |
-| Primary button hover only changes the (invisible) border | Primary hover fills `--accent-light` | The main action visibly responds |
 | Dialogs appear with no transition | `dialog[open]` fades and scales from 0.96 over 200ms `var(--ease-out)` via `@starting-style`; scrim fades 200ms | Occasional element; prevents a jarring pop |
-| — | No animation on table row selection or keyboard navigation | Used hundreds of times a day |
-| Reduced motion stops bar transitions | Also drops the button scale and dialog scale; keeps opacity fades | Fewer, gentler animations rather than none |
+| — | No animation on row selection or keyboard navigation | Used hundreds of times a day |
+| Reduced motion stops bar transitions | Also drops the button and dialog scale; keeps opacity fades | Fewer, gentler animations rather than none |
 
 Easing token: `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)`.
 
 ## Extension
 
-- `popup.css` uses the same values.
-- The in-page "Download video" bar and hover button (shadow DOM CSS in `content.ts`) use the same values, read from one shared module.
-- Toolbar badge: background `#ffa31a` with text `#2b1700` (white on orange is only 2.1:1); the error badge uses `#ffb4ab` with `#690005` text.
+- `popup.css` uses the same values and character rules.
+- The in-page "Download video" bar and hover button (shadow DOM CSS in `content.ts`) use the same values from one shared module: dark body, orange border, bold, orange "Download" fill with black text.
+- Toolbar badge: `#ffa31a` with `#000000` text (white on orange is 2.1:1); error badge `#ff6b6b` with `#000000` text (7.6:1).
+
+## App icon
+
+Same geometry as `app/app-icon.svg`; square fill `#ffa31a`, arrow and baseline `#000000`. Every size in `app/src-tauri/icons/` is regenerated from it; the extension copies its 32 and 128 px icons from there at build time.
 
 ## Design system
 
-A **new** Design System artifact, "ODM Black & Orange", built from the same component set as the first one. The first artifact is left as it is.
-
-## Open decision
-
-App icon: replace the indigo square with an orange (#ffa31a) square and a near-black (#0f0f0f) arrow, and regenerate every size. The extension copies its icons from the app, so it follows. Task 4 runs only if the user says yes.
+A **new** Design System artifact, "ODM Black & Orange". The first artifact is left as it is.
 
 ## Out of scope
 
