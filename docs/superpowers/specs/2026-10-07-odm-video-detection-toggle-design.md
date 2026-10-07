@@ -37,7 +37,7 @@ Pure functions, no browser APIs:
 - `siteOf(url: string): string | null` — the URL's host, lowercased, trailing dot and a leading `www.` removed; `null` for anything that is not http or https or has no host.
 - `normalizeSettings(raw: unknown): DetectionSettings` — the defaults and clean-up above.
 - `detectionOn(s: DetectionSettings, pageUrl: string | undefined): boolean` — false when `enabled` is false, or when the page's site equals an entry or is a subdomain of one; true otherwise, including pages with no site.
-- `setSiteOff(s: DetectionSettings, site: string, off: boolean): DetectionSettings` — adds or removes the site, no duplicates, list kept sorted.
+- `setSiteOff(s: DetectionSettings, site: string, off: boolean): DetectionSettings` — adds the site, or on turn-on removes every entry that covers it (the site and any listed parent, so `m.youtube.com` really turns on when `youtube.com` was listed); no duplicates, list kept sorted.
 
 "The site" is always the **tab's** address (the top-level page), never the address of the video or of an embedding frame. A player from another domain embedded in `example-news.com` follows `example-news.com`.
 
