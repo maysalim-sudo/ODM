@@ -355,3 +355,25 @@ export function integrationProblem(s: IntegrationStatus): string | null {
   if (bad.status === "wrong_path") return `${bad.browser} is registered for another copy of ODM.`;
   return `The registration file for ${bad.browser} is damaged.`;
 }
+
+const PART_WORDS: Record<ChunkState, string> = {
+  pending: "waiting",
+  active: "downloading",
+  retrying: "retrying",
+  done: "finished",
+  failed: "failed",
+};
+
+/** The chunk map's legend: finished parts, then any parts downloading, retrying or failed, so state never relies on colour. */
+export function chunkLegend(chunks: ChunkView[]): string {
+  const n = (state: ChunkState) => chunks.filter((c) => c.state === state).length;
+  const extra = (["active", "retrying", "failed"] as const)
+    .filter((s) => n(s) > 0)
+    .map((s) => `${n(s)} ${PART_WORDS[s]}`);
+  return [`${n("done")} of ${chunks.length} parts finished`, ...extra].join(" · ");
+}
+
+/** Tooltip for one chunk-map segment, e.g. "Part 3: retrying, 40%". */
+export function partTitle(idx: number, state: ChunkState, fillPct: number): string {
+  return `Part ${idx + 1}: ${PART_WORDS[state]}, ${fillPct.toFixed(0)}%`;
+}

@@ -30,6 +30,8 @@ import {
   toRow,
   visible,
   visibleColumns,
+  chunkLegend,
+  partTitle,
 } from "./model";
 import type { Download, IntegrationStatus } from "./types";
 
@@ -534,5 +536,25 @@ describe("integrationProblem", () => {
     expect(integrationProblem(with_("missing"))).toBe("Edge is not registered.");
     expect(integrationProblem(with_("wrong_path"))).toBe("Edge is registered for another copy of ODM.");
     expect(integrationProblem(with_("broken"))).toBe("The registration file for Edge is damaged.");
+  });
+});
+
+describe("chunk map words", () => {
+  const c = (idx: number, state: "pending" | "active" | "retrying" | "done" | "failed") => ({ idx, start: idx * 10, end: idx * 10 + 10, written: 0, state });
+
+  it("legend counts finished parts and names the states that need words", () => {
+    expect(chunkLegend([c(0, "done"), c(1, "done"), c(2, "active"), c(3, "retrying"), c(4, "failed"), c(5, "pending")])).toBe(
+      "2 of 6 parts finished · 1 downloading · 1 retrying · 1 failed",
+    );
+  });
+
+  it("legend leaves out states with no parts", () => {
+    expect(chunkLegend([c(0, "done"), c(1, "pending")])).toBe("1 of 2 parts finished");
+  });
+
+  it("part title says the state as well as the percent", () => {
+    expect(partTitle(2, "retrying", 40.4)).toBe("Part 3: retrying, 40%");
+    expect(partTitle(0, "done", 100)).toBe("Part 1: finished, 100%");
+    expect(partTitle(1, "pending", 0)).toBe("Part 2: waiting, 0%");
   });
 });

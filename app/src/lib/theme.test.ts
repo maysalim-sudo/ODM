@@ -109,3 +109,21 @@ describe("progress states", () => {
     expect(styleOf(bar)).toMatch(/\.queued \.fill\s*\{[^}]*background:\s*var\(--info\)/);
   });
 });
+
+describe("review fixes", () => {
+  const table = styleOf(components["../components/DownloadTable.svelte"]);
+  const chunkMap = components["../components/ChunkMap.svelte"];
+  test("selected rows carry an orange edge, not only a tint", () => {
+    expect(table).toMatch(/tr\.selected td:first-child\s*\{[^}]*box-shadow:\s*inset 3px 0 0 var\(--accent\)/);
+  });
+  test("sortable headers keep the header weight", () => {
+    expect(table).toMatch(/th button\s*\{[^}]*font-weight:\s*inherit/);
+  });
+  test("retrying parts have a dashed outline", () => {
+    expect(styleOf(chunkMap)).toMatch(/\.seg\.retrying\s*\{[^}]*outline:\s*1px dashed var\(--warn\)/);
+  });
+  test("chunk map uses the worded legend and titles", () => {
+    expect(chunkMap).toMatch(/chunkLegend\(chunks\)/);
+    expect(chunkMap).toMatch(/partTitle\(/);
+  });
+});

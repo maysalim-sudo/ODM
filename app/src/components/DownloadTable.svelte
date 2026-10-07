@@ -124,6 +124,7 @@
   }
   /* Sorting is a frequent click: no press motion. */
   th button {
+    font-weight: inherit;
     transition: none;
   }
   th button:active:not(:disabled) {
@@ -141,6 +142,10 @@
   }
   tr.selected td {
     background: var(--selected);
+  }
+  /* An edge marker, so selection does not rest on a tint that is darker than hover. */
+  tr.selected td:first-child {
+    box-shadow: inset 3px 0 0 var(--accent);
   }
   tbody tr:hover td {
     background: var(--surface-2);

@@ -1,22 +1,22 @@
 <script lang="ts">
-  import { segments } from "../lib/model";
+  import { chunkLegend, partTitle, segments } from "../lib/model";
   import type { ChunkView } from "../lib/types";
 
   let { chunks, total }: { chunks: ChunkView[]; total: number | null } = $props();
 
   const segs = $derived(segments(chunks, total));
-  const done = $derived(chunks.filter((c) => c.state === "done").length);
+  const legend = $derived(chunkLegend(chunks));
 </script>
 
 {#if segs}
-  <div class="map" role="img" aria-label={`${done} of ${chunks.length} parts finished`}>
+  <div class="map" role="img" aria-label={legend}>
     {#each segs as s (s.idx)}
-      <div class="seg {s.state}" style:width={`${s.widthPct}%`} title={`Part ${s.idx + 1}: ${s.fillPct.toFixed(0)}%`}>
+      <div class="seg {s.state}" style:width={`${s.widthPct}%`} title={partTitle(s.idx, s.state, s.fillPct)}>
         <div class="fill" style:width={`${s.fillPct}%`}></div>
       </div>
     {/each}
   </div>
-  <p class="legend">{done} of {chunks.length} parts finished</p>
+  <p class="legend">{legend}</p>
 {:else}
   <p class="legend">The part map appears once the file size is known.</p>
 {/if}
@@ -46,6 +46,9 @@
   }
   .seg.retrying .fill {
     background: var(--warn);
+  }
+  .seg.retrying {
+    outline: 1px dashed var(--warn);
   }
   .seg.failed {
     outline: 1px solid var(--error);
