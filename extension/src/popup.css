@@ -1,9 +1,14 @@
 :root {
-  --bg: #0f0f14;
-  --surface: #14141c;
-  --text: #e0e0e6;
-  --muted: #6b6b80;
-  --accent: #6366f1;
+  /* Same values as src/lib/theme.ts. */
+  --bg: #000000;
+  --surface: #1b1b1b;
+  --surface-2: #2f2f2f;
+  --text: #ffffff;
+  --muted: #a0a0a0;
+  --accent: #ffa31a;
+  --accent-light: #ffb84d;
+  --on-accent: #000000;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 body {
@@ -19,6 +24,7 @@ body {
 h1 {
   margin: 0 0 8px;
   font-size: 15px;
+  font-weight: 700;
 }
 
 p {
@@ -42,22 +48,49 @@ p {
 button {
   padding: 7px 10px;
   border: 1px solid var(--muted);
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--surface);
   color: var(--text);
   font: inherit;
+  font-weight: 600;
   cursor: pointer;
+  transition:
+    transform 160ms var(--ease-out),
+    border-color 120ms ease,
+    background-color 120ms ease;
 }
 
-button:hover {
-  border-color: var(--accent);
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  button:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+  button.primary:hover:not(:disabled) {
+    background: var(--accent-light);
+    border-color: var(--accent-light);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition:
+      border-color 120ms ease,
+      background-color 120ms ease;
+  }
+  button:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 button.primary {
   width: 100%;
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  font-weight: 700;
 }
 
 [hidden] {
@@ -68,7 +101,7 @@ button.primary {
 #problem {
   margin-bottom: 10px;
   padding: 10px;
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--surface);
 }
 
@@ -80,7 +113,7 @@ button.primary {
 #videos {
   margin-bottom: 10px;
   padding: 10px;
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--surface);
 }
 

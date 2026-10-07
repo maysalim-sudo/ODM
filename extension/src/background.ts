@@ -13,6 +13,7 @@ import {
 import { MENU_ID } from "./lib/ids";
 import { errorText } from "./lib/protocol";
 import { isSitePage, toPagePayload } from "./lib/sites";
+import { BADGE, BADGE_ERROR } from "./lib/theme";
 import { SentHeaderCache, StreamStore, classify, responseSize, toStreamPayload, toVideoFilePayload, type Stream } from "./lib/streams";
 
 const alt = new AltTracker();
@@ -20,7 +21,6 @@ const alt = new AltTracker();
 const streams = new StreamStore();
 // Referer/Origin the browser sent for media requests, so ODM can repeat them (embedded players need this).
 const sentHeaders = new SentHeaderCache(2000);
-const BADGE_COLOR = "#6366f1";
 /** How long onCreated waits for onDeterminingFilename before taking the download itself. */
 const CREATED_FALLBACK_MS = 500;
 let badgeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -28,7 +28,8 @@ let badgeTimer: ReturnType<typeof setTimeout> | undefined;
 async function flagError(message: string): Promise<void> {
   try {
     await ext.action.setBadgeText({ text: "!" });
-    await ext.action.setBadgeBackgroundColor({ color: "#ef4444" });
+    await ext.action.setBadgeBackgroundColor({ color: BADGE_ERROR.bg });
+    await ext.action.setBadgeTextColor?.({ color: BADGE_ERROR.text });
     if (badgeTimer) clearTimeout(badgeTimer);
     badgeTimer = setTimeout(() => {
       void ext.action.setBadgeText({ text: "" });
@@ -44,7 +45,8 @@ function updateStreamBadge(tabId: number): void {
   const n = streams.count(tabId);
   void Promise.resolve(ext.action.setBadgeText({ tabId, text: n > 0 ? String(n) : "" })).catch(() => {});
   if (n > 0) {
-    void Promise.resolve(ext.action.setBadgeBackgroundColor({ tabId, color: BADGE_COLOR })).catch(() => {});
+    void Promise.resolve(ext.action.setBadgeBackgroundColor({ tabId, color: BADGE.bg })).catch(() => {});
+    void Promise.resolve(ext.action.setBadgeTextColor?.({ tabId, color: BADGE.text })).catch(() => {});
   }
 }
 
