@@ -10,6 +10,8 @@
   class="bar"
   class:error={state === "failed"}
   class:done={state === "completed"}
+  class:idle={state === "paused" || state === "cancelled"}
+  class:queued={state === "queued"}
   class:indeterminate={value === null && running}
   role="progressbar"
   aria-valuemin="0"
@@ -33,6 +35,12 @@
   }
   .done .fill {
     background: var(--success);
+  }
+  .idle .fill {
+    background: var(--idle);
+  }
+  .queued .fill {
+    background: var(--info);
   }
   .error .fill {
     background: var(--error);

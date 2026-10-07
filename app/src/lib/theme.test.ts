@@ -97,3 +97,15 @@ describe("interaction", () => {
   test("reduced motion drops scale", () => expect(appCss).toMatch(/prefers-reduced-motion: reduce[\s\S]*transform:\s*none/));
   test("dialog enters with @starting-style", () => expect(modalSrc).toMatch(/@starting-style/));
 });
+
+describe("progress states", () => {
+  const bar = components["../components/ProgressBar.svelte"];
+  test("paused and cancelled bars use --idle", () => {
+    expect(bar).toMatch(/class:idle=\{state === "paused" \|\| state === "cancelled"\}/);
+    expect(styleOf(bar)).toMatch(/\.idle \.fill\s*\{[^}]*background:\s*var\(--idle\)/);
+  });
+  test("queued bars use --info", () => {
+    expect(bar).toMatch(/class:queued=\{state === "queued"\}/);
+    expect(styleOf(bar)).toMatch(/\.queued \.fill\s*\{[^}]*background:\s*var\(--info\)/);
+  });
+});
