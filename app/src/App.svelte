@@ -125,7 +125,7 @@
     justify-content: space-between;
     gap: 12px;
     padding: 6px 10px;
-    background: color-mix(in srgb, var(--error) 18%, var(--bg));
+    background: var(--error-tint);
     border-bottom: 1px solid var(--error);
     user-select: text;
   }

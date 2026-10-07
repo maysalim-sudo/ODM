@@ -156,6 +156,7 @@
   h2 {
     margin: 0;
     font-size: 14px;
+    font-weight: 700;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

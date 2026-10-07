@@ -48,11 +48,11 @@
     background: var(--surface);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-dialog);
   }
   dialog::backdrop {
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--backdrop);
   }
   .content {
     padding: 18px;
@@ -60,5 +60,6 @@
   h2 {
     margin: 0 0 14px;
     font-size: 15px;
+    font-weight: 700;
   }
 </style>

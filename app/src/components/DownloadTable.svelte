@@ -110,7 +110,7 @@
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     color: var(--muted);
-    font-weight: 600;
+    font-weight: 700;
     text-align: left;
   }
   th button {
@@ -133,13 +133,13 @@
     text-overflow: ellipsis;
   }
   tr.selected td {
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    background: var(--selected);
   }
   tbody tr:hover td {
     background: var(--surface-2);
   }
   tbody tr.selected:hover td {
-    background: color-mix(in srgb, var(--accent) 24%, transparent);
+    background: var(--selected-hover);
   }
   tbody tr:focus-visible {
     outline: 2px solid var(--accent-light);

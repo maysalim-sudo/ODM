@@ -109,9 +109,12 @@
     text-align: left;
   }
   button.active {
-    background: var(--surface-2);
-    border-color: var(--border);
-    color: var(--accent-light);
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+  }
+  button.active .count {
+    color: var(--on-accent);
   }
   .count {
     color: var(--muted);

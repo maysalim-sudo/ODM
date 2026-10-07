@@ -164,13 +164,13 @@
   .pill {
     justify-self: start;
     padding: 1px 8px;
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--warn) 20%, var(--bg));
+    border-radius: var(--radius-lg);
+    background: var(--warn-tint);
     color: var(--warn);
     font-size: 12px;
   }
   .pill.ok {
-    background: color-mix(in srgb, var(--success) 18%, var(--bg));
+    background: var(--success-tint);
     color: var(--success);
   }
   .detail,

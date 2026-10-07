@@ -1,16 +1,27 @@
 :root {
-  --bg: #0f0f14;
-  --surface: #14141c;
-  --surface-2: #1a1a24;
-  --border: #1e1e28;
-  --text: #e0e0e6;
-  --muted: #6b6b80;
-  --accent: #6366f1;
-  --accent-light: #818cf8;
-  --error: #ef4444;
-  --success: #22c55e;
-  --warn: #f59e0b;
-  --radius: 6px;
+  --bg: #000000;
+  --surface: #1b1b1b;
+  --surface-2: #2f2f2f;
+  --border: #3a3a3a;
+  --text: #ffffff;
+  --muted: #a0a0a0;
+  --accent: #ffa31a;
+  --accent-light: #ffb84d;
+  --on-accent: #000000;
+  --error: #ff6b6b;
+  --error-tint: #291111;
+  --success: #34d399;
+  --success-tint: #082218;
+  --warn: #a78bfa;
+  --warn-tint: #211c32;
+  --info: #60a5fa;
+  --idle: #6b7280;
+  --selected: #291a04;
+  --selected-hover: #382406;
+  --backdrop: rgba(0, 0, 0, 0.7);
+  --shadow-dialog: 0 20px 60px rgba(0, 0, 0, 0.8);
+  --radius: 4px;
+  --radius-lg: 8px;
   color-scheme: dark;
 }
 
@@ -28,7 +39,7 @@ body,
 body {
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.4 "Segoe UI", system-ui, sans-serif;
+  font: 13px/1.4 "Segoe UI", Arial, system-ui, sans-serif;
   overflow: hidden;
   user-select: none;
 }
@@ -46,6 +57,7 @@ button {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 6px 12px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -61,7 +73,8 @@ button:disabled {
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  font-weight: 700;
 }
 
 input,

@@ -45,7 +45,7 @@
     background: var(--success);
   }
   .seg.retrying .fill {
-    background: #f59e0b;
+    background: var(--warn);
   }
   .seg.failed {
     outline: 1px solid var(--error);
