@@ -54,6 +54,38 @@
   dialog::backdrop {
     background: var(--backdrop);
   }
+  /* Entrance: an occasional element, so a short fade and settle; centred, not origin-aware. */
+  dialog[open] {
+    opacity: 1;
+    transform: scale(1);
+    transition:
+      opacity 200ms var(--ease-out),
+      transform 200ms var(--ease-out);
+  }
+  dialog[open]::backdrop {
+    opacity: 1;
+    transition: opacity 200ms var(--ease-out);
+  }
+  @starting-style {
+    dialog[open] {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    dialog[open]::backdrop {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    dialog[open] {
+      transform: none;
+      transition: opacity 200ms var(--ease-out);
+    }
+    @starting-style {
+      dialog[open] {
+        transform: none;
+      }
+    }
+  }
   .content {
     padding: 18px;
   }

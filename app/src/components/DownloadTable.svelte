@@ -122,6 +122,13 @@
     text-align: inherit;
     color: inherit;
   }
+  /* Sorting is a frequent click: no press motion. */
+  th button {
+    transition: none;
+  }
+  th button:active:not(:disabled) {
+    transform: none;
+  }
   th:not(:has(button)) {
     padding: 8px;
   }

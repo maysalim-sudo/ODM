@@ -41,6 +41,7 @@ const componentStyles: [string, string][] = [
 const allAppSource = [appCss, appSvelte, ...Object.values(components)].join("\n");
 const sidebarSrc = styleOf(components["../components/Sidebar.svelte"]);
 const chunkMapSrc = styleOf(components["../components/ChunkMap.svelte"]);
+const modalSrc = styleOf(components["../components/Modal.svelte"]);
 
 describe("palette", () => {
   test("root variables match the spec palette", () => {
@@ -85,4 +86,14 @@ describe("components", () => {
   test("failed chunk keeps its outline", () => {
     expect(chunkMapSrc).toMatch(/\.seg\.failed\s*\{[^}]*outline:/);
   });
+});
+
+describe("interaction", () => {
+  test("ease-out token", () => expect(vars["--ease-out"]).toBe("cubic-bezier(0.23, 1, 0.32, 1)"));
+  test("no transition: all", () => expect(allAppSource).not.toMatch(/transition:\s*all\b/));
+  test("press feedback", () => expect(appCss).toMatch(/button:active:not\(:disabled\)\s*\{[^}]*scale\(0\.97\)/));
+  test("hover gated to fine pointers", () => expect(appCss).toMatch(/@media \(hover: hover\) and \(pointer: fine\)/));
+  test("forced colours keep button edges", () => expect(appCss).toMatch(/@media \(forced-colors: active\)[\s\S]*ButtonText/));
+  test("reduced motion drops scale", () => expect(appCss).toMatch(/prefers-reduced-motion: reduce[\s\S]*transform:\s*none/));
+  test("dialog enters with @starting-style", () => expect(modalSrc).toMatch(/@starting-style/));
 });

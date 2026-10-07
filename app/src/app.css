@@ -22,6 +22,7 @@
   --shadow-dialog: 0 20px 60px rgba(0, 0, 0, 0.8);
   --radius: 4px;
   --radius-lg: 8px;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   color-scheme: dark;
 }
 
@@ -59,10 +60,14 @@ button {
   padding: 6px 12px;
   font-weight: 600;
   cursor: pointer;
+  transition:
+    transform 160ms var(--ease-out),
+    border-color 120ms ease,
+    background-color 120ms ease;
 }
 
-button:hover:not(:disabled) {
-  border-color: var(--accent);
+button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 button:disabled {
@@ -75,6 +80,36 @@ button.primary {
   border-color: var(--accent);
   color: var(--on-accent);
   font-weight: 700;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  button:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+  button.primary:hover:not(:disabled) {
+    background: var(--accent-light);
+    border-color: var(--accent-light);
+  }
+}
+
+@media (forced-colors: active) {
+  button,
+  input,
+  select,
+  textarea {
+    border-color: ButtonText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition:
+      border-color 120ms ease,
+      background-color 120ms ease;
+  }
+  button:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 input,

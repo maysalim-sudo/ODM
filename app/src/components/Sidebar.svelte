@@ -116,6 +116,13 @@
   button.active .count {
     color: var(--on-accent);
   }
+  /* Filters are clicked constantly: no press motion. */
+  nav button {
+    transition: none;
+  }
+  nav button:active:not(:disabled) {
+    transform: none;
+  }
   .count {
     color: var(--muted);
     font-variant-numeric: tabular-nums;
