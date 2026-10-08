@@ -1,4 +1,5 @@
 import { ext, send, sendDetailed } from "./lib/browser";
+import { STORAGE_KEY, detectionView, normalizeSettings, setSiteOff, type DetectionSettings } from "./lib/detection";
 import { statusLine } from "./lib/format";
 import { errorText, type SendFailure } from "./lib/protocol";
 import { isSitePage, visibleStreams } from "./lib/sites";
@@ -62,16 +63,30 @@ function el(parent: HTMLElement, tag: string, cls?: string, text?: string): HTML
   return e;
 }
 
+async function loadSettings(): Promise<DetectionSettings> {
+  const stored = (await ext.storage.local.get(STORAGE_KEY)) as Record<string, unknown>;
+  return normalizeSettings(stored[STORAGE_KEY]);
+}
+
 async function showVideos(): Promise<void> {
   const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
   if (tab?.id === undefined) return;
   const tabId = tab.id;
+  const view = detectionView(await loadSettings(), tab.url);
+  const off = $("detection-off");
+  off.hidden = !view.pageOff;
+  off.textContent = view.offText;
+  if (view.pageOff) {
+    $("videos").hidden = true;
+    return;
+  }
   const found = (await ext.runtime.sendMessage({ type: "odm-list-streams", tabId })) as Stream[] | undefined;
   const pageUrl = tab.url ?? "";
   const list = visibleStreams(pageUrl, Array.isArray(found) ? found : []);
   const sitePage = isSitePage(pageUrl);
   if (list.length === 0 && !sitePage) return;
   const ul = $("video-list");
+  ul.textContent = "";
   if (sitePage) {
     const li = el(ul, "li");
     const line = el(li, "div", "line");
@@ -127,6 +142,54 @@ async function showVideos(): Promise<void> {
   $("videos").hidden = false;
 }
 
+async function showDetection(): Promise<void> {
+  const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+  const pageUrl = tab?.url;
+  const all = $("detect-all") as HTMLInputElement;
+  const site = $("detect-site") as HTMLInputElement;
+
+  const render = (s: DetectionSettings): void => {
+    const view = detectionView(s, pageUrl);
+    all.checked = view.globalOn;
+    $("detect-all-state").textContent = view.globalOn ? "On" : "Off";
+    $("detect-site-row").hidden = view.site === null;
+    if (view.site !== null) {
+      $("detect-site-label").textContent = `On ${view.site}`;
+      site.checked = view.globalOn && view.siteOn;
+      site.disabled = !view.globalOn;
+      $("detect-site-state").textContent = !view.globalOn ? "Off everywhere" : view.siteOn ? "On" : "Off";
+    }
+    const n = view.offSites.length;
+    $("detect-off-sites").hidden = n === 0;
+    $("detect-off-summary").textContent = `Turned off on ${n} ${n === 1 ? "site" : "sites"}`;
+    const ul = $("detect-off-list");
+    ul.textContent = "";
+    for (const host of view.offSites) {
+      const li = el(ul, "li");
+      el(li, "span", "name", host).title = host;
+      const on = el(li, "button", undefined, "Turn on") as HTMLButtonElement;
+      on.type = "button";
+      on.addEventListener("click", () => void change(setSiteOff(s, host, false)));
+    }
+  };
+
+  const change = async (next: DetectionSettings): Promise<void> => {
+    await ext.storage.local.set({ [STORAGE_KEY]: next });
+    render(next);
+    await showVideos().catch(() => {});
+  };
+
+  all.addEventListener("change", async () => {
+    const s = await loadSettings();
+    await change({ enabled: all.checked, offSites: s.offSites });
+  });
+  site.addEventListener("change", async () => {
+    const view = detectionView(await loadSettings(), pageUrl);
+    if (view.site !== null) await change(setSiteOff(await loadSettings(), view.site, !site.checked));
+  });
+  render(await loadSettings());
+}
+
 $("pause").addEventListener("click", async () => {
   await send("PAUSE_ALL", {}, 2000);
   await refreshSummary();
@@ -154,4 +217,5 @@ $("allow").addEventListener("click", async () => {
 void init();
 void showLastError();
 void showPermissionPrompt();
+void showDetection().catch(() => {});
 void showVideos().catch(() => {});

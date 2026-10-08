@@ -17,6 +17,26 @@
       <p id="problem-text"></p>
       <button id="dismiss" type="button">Dismiss</button>
     </div>
+    <section id="detection">
+      <h2>Video detection</h2>
+      <label class="switch" id="detect-site-row" hidden>
+        <span id="detect-site-label">On this site</span>
+        <input type="checkbox" role="switch" id="detect-site" />
+        <span class="track" aria-hidden="true"></span>
+        <span class="state" id="detect-site-state">On</span>
+      </label>
+      <label class="switch">
+        <span>On all sites</span>
+        <input type="checkbox" role="switch" id="detect-all" />
+        <span class="track" aria-hidden="true"></span>
+        <span class="state" id="detect-all-state">On</span>
+      </label>
+      <details id="detect-off-sites" hidden>
+        <summary id="detect-off-summary"></summary>
+        <ul id="detect-off-list"></ul>
+      </details>
+    </section>
+    <p id="detection-off" class="muted" hidden></p>
     <section id="videos" hidden>
       <h2>Videos on this page</h2>
       <ul id="video-list"></ul>

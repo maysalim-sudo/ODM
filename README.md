@@ -68,6 +68,7 @@ Using it:
 - Small files (under the minimum capture size), sites on the skip list, and everything while capture is off stay in the browser. All three are in ODM's Settings.
 - Right-click a link, video or audio element and choose **Download with ODM**.
 - The toolbar popup shows whether ODM is running, the active and queued counts, the total speed, and Pause all / Resume all / Open ODM.
+- The extension popup can turn video detection off for the current site or everywhere; downloads are still taken over.
 - If ODM is closed, a captured download starts it in the tray.
 
 `odm-host --unregister` removes the registration.

@@ -55,4 +55,22 @@ describe("extension theme", () => {
   test("badge text colour is set", () => {
     expect(read("../background.ts")).toContain("setbadgetextcolor");
   });
+
+  test("switch colours come from the theme", () => {
+    const css = read("../popup.css");
+    expect(css).toMatch(/\.switch input:checked \+ \.track\s*\{[^}]*background:\s*var\(--accent\)/);
+    expect(css).toMatch(/\.switch \.track\s*\{[^}]*background:\s*var\(--surface-2\)/);
+    expect(css).toMatch(/\.switch input:focus-visible \+ \.track\s*\{[^}]*outline:\s*2px solid var\(--accent-light\)/);
+  });
+
+  test("switch pairs are readable", () => {
+    expect(contrast(THEME.onAccent, THEME.accent)).toBeGreaterThanOrEqual(3);
+    expect(contrast(THEME.muted, THEME.surface2)).toBeGreaterThanOrEqual(3);
+  });
+
+  test("popup has the detection card", () => {
+    const html = read("../popup.html");
+    expect(html).toContain('id="detection"');
+    expect(html).toContain("video detection");
+  });
 });
