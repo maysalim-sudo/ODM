@@ -10,6 +10,7 @@ import {
   toMenuPayload,
   type BrowserItem,
 } from "./lib/capture";
+import { DetectionState, STORAGE_KEY, TabSites, changedTabs } from "./lib/detection";
 import { MENU_ID } from "./lib/ids";
 import { errorText } from "./lib/protocol";
 import { isSitePage, toPagePayload } from "./lib/sites";
@@ -17,6 +18,10 @@ import { BADGE, BADGE_ERROR } from "./lib/theme";
 import { SentHeaderCache, StreamStore, classify, responseSize, toStreamPayload, toVideoFilePayload, type Stream } from "./lib/streams";
 
 const alt = new AltTracker();
+// Settings for turning video detection off; the first answer waits for the first load.
+const detection = new DetectionState(async () => (await ext.storage.local.get(STORAGE_KEY))[STORAGE_KEY]);
+// Top-level address of each tab, so a video response can be tied to its site.
+const tabSites = new TabSites(async (id) => (await ext.tabs.get(id).catch(() => undefined))?.url);
 // Lost when the service worker restarts; the badge resets with it.
 const streams = new StreamStore();
 // Referer/Origin the browser sent for media requests, so ODM can repeat them (embedded players need this).
@@ -128,8 +133,14 @@ ext.runtime.onMessage.addListener((msg: unknown, sender: chrome.runtime.MessageS
       else alt.up(Date.now());
       return false;
     case "odm-list-streams":
-      sendResponse(streams.list(m.tabId ?? sender.tab?.id ?? -1));
-      return false;
+      {
+        const tabId = m.tabId ?? sender.tab?.id ?? -1;
+        void (async () => ((await detection.isOn(await tabSites.url(tabId))) ? streams.list(tabId) : []))().then(sendResponse);
+      }
+      return true;
+    case "odm-detection-state":
+      void detection.isOn(sender.tab?.url).then((on) => sendResponse({ on }));
+      return true;
     case "odm-add-video":
       void addVideo(sender.tab?.id, m.src, sender.tab).then(sendResponse);
       return true;
@@ -148,25 +159,34 @@ ext.runtime.onMessage.addListener((msg: unknown, sender: chrome.runtime.MessageS
 
 // Chromium only reveals Referer and Origin to extensions that ask for "extraHeaders"; Firefox rejects that flag.
 ext.webRequest.onSendHeaders.addListener(
-  (details) => {
-    if (details.tabId >= 0 && details.requestHeaders) sentHeaders.remember(details.url, details.requestHeaders);
+  async (details) => {
+    if (details.tabId < 0 || !details.requestHeaders) return;
+    if (!(await detection.isOn(await tabSites.url(details.tabId)))) return;
+    sentHeaders.remember(details.url, details.requestHeaders);
   },
   { urls: ["<all_urls>"], types: ["xmlhttprequest", "media", "other"] },
   (__TARGET__ === "chromium" ? ["requestHeaders", "extraHeaders"] : ["requestHeaders"]) as chrome.webRequest.OnSendHeadersOptions[],
 );
 
+async function recordStream(details: chrome.webRequest.OnHeadersReceivedDetails): Promise<void> {
+  if (details.tabId < 0) return;
+  const type = details.responseHeaders?.find((h) => h.name.toLowerCase() === "content-type")?.value;
+  const header = (name: string) => details.responseHeaders?.find((h) => h.name.toLowerCase() === name)?.value;
+  const size = responseSize(header("content-length"), header("content-range"));
+  const kind = classify(details.url, type, size);
+  if (!kind) return;
+  if (!(await detection.isOn(await tabSites.url(details.tabId)))) return;
+  if (!streams.add(details.tabId, details.url, kind, size)) return;
+  updateStreamBadge(details.tabId);
+  void Promise.resolve(
+    ext.tabs.sendMessage(details.tabId, { type: "odm-streams", streams: streams.list(details.tabId) }),
+  ).catch(() => {});
+}
+
 ext.webRequest.onHeadersReceived.addListener(
   (details) => {
-    if (details.tabId < 0) return;
-    const type = details.responseHeaders?.find((h) => h.name.toLowerCase() === "content-type")?.value;
-    const header = (name: string) => details.responseHeaders?.find((h) => h.name.toLowerCase() === name)?.value;
-    const size = responseSize(header("content-length"), header("content-range"));
-    const kind = classify(details.url, type, size);
-    if (!kind || !streams.add(details.tabId, details.url, kind, size)) return;
-    updateStreamBadge(details.tabId);
-    void Promise.resolve(
-      ext.tabs.sendMessage(details.tabId, { type: "odm-streams", streams: streams.list(details.tabId) }),
-    ).catch(() => {});
+    void recordStream(details);
+    return undefined;
   },
   { urls: ["<all_urls>"], types: ["xmlhttprequest", "media", "other"] },
   ["responseHeaders"],
@@ -174,9 +194,29 @@ ext.webRequest.onHeadersReceived.addListener(
 
 // A new page starts a new list. A status-only update (loading finished) must not clear it.
 ext.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url) tabSites.set(tabId, changeInfo.url);
   if (changeInfo.status === "loading" && changeInfo.url) clearStreams(tabId);
 });
-ext.tabs.onRemoved.addListener((tabId) => streams.clear(tabId));
+ext.tabs.onRemoved.addListener((tabId) => {
+  streams.clear(tabId);
+  tabSites.forget(tabId);
+});
+
+// The popup writes the settings; tabs that switch lose or regain their on-page buttons at once.
+ext.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !(STORAGE_KEY in changes)) return;
+  const { before, after } = detection.apply(changes[STORAGE_KEY].newValue);
+  void (async () => {
+    const tabs = (await ext.tabs.query({})).flatMap((t) => (t.id === undefined ? [] : [{ id: t.id, url: t.url }]));
+    for (const { id, url } of tabs) if (url) tabSites.set(id, url);
+    const { off, on } = changedTabs(before, after, tabs);
+    for (const id of off) {
+      clearStreams(id);
+      void Promise.resolve(ext.tabs.sendMessage(id, { type: "odm-detection", on: false })).catch(() => {});
+    }
+    for (const id of on) void Promise.resolve(ext.tabs.sendMessage(id, { type: "odm-detection", on: true })).catch(() => {});
+  })().catch(() => {});
+});
 
 type DownloadLike = chrome.downloads.DownloadItem & { cookieStoreId?: string };
 
