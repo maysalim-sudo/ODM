@@ -27,6 +27,11 @@ window.addEventListener(
 );
 window.addEventListener("blur", () => notify(false), true);
 
+// Video detection can be turned off per site or everywhere (popup). Off hides both on-page buttons.
+// No answer from the background counts as on. Each block below registers how it reacts.
+let detecting = true;
+const detectionHooks: Array<(on: boolean) => void> = [];
+
 // In-page "ODM · N videos" button. Nothing is shown unless the background reports a supported stream,
 // and nothing is sent until the user clicks Download.
 type PageStream = { url: string; label: string; supported: boolean };
@@ -103,7 +108,7 @@ if (window.top === window) {
 
   const render = () => {
     const supported = streams.filter((s) => s.supported);
-    if (dismissed || supported.length === 0) {
+    if (!detecting || dismissed || supported.length === 0) {
       if (ui) ui.host.hidden = true;
       return;
     }
@@ -131,6 +136,11 @@ if (window.top === window) {
       if (text) add(item, "div", "msg", text);
     }
   };
+
+  detectionHooks.push((on) => {
+    if (!on) streams = [];
+    render();
+  });
 
   try {
     chrome.runtime.onMessage.addListener((msg: unknown) => {
@@ -251,6 +261,7 @@ const MESSAGE_MS = 4000;
   };
 
   const show = (video: HTMLVideoElement) => {
+    if (!detecting) return;
     clearTimeout(hideTimer);
     if (document.fullscreenElement || !bigEnough(video)) return;
     if (!ui) build();
@@ -292,4 +303,23 @@ const MESSAGE_MS = 4000;
   document.addEventListener("fullscreenchange", () => {
     if (document.fullscreenElement) hide();
   });
+  detectionHooks.push((on) => {
+    if (!on) hide();
+  });
+}
+
+const setDetecting = (on: boolean): void => {
+  detecting = on;
+  for (const hook of detectionHooks) hook(on);
+};
+
+try {
+  chrome.runtime.onMessage.addListener((msg: unknown) => {
+    const m = msg as { type?: string; on?: boolean } | null;
+    if (m?.type === "odm-detection") setDetecting(m.on !== false);
+  });
+  const asked = chrome.runtime.sendMessage({ type: "odm-detection-state" }) as Promise<{ on?: boolean } | undefined> | undefined;
+  asked?.then((r) => setDetecting(r?.on !== false), () => {});
+} catch {
+  // Extension context invalidated after a reload.
 }
