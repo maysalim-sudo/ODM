@@ -9,7 +9,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::{build_args, find_node, find_ytdlp, parse_line, temp_dir, ByteCounter, Line};
+use super::{build_args, find_js_runtime, find_ytdlp, parse_line, temp_dir, ByteCounter, Line};
 use crate::download::{place_final, set_final_name, transition, DownloadEnv, Outcome};
 use crate::events::{EngineEvent, ProgressSnapshot};
 use crate::hls::merge::resolve_ffmpeg;
@@ -123,13 +123,13 @@ async fn run_inner(
     std::fs::create_dir_all(&tmp).map_err(io_err)?;
 
     let ffmpeg = resolve_ffmpeg(&env.config);
-    let node = find_node();
+    let js_runtime = find_js_runtime(env.config.tools_dir.as_deref());
     let args = build_args(
         &rec,
         &headers,
         &tmp,
         ffmpeg.as_deref(),
-        node.as_deref(),
+        js_runtime.as_deref(),
         limit_bps(&rec, env.config.speed_limit_bps),
     );
     tracing::info!(%id, url = %odm_core::redact_url(&rec.url), "downloading with yt-dlp");

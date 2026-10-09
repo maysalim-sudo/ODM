@@ -32,8 +32,11 @@ import {
   visibleColumns,
   chunkLegend,
   partTitle,
+  toolsSummary,
+  toolsProgressText,
+  needsVideoTools,
 } from "./model";
-import type { Download, IntegrationStatus } from "./types";
+import type { Download, IntegrationStatus, ToolsStatus } from "./types";
 
 function dl(id: string, patch: Partial<Download> = {}): Download {
   return {
@@ -556,5 +559,47 @@ describe("chunk map words", () => {
     expect(partTitle(2, "retrying", 40.4)).toBe("Part 3: retrying, 40%");
     expect(partTitle(0, "done", 100)).toBe("Part 1: finished, 100%");
     expect(partTitle(1, "pending", 0)).toBe("Part 2: waiting, 0%");
+  });
+});
+
+describe("video tools", () => {
+  const none: ToolsStatus = { ffmpeg: null, ytdlp: null, deno: null };
+
+  it("toolsSummary says what is installed and what is not", () => {
+    const got = toolsSummary({ ffmpeg: "7.1", ytdlp: "2026.08.19", deno: null });
+    expect(got.lines).toEqual(["FFmpeg 7.1 ✓", "yt-dlp 2026.08.19 ✓", "Deno: not installed"]);
+    expect(got.complete).toBe(false);
+    expect(got.installed).toBe(true);
+  });
+
+  it("toolsSummary reports nothing installed and everything installed", () => {
+    const empty = toolsSummary(none);
+    expect(empty.lines).toEqual(["FFmpeg: not installed", "yt-dlp: not installed", "Deno: not installed"]);
+    expect(empty.installed).toBe(false);
+    expect(empty.complete).toBe(false);
+    const all = toolsSummary({ ffmpeg: "7.1", ytdlp: "1", deno: "2.1.4" });
+    expect(all.complete).toBe(true);
+  });
+
+  it("toolsProgressText names the stage and the megabytes", () => {
+    expect(toolsProgressText({ stage: "FFmpeg", done: 12 * 1024 * 1024, total: 150 * 1024 * 1024 })).toBe(
+      "FFmpeg: 12.0 MB of 150 MB",
+    );
+    expect(toolsProgressText({ stage: "yt-dlp", done: 5 * 1024 * 1024, total: 0 })).toBe("yt-dlp: 5.0 MB");
+    expect(toolsProgressText({ stage: "Installing", done: 0, total: 0 })).toBe("Installing…");
+  });
+
+  it("needsVideoTools matches the engine's missing-tool messages only", () => {
+    expect(needsVideoTools("yt-dlp not found — install it or set its path in Settings.")).toBe(true);
+    expect(needsVideoTools("FFmpeg not found — set its path in Settings.")).toBe(true);
+    expect(needsVideoTools("FFmpeg could not merge the video:\nerror")).toBe(false);
+    expect(needsVideoTools(null)).toBe(false);
+  });
+
+  it("applyEvent leaves rows alone for tools_progress", () => {
+    const rows = replaceAll([dl("a")]);
+    const r = applyEvent(rows, { type: "tools_progress", stage: "FFmpeg", done: 1, total: 2 });
+    expect(r.rows).toBe(rows);
+    expect(r.resync).toBe(false);
   });
 });

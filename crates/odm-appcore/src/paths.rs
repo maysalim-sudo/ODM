@@ -7,6 +7,9 @@ pub struct AppPaths {
     pub db: PathBuf,
     pub settings: PathBuf,
     pub logs: PathBuf,
+    /// Where the video tools (FFmpeg, yt-dlp, Deno) are kept: `<data_dir>/tools` when
+    /// `ODM_DATA_DIR` is set, else `%LOCALAPPDATA%/ODM/tools`.
+    pub tools_dir: PathBuf,
 }
 
 impl AppPaths {
@@ -16,6 +19,7 @@ impl AppPaths {
             db: data_dir.join("odm.db"),
             settings: data_dir.join("settings.json"),
             logs: data_dir.join("logs"),
+            tools_dir: data_dir.join("tools"),
             data_dir,
         }
     }
@@ -32,7 +36,13 @@ impl AppPaths {
         let base = std::env::var_os("APPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        Self::at(base.join(odm_core::ids::APP_DIR_NAME))
+        let mut paths = Self::at(base.join(odm_core::ids::APP_DIR_NAME));
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            paths.tools_dir = PathBuf::from(local)
+                .join(odm_core::ids::APP_DIR_NAME)
+                .join("tools");
+        }
+        paths
     }
 
     pub fn ensure(&self) -> std::io::Result<()> {

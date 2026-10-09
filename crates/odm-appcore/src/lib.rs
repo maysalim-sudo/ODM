@@ -15,6 +15,7 @@ pub mod pipe;
 pub mod registration;
 pub mod settings;
 pub mod summary;
+pub mod tools;
 
 pub use paths::AppPaths;
 pub use settings::Settings;

@@ -24,6 +24,9 @@ pub struct EngineConfig {
     pub ytdlp_path: Option<PathBuf>,
     /// Whether to look for yt-dlp on `PATH` and in the WinGet folders when `ytdlp_path` is unset or missing.
     pub ytdlp_search: bool,
+    /// ODM's own folder for downloaded tools (`ffmpeg.exe`, `yt-dlp.exe`, `deno.exe`). It is
+    /// searched after the configured paths and before `PATH`.
+    pub tools_dir: Option<PathBuf>,
 }
 
 impl Default for EngineConfig {
@@ -51,6 +54,7 @@ impl Default for EngineConfig {
             ffmpeg_search_path: true,
             ytdlp_path: None,
             ytdlp_search: true,
+            tools_dir: None,
         }
     }
 }

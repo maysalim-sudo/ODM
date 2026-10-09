@@ -11,24 +11,22 @@ const FFMPEG_EXE: &str = "ffmpeg.exe";
 #[cfg(not(windows))]
 const FFMPEG_EXE: &str = "ffmpeg";
 
-/// The configured path if that file exists, else the first FFmpeg on `PATH`.
+/// The configured path if that file exists, else the first FFmpeg on `PATH` or in the WinGet
+/// links folder.
 pub fn find_ffmpeg(configured: Option<&Path>) -> Option<PathBuf> {
-    if let Some(p) = configured.filter(|p| p.is_file()) {
-        return Some(p.to_path_buf());
-    }
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|d| d.join(FFMPEG_EXE))
-        .find(|c| c.is_file())
+    crate::toolfind::find_tool(configured, None, FFMPEG_EXE, true, None)
 }
 
-/// Like `find_ffmpeg`, but honours `EngineConfig::ffmpeg_search_path`.
+/// FFmpeg: the configured file, then `EngineConfig::tools_dir`, then (when
+/// `EngineConfig::ffmpeg_search_path` is on) `PATH` and the WinGet links folder.
 pub fn resolve_ffmpeg(cfg: &EngineConfig) -> Option<PathBuf> {
-    if cfg.ffmpeg_search_path {
-        find_ffmpeg(cfg.ffmpeg_path.as_deref())
-    } else {
-        cfg.ffmpeg_path.clone().filter(|p| p.is_file())
-    }
+    crate::toolfind::find_tool(
+        cfg.ffmpeg_path.as_deref(),
+        cfg.tools_dir.as_deref(),
+        FFMPEG_EXE,
+        cfg.ffmpeg_search_path,
+        None,
+    )
 }
 
 /// An FFmpeg concat list with bare file names: `file 'seg_000001.ts'` per line.
@@ -172,6 +170,27 @@ mod tests {
         // Only asserts that a missing configured file neither panics nor is returned.
         let found = find_ffmpeg(Some(Path::new("Z:/nope/ffmpeg.exe")));
         assert_ne!(found, Some(PathBuf::from("Z:/nope/ffmpeg.exe")));
+    }
+
+    #[test]
+    fn resolve_ffmpeg_looks_in_the_tools_dir_before_path() {
+        let t = tempfile::tempdir().unwrap();
+        let exe = t.path().join(FFMPEG_EXE);
+        std::fs::write(&exe, b"x").unwrap();
+        let cfg = EngineConfig {
+            tools_dir: Some(t.path().to_path_buf()),
+            ffmpeg_search_path: false,
+            ..EngineConfig::default()
+        };
+        assert_eq!(resolve_ffmpeg(&cfg), Some(exe.clone()));
+        // The configured file still wins.
+        let own = t.path().join("mine.exe");
+        std::fs::write(&own, b"x").unwrap();
+        let cfg = EngineConfig {
+            ffmpeg_path: Some(own.clone()),
+            ..cfg
+        };
+        assert_eq!(resolve_ffmpeg(&cfg), Some(own));
     }
 
     #[test]

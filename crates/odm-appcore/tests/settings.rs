@@ -130,6 +130,18 @@ fn to_engine_config_maps_units() {
 }
 
 #[test]
+fn engine_config_points_at_the_tools_dir() {
+    let c = Settings::default().to_engine_config_with(std::path::PathBuf::from("X:/data/tools"));
+    assert_eq!(c.tools_dir, Some(std::path::PathBuf::from("X:/data/tools")));
+    assert_eq!(
+        AppPaths::at("X:/data").tools_dir,
+        std::path::PathBuf::from("X:/data").join("tools")
+    );
+    // The plain form uses the app's own tools folder.
+    assert!(Settings::default().to_engine_config().tools_dir.is_some());
+}
+
+#[test]
 fn paths_layout() {
     let p = AppPaths::at("X:/data");
     assert!(

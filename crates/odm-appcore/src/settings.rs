@@ -206,8 +206,14 @@ impl Settings {
         renamed
     }
 
+    /// The engine configuration, with the tools folder of the running app (`AppPaths::from_env`).
     pub fn to_engine_config(&self) -> EngineConfig {
+        self.to_engine_config_with(crate::AppPaths::from_env().tools_dir)
+    }
+
+    pub fn to_engine_config_with(&self, tools_dir: PathBuf) -> EngineConfig {
         EngineConfig {
+            tools_dir: Some(tools_dir),
             download_dir: PathBuf::from(&self.download_dir),
             category_folders: self.category_folders.clone().into_iter().collect(),
             max_concurrent: self.max_concurrent as usize,

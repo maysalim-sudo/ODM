@@ -64,6 +64,11 @@ const NODE_EXE: &str = "node.exe";
 #[cfg(not(windows))]
 const NODE_EXE: &str = "node";
 
+#[cfg(windows)]
+pub const DENO_EXE: &str = "deno.exe";
+#[cfg(not(windows))]
+pub const DENO_EXE: &str = "deno";
+
 fn on_path(exe: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)
@@ -71,40 +76,28 @@ fn on_path(exe: &str) -> Option<PathBuf> {
         .find(|c| c.is_file())
 }
 
-/// The configured yt-dlp, else (when searching is on) `PATH`, the WinGet links folder and the
-/// first WinGet `yt-dlp.yt-dlp_*` package folder.
+/// yt-dlp: the configured file, then ODM's tools folder, then (when searching is on) `PATH`, the
+/// WinGet links folder and the first WinGet `yt-dlp.yt-dlp_*` package folder.
 pub fn find_ytdlp(cfg: &EngineConfig) -> Option<PathBuf> {
-    if let Some(p) = cfg.ytdlp_path.as_ref().filter(|p| p.is_file()) {
-        return Some(p.clone());
-    }
-    if !cfg.ytdlp_search {
-        return None;
-    }
-    if let Some(p) = on_path(YTDLP_EXE) {
-        return Some(p);
-    }
-    let winget = PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
-        .join("Microsoft")
-        .join("WinGet");
-    let link = winget.join("Links").join(YTDLP_EXE);
-    if link.is_file() {
-        return Some(link);
-    }
-    let mut packages: Vec<PathBuf> = std::fs::read_dir(winget.join("Packages"))
-        .ok()?
-        .flatten()
-        .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .starts_with("yt-dlp.yt-dlp_")
-        })
-        .map(|e| e.path().join(YTDLP_EXE))
-        .collect();
-    packages.sort();
-    packages.into_iter().find(|p| p.is_file())
+    crate::toolfind::find_tool(
+        cfg.ytdlp_path.as_deref(),
+        cfg.tools_dir.as_deref(),
+        YTDLP_EXE,
+        cfg.ytdlp_search,
+        Some("yt-dlp.yt-dlp_"),
+    )
 }
 
-/// Node.js, which yt-dlp uses to solve YouTube's signature challenges.
+/// The JavaScript runtime yt-dlp uses to solve YouTube's signature challenges: Deno from ODM's
+/// tools folder when present, else Node.js.
+pub fn find_js_runtime(tools_dir: Option<&Path>) -> Option<PathBuf> {
+    tools_dir
+        .map(|d| d.join(DENO_EXE))
+        .filter(|p| p.is_file())
+        .or_else(find_node)
+}
+
+/// Node.js.
 pub fn find_node() -> Option<PathBuf> {
     on_path(NODE_EXE).or_else(|| {
         Some(PathBuf::from("C:\\Program Files\\nodejs\\node.exe")).filter(|p| p.is_file())
@@ -122,7 +115,7 @@ pub fn build_args(
     headers: &[(String, String)],
     tmp: &Path,
     ffmpeg: Option<&Path>,
-    node: Option<&Path>,
+    js_runtime: Option<&Path>,
     limit_bps: u64,
 ) -> Vec<String> {
     let template = tmp.join("%(title).150B [%(id)s].%(ext)s");
@@ -153,9 +146,13 @@ pub fn build_args(
         a.push("--ffmpeg-location".into());
         a.push(f.to_string_lossy().into_owned());
     }
-    if let Some(n) = node {
+    if let Some(n) = js_runtime {
+        let kind = match n.file_stem().and_then(|s| s.to_str()) {
+            Some(s) if s.eq_ignore_ascii_case("deno") => "deno",
+            _ => "node",
+        };
         a.push("--js-runtimes".into());
-        a.push(format!("node:{}", n.to_string_lossy()));
+        a.push(format!("{kind}:{}", n.to_string_lossy()));
     }
     if limit_bps > 0 {
         a.push("--limit-rate".into());
@@ -238,6 +235,47 @@ mod tests {
             ..EngineConfig::default()
         };
         assert_eq!(find_ytdlp(&cfg), None);
+    }
+
+    #[test]
+    fn find_ytdlp_looks_in_the_tools_dir_without_searching() {
+        let t = tempfile::tempdir().unwrap();
+        let exe = t.path().join(YTDLP_EXE);
+        std::fs::write(&exe, b"x").unwrap();
+        let cfg = EngineConfig {
+            tools_dir: Some(t.path().to_path_buf()),
+            ytdlp_search: false,
+            ..EngineConfig::default()
+        };
+        assert_eq!(find_ytdlp(&cfg), Some(exe.clone()));
+        // The configured file beats the tools dir.
+        let own = t.path().join("mine.exe");
+        std::fs::write(&own, b"x").unwrap();
+        let cfg = EngineConfig {
+            ytdlp_path: Some(own.clone()),
+            ..cfg
+        };
+        assert_eq!(find_ytdlp(&cfg), Some(own));
+    }
+
+    #[test]
+    fn js_runtime_prefers_deno_from_the_tools_dir() {
+        let t = tempfile::tempdir().unwrap();
+        assert_eq!(
+            find_js_runtime(Some(t.path())).map(|p| p.file_stem().unwrap().to_owned()),
+            find_node().map(|p| p.file_stem().unwrap().to_owned())
+        );
+        let deno = t.path().join(DENO_EXE);
+        std::fs::write(&deno, b"x").unwrap();
+        assert_eq!(find_js_runtime(Some(t.path())), Some(deno));
+    }
+
+    #[test]
+    fn build_args_uses_deno_when_the_runtime_is_deno() {
+        let tmp = Path::new("D:/out/.odm-site-id1");
+        let got = build_args(&rec(), &[], tmp, None, Some(Path::new("C:/t/deno.exe")), 0);
+        let pos = got.iter().position(|a| a == "--js-runtimes").unwrap();
+        assert_eq!(got[pos + 1], "deno:C:/t/deno.exe");
     }
 
     fn base_args(tmp: &Path) -> Vec<String> {

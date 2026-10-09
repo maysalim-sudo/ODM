@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AddArgs, BatchResult, ConfirmArgs, Detail, Download, IntegrationStatus, Offer, Settings, Suggestion, UiEvent } from "./types";
+import type { AddArgs, BatchResult, ConfirmArgs, Detail, Download, IntegrationStatus, Offer, Settings, Suggestion, ToolsStatus, UiEvent } from "./types";
 
 export const listDownloads = () => invoke<Download[]>("list_downloads");
 export const getDetail = (id: string) => invoke<Detail | null>("get_detail", { id });
@@ -29,6 +29,10 @@ export const integrationStatus = () => invoke<IntegrationStatus>("integration_st
 export const integrationTest = () => invoke<string>("integration_test");
 export const integrationRepair = () => invoke<IntegrationStatus>("integration_repair");
 export const openExtensionFolder = (kind: "chromium" | "firefox") => invoke<void>("open_extension_folder", { kind });
+
+export const toolsStatus = () => invoke<ToolsStatus>("tools_status");
+/** Downloads FFmpeg, yt-dlp and Deno; progress arrives as `tools_progress` events. */
+export const toolsInstall = () => invoke<ToolsStatus>("tools_install");
 
 export function onEvent(cb: (ev: UiEvent) => void): Promise<UnlistenFn> {
   return listen<UiEvent>("odm://event", (e) => cb(e.payload));

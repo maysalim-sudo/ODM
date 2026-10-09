@@ -20,4 +20,5 @@ pub use download::{run_download, DownloadEnv, Outcome};
 pub mod hls;
 pub mod manager;
 pub mod site;
+pub mod toolfind;
 pub use manager::{AddRequest, ManagerHandle, SiteRequest, StreamRequest};

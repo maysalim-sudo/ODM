@@ -74,7 +74,15 @@ export type UiEvent =
   | { type: "progress_batch"; items: Progress[] }
   | { type: "resync" }
   | { type: "reuse_offer"; offer: Offer }
-  | { type: "confirm_download"; id: string };
+  | { type: "confirm_download"; id: string }
+  | { type: "tools_progress"; stage: string; done: number; total: number };
+
+/** Versions of the video tools found in ODM's tools folder; null = not installed. */
+export interface ToolsStatus {
+  ffmpeg: string | null;
+  ytdlp: string | null;
+  deno: string | null;
+}
 
 export interface Settings {
   download_dir: string;

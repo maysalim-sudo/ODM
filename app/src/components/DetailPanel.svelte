@@ -2,9 +2,10 @@
   import * as api from "../lib/api";
   import { downloads } from "../lib/downloads.svelte";
   import { formatBytes, formatEta, formatSpeed, joinPath, stateLabel } from "../lib/format";
-  import { canRefresh, isRiskyFile, progressPct } from "../lib/model";
+  import { canRefresh, canResume, isRiskyFile, needsVideoTools, progressPct } from "../lib/model";
   import type { Detail } from "../lib/types";
   import ChunkMap from "./ChunkMap.svelte";
+  import ToolsCard from "./ToolsCard.svelte";
 
   let {
     id,
@@ -15,6 +16,8 @@
 
   let detail = $state<Detail | null>(null);
   let copied = $state(false);
+  /** The video tools were just installed, so the failed download can be retried. */
+  let toolsReady = $state(false);
 
   const row = $derived(id ? downloads.rows.get(id) : undefined);
   // Live chunks while it runs; the stored ones otherwise.
@@ -27,6 +30,7 @@
   $effect(() => {
     void id;
     detail = null;
+    toolsReady = false;
   });
 
   $effect(() => {
@@ -117,6 +121,19 @@
         <dd class="wrap">{detail.header_names.join(", ")}</dd>
       {/if}
     </dl>
+
+    {#if needsVideoTools(row.error_message)}
+      <section class="tools">
+        {#if toolsReady}
+          <p class="hint">The video tools are installed.</p>
+          {#if canResume(row)}
+            <button class="primary" onclick={() => downloads.run(() => api.resume([row.id]))}>Retry</button>
+          {/if}
+        {:else}
+          <ToolsCard compact oninstalled={() => (toolsReady = true)} />
+        {/if}
+      </section>
+    {/if}
 
     <footer>
       <button

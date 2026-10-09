@@ -41,6 +41,8 @@ pub struct AppState {
     pub contact: Arc<Contact>,
     /// True once the browser-integration pipe is bound.
     pub pipe_running: AtomicBool,
+    /// True while "Get video tools" is downloading, so it cannot start twice.
+    pub tools_busy: AtomicBool,
 }
 
 fn start_engine(paths: &AppPaths, settings: &Settings) -> Result<ManagerHandle, String> {
@@ -111,6 +113,7 @@ pub fn run() {
                 quitting: AtomicBool::new(false),
                 contact: contact.clone(),
                 pipe_running: AtomicBool::new(false),
+                tools_busy: AtomicBool::new(false),
             });
             // Keep the log flushing for as long as the app runs.
             app.manage(Mutex::new(log_guard));
@@ -160,6 +163,10 @@ pub fn run() {
                     .store(true, Ordering::SeqCst),
                 Err(e) => tracing::error!("browser integration is unavailable: {e}"),
             }
+            let tools_dir = app.state::<AppState>().paths.tools_dir.clone();
+            tauri::async_runtime::spawn(async move {
+                odm_appcore::tools::update_ytdlp_if_stale(&tools_dir).await;
+            });
             if let Ok(app_exe) = std::env::current_exe() {
                 let host_exe = app_exe.with_file_name("odm-host.exe");
                 std::thread::spawn(move || registration::ensure_registered(&host_exe, &app_exe));
@@ -206,6 +213,8 @@ pub fn run() {
             commands::integration_test,
             commands::integration_repair,
             commands::open_extension_folder,
+            commands::tools_status,
+            commands::tools_install,
         ])
         .build(tauri::generate_context!())
         .expect("error while building ODM");

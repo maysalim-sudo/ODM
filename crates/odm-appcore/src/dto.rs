@@ -120,6 +120,12 @@ pub enum UiEvent {
     ConfirmDownload {
         id: String,
     },
+    /// Progress of "Get video tools": `stage` is what is being fetched, `total` 0 if unknown.
+    ToolsProgress {
+        stage: String,
+        done: u64,
+        total: u64,
+    },
 }
 
 /// The download in `ev`, if this event says it just completed.

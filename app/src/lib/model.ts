@@ -1,4 +1,4 @@
-import type { ChunkState, ChunkView, Download, DownloadState, IntegrationStatus, Offer, SegmentProgress, Settings, UiEvent } from "./types";
+import type { ChunkState, ChunkView, Download, DownloadState, IntegrationStatus, Offer, SegmentProgress, Settings, ToolsStatus, UiEvent } from "./types";
 
 /** A list row: the stored download plus live values from progress events. */
 export interface Row extends Download {
@@ -104,6 +104,7 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
       return { rows, resync: true };
     case "reuse_offer":
     case "confirm_download":
+    case "tools_progress":
       // Offers and confirmations are not rows; the store handles them before this function.
       return { rows, resync: false };
   }
@@ -376,4 +377,31 @@ export function chunkLegend(chunks: ChunkView[]): string {
 /** Tooltip for one chunk-map segment, e.g. "Part 3: retrying, 40%". */
 export function partTitle(idx: number, state: ChunkState, fillPct: number): string {
   return `Part ${idx + 1}: ${PART_WORDS[state]}, ${fillPct.toFixed(0)}%`;
+}
+
+/** One line per managed video tool, plus whether any / all of them are installed. */
+export function toolsSummary(s: ToolsStatus): { lines: string[]; installed: boolean; complete: boolean } {
+  const tools: [string, string | null][] = [
+    ["FFmpeg", s.ffmpeg],
+    ["yt-dlp", s.ytdlp],
+    ["Deno", s.deno],
+  ];
+  return {
+    lines: tools.map(([name, version]) => (version ? `${name} ${version} ✓` : `${name}: not installed`)),
+    installed: tools.some(([, v]) => v),
+    complete: tools.every(([, v]) => v),
+  };
+}
+
+/** What the video-tools download is doing, e.g. "FFmpeg: 12.0 MB of 150 MB". */
+export function toolsProgressText(p: { stage: string; done: number; total: number }): string {
+  if (p.stage === "Installing") return "Installing…";
+  const mb = (n: number) => n / (1024 * 1024);
+  const done = `${mb(p.done).toFixed(1)} MB`;
+  return p.total > 0 ? `${p.stage}: ${done} of ${Math.round(mb(p.total))} MB` : `${p.stage}: ${done}`;
+}
+
+/** Whether a failed download's message says FFmpeg or yt-dlp is missing, so "Get video tools" can fix it. */
+export function needsVideoTools(message: string | null): boolean {
+  return message !== null && /^(yt-dlp|FFmpeg) not found/.test(message);
 }

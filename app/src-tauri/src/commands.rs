@@ -1,11 +1,12 @@
 use odm_appcore::api::{self, AddArgs, BatchResult, ConfirmArgs, Suggestion};
-use odm_appcore::dto::{DetailDto, DownloadDto};
+use odm_appcore::dto::{DetailDto, DownloadDto, UiEvent};
 use odm_appcore::integration::{self, IntegrationStatus};
 use odm_appcore::offers::OfferDto;
+use odm_appcore::tools::{self, ToolSources, ToolsStatus};
 use odm_appcore::Settings;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
@@ -246,4 +247,54 @@ pub fn open_extension_folder(app: AppHandle, kind: String) -> Res<()> {
     app.opener()
         .open_path(dir.to_string_lossy(), None::<&str>)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn tools_status(state: State<'_, AppState>) -> Res<ToolsStatus> {
+    let dir = state.paths.tools_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || tools::status(&dir))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Downloads FFmpeg, yt-dlp and Deno into ODM's tools folder, reporting progress as
+/// `UiEvent::ToolsProgress`. Resolves with the versions found afterwards.
+#[tauri::command]
+pub async fn tools_install(app: AppHandle, state: State<'_, AppState>) -> Res<ToolsStatus> {
+    if state.tools_busy.swap(true, Ordering::SeqCst) {
+        return Err("The video tools are already being downloaded.".into());
+    }
+    let dir = state.paths.tools_dir.clone();
+    let progress_app = app.clone();
+    let installed = tauri::async_runtime::spawn(async move {
+        let on_progress = move |stage: &str, done: u64, total: u64| {
+            let ev = UiEvent::ToolsProgress {
+                stage: stage.to_string(),
+                done,
+                total,
+            };
+            if let Err(e) = progress_app.emit(crate::EVENT, &ev) {
+                tracing::warn!("could not send tools progress to the window: {e}");
+            }
+        };
+        let result = tools::install(
+            &dir,
+            &tools::http_client(),
+            &ToolSources::default(),
+            &on_progress,
+        )
+        .await;
+        match result {
+            Ok(()) => tauri::async_runtime::spawn_blocking(move || tools::status(&dir))
+                .await
+                .map_err(|e| e.to_string()),
+            Err(e) => Err(e),
+        }
+    })
+    .await;
+    state.tools_busy.store(false, Ordering::SeqCst);
+    match installed {
+        Ok(r) => r,
+        Err(e) => Err(e.to_string()),
+    }
 }
