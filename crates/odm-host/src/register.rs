@@ -8,7 +8,8 @@ use winreg::RegKey;
 pub struct RegisterOptions {
     pub host_exe: PathBuf,
     pub app_exe: PathBuf,
-    pub chromium_id: String,
+    /// Every extension ID allowed to connect (dev + store IDs).
+    pub chromium_ids: Vec<String>,
     /// Prepended to every HKCU subkey path. "" in production; "Software\ODM-test-<uuid>\\" in tests.
     pub hkcu_prefix: String,
 }
@@ -37,12 +38,13 @@ fn base_manifest(host_exe: &Path) -> serde_json::Map<String, Value> {
     m
 }
 
-pub fn chromium_manifest(host_exe: &Path, chromium_id: &str) -> Value {
+pub fn chromium_manifest<S: AsRef<str>>(host_exe: &Path, chromium_ids: &[S]) -> Value {
     let mut m = base_manifest(host_exe);
-    m.insert(
-        "allowed_origins".into(),
-        json!([format!("chrome-extension://{chromium_id}/")]),
-    );
+    let origins: Vec<String> = chromium_ids
+        .iter()
+        .map(|id| format!("chrome-extension://{}/", id.as_ref()))
+        .collect();
+    m.insert("allowed_origins".into(), json!(origins));
     Value::Object(m)
 }
 
@@ -73,7 +75,7 @@ pub fn register(o: &RegisterOptions) -> io::Result<()> {
     let pretty = |v: &Value| serde_json::to_vec_pretty(v).map_err(io::Error::other);
     std::fs::write(
         &chromium_path,
-        pretty(&chromium_manifest(&o.host_exe, &o.chromium_id))?,
+        pretty(&chromium_manifest(&o.host_exe, &o.chromium_ids))?,
     )?;
     std::fs::write(&firefox_path, pretty(&firefox_manifest(&o.host_exe))?)?;
 
@@ -131,7 +133,7 @@ mod tests {
         let host = Path::new(r"C:\x\odm-host.exe");
         let id = "abcdefghijklmnopabcdefghijklmnop";
         assert_eq!(
-            chromium_manifest(host, id),
+            chromium_manifest(host, &[id]),
             json!({
                 "name": "com.odm.host",
                 "description": "ODM native messaging host",
@@ -149,6 +151,25 @@ mod tests {
                 "type": "stdio",
                 "allowed_extensions": ["odm@odm.local"]
             })
+        );
+    }
+
+    #[test]
+    fn chromium_manifest_lists_every_id() {
+        let host = Path::new(r"C:xodm-host.exe");
+        let ids = [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "cccccccccccccccccccccccccccccccc",
+        ];
+        let m = chromium_manifest(host, &ids);
+        assert_eq!(
+            m["allowed_origins"],
+            json!([
+                "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+                "chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/",
+                "chrome-extension://cccccccccccccccccccccccccccccccc/"
+            ])
         );
     }
 }

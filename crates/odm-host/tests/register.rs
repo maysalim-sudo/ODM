@@ -32,7 +32,10 @@ fn register_then_unregister_round_trip() {
     let o = RegisterOptions {
         host_exe: host_exe.clone(),
         app_exe: app_exe.clone(),
-        chromium_id: "abcdefghijklmnopabcdefghijklmnop".into(),
+        chromium_ids: vec![
+            "abcdefghijklmnopabcdefghijklmnop".into(),
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+        ],
         hkcu_prefix: prefix.clone(),
     };
 
@@ -41,7 +44,7 @@ fn register_then_unregister_round_trip() {
     let fm = tmp.join("com.odm.host.firefox.json");
     let c: serde_json::Value = serde_json::from_slice(&std::fs::read(&cm).unwrap()).unwrap();
     let f: serde_json::Value = serde_json::from_slice(&std::fs::read(&fm).unwrap()).unwrap();
-    assert!(c["allowed_origins"].is_array());
+    assert_eq!(c["allowed_origins"].as_array().unwrap().len(), 2);
     assert!(f["allowed_extensions"].is_array());
     for k in CHROMIUM_KEYS {
         assert_eq!(

@@ -8,7 +8,10 @@ fn options(app_exe: PathBuf) -> std::io::Result<RegisterOptions> {
     Ok(RegisterOptions {
         host_exe: std::env::current_exe()?,
         app_exe,
-        chromium_id: odm_core::ids::chromium_ext_id().to_string(),
+        chromium_ids: odm_core::ids::chromium_ext_ids()
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
         hkcu_prefix: String::new(),
     })
 }

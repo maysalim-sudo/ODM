@@ -2,6 +2,8 @@ import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
+import { storeManifest } from "./store-manifest.mjs";
+import { zipDirectory } from "./zip.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 process.chdir(root);
@@ -39,4 +41,14 @@ for (const target of ["chromium", "firefox"]) {
     manifest.key = readFileSync("chromium-key.txt", "utf8").trim();
   }
   writeFileSync(`${out}/manifest.json`, JSON.stringify(manifest, null, 2) + "\n");
+}
+
+// `pnpm build:store`: the Chromium build without the dev "key", zipped for the Chrome Web Store and Edge Add-ons.
+if (process.argv.includes("--store")) {
+  cpSync("dist/chromium", "dist/store-chromium", { recursive: true });
+  const manifest = JSON.parse(readFileSync("dist/chromium/manifest.json", "utf8"));
+  writeFileSync("dist/store-chromium/manifest.json", JSON.stringify(storeManifest(manifest), null, 2) + "\n");
+  const zip = resolve(root, "..", "target", "store", "odm-extension-chromium-store.zip");
+  zipDirectory("dist/store-chromium", zip);
+  console.log(`Store package: ${zip}`);
 }
