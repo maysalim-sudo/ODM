@@ -77,11 +77,17 @@ export type UiEvent =
   | { type: "confirm_download"; id: string }
   | { type: "tools_progress"; stage: string; done: number; total: number };
 
-/** Versions of the video tools found in ODM's tools folder; null = not installed. */
+/** The video tools ODM can use, found the way the engine finds them; null = not found. */
 export interface ToolsStatus {
-  ffmpeg: string | null;
-  ytdlp: string | null;
-  deno: string | null;
+  ffmpeg: ToolInfo | null;
+  ytdlp: ToolInfo | null;
+  deno: ToolInfo | null;
+}
+
+/** A tool that was found: its version and where from ("Settings", "ODM", "PATH" or "winget"). */
+export interface ToolInfo {
+  version: string;
+  source: string;
 }
 
 export interface Settings {

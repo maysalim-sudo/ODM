@@ -564,12 +564,22 @@ describe("chunk map words", () => {
 
 describe("video tools", () => {
   const none: ToolsStatus = { ffmpeg: null, ytdlp: null, deno: null };
+  const info = (version: string, source: string) => ({ version, source });
 
-  it("toolsSummary says what is installed and what is not", () => {
-    const got = toolsSummary({ ffmpeg: "7.1", ytdlp: "2026.08.19", deno: null });
-    expect(got.lines).toEqual(["FFmpeg 7.1 ✓", "yt-dlp 2026.08.19 ✓", "Deno: not installed"]);
+  it("toolsSummary says what was found, where, and what is missing", () => {
+    const got = toolsSummary({ ffmpeg: info("7.1", "ODM"), ytdlp: info("2026.08.19", "PATH"), deno: null });
+    expect(got.lines).toEqual(["FFmpeg 7.1 · from ODM", "yt-dlp 2026.08.19 · from PATH", "Deno: not installed"]);
     expect(got.complete).toBe(false);
     expect(got.installed).toBe(true);
+    expect(got.own).toBe(true);
+  });
+
+  it("toolsSummary tells ODM's own copies from the system's", () => {
+    const outside = toolsSummary({ ffmpeg: info("7.1", "winget"), ytdlp: info("1", "Settings"), deno: null });
+    expect(outside.lines[0]).toBe("FFmpeg 7.1 · from winget");
+    expect(outside.lines[1]).toBe("yt-dlp 1 · from Settings");
+    expect(outside.installed).toBe(true);
+    expect(outside.own).toBe(false);
   });
 
   it("toolsSummary reports nothing installed and everything installed", () => {
@@ -577,7 +587,8 @@ describe("video tools", () => {
     expect(empty.lines).toEqual(["FFmpeg: not installed", "yt-dlp: not installed", "Deno: not installed"]);
     expect(empty.installed).toBe(false);
     expect(empty.complete).toBe(false);
-    const all = toolsSummary({ ffmpeg: "7.1", ytdlp: "1", deno: "2.1.4" });
+    expect(empty.own).toBe(false);
+    const all = toolsSummary({ ffmpeg: info("7.1", "ODM"), ytdlp: info("1", "ODM"), deno: info("2.1.4", "ODM") });
     expect(all.complete).toBe(true);
   });
 

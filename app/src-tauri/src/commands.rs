@@ -251,8 +251,8 @@ pub fn open_extension_folder(app: AppHandle, kind: String) -> Res<()> {
 
 #[tauri::command]
 pub async fn tools_status(state: State<'_, AppState>) -> Res<ToolsStatus> {
-    let dir = state.paths.tools_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || tools::status(&dir))
+    let cfg = state.settings.lock().unwrap().to_engine_config();
+    tauri::async_runtime::spawn_blocking(move || tools::status(&cfg))
         .await
         .map_err(|e| e.to_string())
 }
@@ -265,6 +265,7 @@ pub async fn tools_install(app: AppHandle, state: State<'_, AppState>) -> Res<To
         return Err("The video tools are already being downloaded.".into());
     }
     let dir = state.paths.tools_dir.clone();
+    let cfg = state.settings.lock().unwrap().to_engine_config();
     let progress_app = app.clone();
     let installed = tauri::async_runtime::spawn(async move {
         let on_progress = move |stage: &str, done: u64, total: u64| {
@@ -285,7 +286,7 @@ pub async fn tools_install(app: AppHandle, state: State<'_, AppState>) -> Res<To
         )
         .await;
         match result {
-            Ok(()) => tauri::async_runtime::spawn_blocking(move || tools::status(&dir))
+            Ok(()) => tauri::async_runtime::spawn_blocking(move || tools::status(&cfg))
                 .await
                 .map_err(|e| e.to_string()),
             Err(e) => Err(e),

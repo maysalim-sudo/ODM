@@ -1,4 +1,4 @@
-import type { ChunkState, ChunkView, Download, DownloadState, IntegrationStatus, Offer, SegmentProgress, Settings, ToolsStatus, UiEvent } from "./types";
+import type { ChunkState, ChunkView, Download, DownloadState, IntegrationStatus, Offer, SegmentProgress, Settings, ToolInfo, ToolsStatus, UiEvent } from "./types";
 
 /** A list row: the stored download plus live values from progress events. */
 export interface Row extends Download {
@@ -379,17 +379,18 @@ export function partTitle(idx: number, state: ChunkState, fillPct: number): stri
   return `Part ${idx + 1}: ${PART_WORDS[state]}, ${fillPct.toFixed(0)}%`;
 }
 
-/** One line per managed video tool, plus whether any / all of them are installed. */
-export function toolsSummary(s: ToolsStatus): { lines: string[]; installed: boolean; complete: boolean } {
-  const tools: [string, string | null][] = [
+/** One line per video tool ("yt-dlp 2026.08.19 · from PATH"), plus whether any, all, or ODM's own copies exist. */
+export function toolsSummary(s: ToolsStatus): { lines: string[]; installed: boolean; complete: boolean; own: boolean } {
+  const tools: [string, ToolInfo | null][] = [
     ["FFmpeg", s.ffmpeg],
     ["yt-dlp", s.ytdlp],
     ["Deno", s.deno],
   ];
   return {
-    lines: tools.map(([name, version]) => (version ? `${name} ${version} ✓` : `${name}: not installed`)),
-    installed: tools.some(([, v]) => v),
-    complete: tools.every(([, v]) => v),
+    lines: tools.map(([name, t]) => (t ? `${name} ${t.version} · from ${t.source}` : `${name}: not installed`)),
+    installed: tools.some(([, t]) => t),
+    complete: tools.every(([, t]) => t),
+    own: tools.some(([, t]) => t?.source === "ODM"),
   };
 }
 

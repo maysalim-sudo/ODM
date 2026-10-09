@@ -60,7 +60,11 @@ impl Fixture {
             ("deno/deno.zip".into(), deno_zip.clone()),
             (
                 "deno/deno.zip.sha256sum".into(),
-                format!("{}\n", sha(&deno_zip)).into_bytes(),
+                format!(
+                    "\r\nAlgorithm : SHA256\r\nHash      : {}\r\nPath      : ...deno.zip\r\n\r\n",
+                    sha(&deno_zip).to_uppercase()
+                )
+                .into_bytes(),
             ),
         ];
         Fixture { files }

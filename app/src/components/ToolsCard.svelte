@@ -72,7 +72,7 @@
   {/if}
   <div class="controls">
     <button class="primary" onclick={install} disabled={busy}>
-      {busy ? "Downloading…" : summary?.installed ? "Update video tools" : "Get video tools"}
+      {busy ? "Downloading…" : summary?.own ? "Update video tools" : "Get video tools"}
     </button>
     {#if !compact && !busy}<span class="hint">About 150 MB.</span>{/if}
   </div>

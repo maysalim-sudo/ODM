@@ -1,6 +1,7 @@
 //! The video tools ODM manages itself: yt-dlp, FFmpeg (with ffprobe) and Deno (YouTube's JS
 //! runtime). They live in `AppPaths::tools_dir`; `install` fetches them over HTTPS and checks each
 //! download against its published SHA-256 before anything is replaced.
+use odm_engine::EngineConfig;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -10,12 +11,20 @@ pub const DOWNLOAD_FAILED: &str =
 pub const CHECKSUM_FAILED: &str =
     "The downloaded file didn't match its checksum, so it wasn't installed.";
 
-/// Versions of the tools found in the tools folder; `None` = not installed (or won't run).
+/// One tool that was found: its version and where it came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ToolInfo {
+    pub version: String,
+    /// "Settings" (a path the user set), "ODM" (ODM's own tools folder), "PATH" or "winget".
+    pub source: String,
+}
+
+/// The tools ODM can use, found the way the engine finds them; `None` = not found (or won't run).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ToolsStatus {
-    pub ffmpeg: Option<String>,
-    pub ytdlp: Option<String>,
-    pub deno: Option<String>,
+    pub ffmpeg: Option<ToolInfo>,
+    pub ytdlp: Option<ToolInfo>,
+    pub deno: Option<ToolInfo>,
 }
 
 /// Where each tool and its checksum list are downloaded from.
@@ -51,6 +60,13 @@ pub fn find_checksum(list: &str, filename: &str) -> Option<String> {
     let is_hash = |t: &str| t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit());
     let mut bare = None;
     for line in list.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        // PowerShell's Get-FileHash output (Deno): `Hash      : <HEX>`.
+        if let Some((key, value)) = line.split_once(':') {
+            if key.trim().eq_ignore_ascii_case("hash") && is_hash(value.trim()) {
+                bare = Some(value.trim().to_ascii_lowercase());
+                continue;
+            }
+        }
         let mut parts = line.splitn(2, char::is_whitespace);
         let (Some(hash), name) = (parts.next(), parts.next()) else {
             continue;
@@ -84,7 +100,6 @@ pub fn is_stale(modified: SystemTime, now: SystemTime, max_age: Duration) -> boo
     now.duration_since(modified).is_ok_and(|age| age > max_age)
 }
 
-const FFMPEG_EXE: &str = "ffmpeg.exe";
 const YTDLP_EXE: &str = "yt-dlp.exe";
 const DENO_EXE: &str = "deno.exe";
 
@@ -126,21 +141,54 @@ fn run_with_timeout(exe: &Path, args: &[&str], timeout: Duration) -> Option<Stri
     status.success().then_some(text)
 }
 
-/// The versions of the tools in `dir` (`ffmpeg.exe`, `yt-dlp.exe`, `deno.exe`). Each is run with
-/// a 5 second limit; a missing or broken tool is `None`.
-pub fn status(dir: &Path) -> ToolsStatus {
+/// Where `path` was found: the configured path, ODM's tools folder, a WinGet folder or `PATH`.
+pub fn source_of(path: &Path, configured: Option<&Path>, tools_dir: Option<&Path>) -> &'static str {
+    if configured == Some(path) {
+        "Settings"
+    } else if tools_dir.is_some_and(|d| path.starts_with(d)) {
+        "ODM"
+    } else if path
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .contains("winget")
+    {
+        "winget"
+    } else {
+        "PATH"
+    }
+}
+
+/// The tools the engine would use with `cfg` (configured path, ODM's folder, `PATH`, WinGet), with
+/// their versions. Each is run with a 5 second limit; a missing or broken tool is `None`. Deno is
+/// only looked for in ODM's folder, because that is the only place the engine looks for it.
+pub fn status(cfg: &EngineConfig) -> ToolsStatus {
     let timeout = Duration::from_secs(5);
-    let probe = |exe: &str, tool: &str, flag: &str| {
-        let path = dir.join(exe);
-        if !path.is_file() {
-            return None;
-        }
-        parse_version(tool, &run_with_timeout(&path, &[flag], timeout)?)
+    let tools_dir = cfg.tools_dir.as_deref();
+    let probe = |path: Option<PathBuf>, tool: &str, flag: &str, configured: Option<&Path>| {
+        let path = path?;
+        let version = parse_version(tool, &run_with_timeout(&path, &[flag], timeout)?)?;
+        let source = source_of(&path, configured, tools_dir).to_string();
+        Some(ToolInfo { version, source })
     };
     ToolsStatus {
-        ffmpeg: probe(FFMPEG_EXE, "ffmpeg", "-version"),
-        ytdlp: probe(YTDLP_EXE, "ytdlp", "--version"),
-        deno: probe(DENO_EXE, "deno", "--version"),
+        ffmpeg: probe(
+            odm_engine::hls::merge::resolve_ffmpeg(cfg),
+            "ffmpeg",
+            "-version",
+            cfg.ffmpeg_path.as_deref(),
+        ),
+        ytdlp: probe(
+            odm_engine::site::find_ytdlp(cfg),
+            "ytdlp",
+            "--version",
+            cfg.ytdlp_path.as_deref(),
+        ),
+        deno: probe(
+            tools_dir.map(|d| d.join(DENO_EXE)).filter(|p| p.is_file()),
+            "deno",
+            "--version",
+            None,
+        ),
     }
 }
 
@@ -416,9 +464,63 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_installed_in_an_empty_folder() {
+    fn nothing_is_found_in_an_empty_folder() {
         let t = tempfile::tempdir().unwrap();
-        assert_eq!(status(t.path()), ToolsStatus::default());
-        assert_eq!(status(&t.path().join("missing")), ToolsStatus::default());
+        let cfg = |dir: std::path::PathBuf| EngineConfig {
+            tools_dir: Some(dir),
+            ffmpeg_search_path: false,
+            ytdlp_search: false,
+            ..EngineConfig::default()
+        };
+        assert_eq!(status(&cfg(t.path().to_path_buf())), ToolsStatus::default());
+        assert_eq!(
+            status(&cfg(t.path().join("missing"))),
+            ToolsStatus::default()
+        );
+    }
+
+    #[test]
+    fn the_source_says_where_a_tool_was_found() {
+        let tools = Path::new("C:/u/ODM/tools");
+        let own = tools.join("yt-dlp.exe");
+        let cfg = Path::new("D:/mine/yt-dlp.exe");
+        assert_eq!(source_of(&own, None, Some(tools)), "ODM");
+        assert_eq!(source_of(cfg, Some(cfg), Some(tools)), "Settings");
+        assert_eq!(
+            source_of(
+                Path::new("C:/Users/x/AppData/Local/Microsoft/WinGet/Links/ffmpeg.exe"),
+                None,
+                Some(tools)
+            ),
+            "winget"
+        );
+        assert_eq!(
+            source_of(Path::new("C:/bin/ffmpeg.exe"), None, Some(tools)),
+            "PATH"
+        );
+    }
+
+    #[test]
+    fn powershell_get_filehash_output_is_understood() {
+        let text = "\r\nAlgorithm : SHA256\r\nHash      : A0C3101B4158D1DFB7D6A78A7BF0F3DE80C96BB423C152BEEC8BEB22786F2238\r\nPath      : ...deno-x86_64-pc-windows-msvc.zip\r\n\r\n";
+        let want = "a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238";
+        assert_eq!(
+            find_checksum(text, "deno-x86_64-pc-windows-msvc.zip").as_deref(),
+            Some(want)
+        );
+        // The Path line may be missing, and the line endings may be plain LF.
+        let short = "\nAlgorithm : SHA256\nHash      : A0C3101B4158D1DFB7D6A78A7BF0F3DE80C96BB423C152BEEC8BEB22786F2238\n";
+        assert_eq!(find_checksum(short, "anything.zip").as_deref(), Some(want));
+    }
+
+    #[test]
+    fn the_real_checksum_list_formats_are_understood() {
+        let yt = format!("{HASH_A}  yt-dlp\n{HASH_B}  yt-dlp.exe\n");
+        assert_eq!(find_checksum(&yt, "yt-dlp.exe").as_deref(), Some(HASH_B));
+        let ff = format!("{HASH_B}  ffmpeg-master-latest-win64-gpl.zip\n{HASH_A}  other.zip\n");
+        assert_eq!(
+            find_checksum(&ff, "ffmpeg-master-latest-win64-gpl.zip").as_deref(),
+            Some(HASH_B)
+        );
     }
 }
