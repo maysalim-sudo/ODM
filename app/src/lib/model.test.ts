@@ -35,8 +35,12 @@ import {
   toolsSummary,
   toolsProgressText,
   needsVideoTools,
+  WELCOME_BROWSERS,
+  storeLinkFor,
+  extensionsPageFor,
+  browserConnected,
 } from "./model";
-import type { Download, IntegrationStatus, ToolsStatus } from "./types";
+import type { Download, IntegrationStatus, StoreLinks, ToolsStatus } from "./types";
 
 function dl(id: string, patch: Partial<Download> = {}): Download {
   return {
@@ -336,6 +340,7 @@ describe("coerceSettings", () => {
     start_minimized: false,
     notifications: true,
     confirm_browser_downloads: true,
+    onboarding_done: false,
   };
   it("replaces emptied number fields with the previously loaded value", () => {
     const form = { ...base, max_connections: null, speed_limit_kbps: Number.NaN, max_concurrent: 4.4 };
@@ -612,5 +617,67 @@ describe("video tools", () => {
     const r = applyEvent(rows, { type: "tools_progress", stage: "FFmpeg", done: 1, total: 2 });
     expect(r.rows).toBe(rows);
     expect(r.resync).toBe(false);
+  });
+});
+
+describe("first-run setup", () => {
+  const none: StoreLinks = { chrome_web_store_id: null, edge_addons_id: null, amo_url: null };
+  const id = "abcdefghijklmnopabcdefghijklmnop";
+
+  it("offers the seven browsers in order", () => {
+    expect(WELCOME_BROWSERS).toEqual(["Chrome", "Edge", "Brave", "Vivaldi", "Opera", "Firefox", "Floorp"]);
+  });
+
+  it("has no store link until a listing is known", () => {
+    for (const b of WELCOME_BROWSERS) expect(storeLinkFor(b, none)).toBeNull();
+  });
+
+  it("links Chromium browsers other than Edge to the Chrome Web Store", () => {
+    const links = { ...none, chrome_web_store_id: id, edge_addons_id: "edgeid" };
+    for (const b of ["Chrome", "Brave", "Vivaldi", "Opera"]) {
+      expect(storeLinkFor(b, links)).toBe(`https://chromewebstore.google.com/detail/${id}`);
+    }
+  });
+
+  it("links Edge to Edge Add-ons, and only when that listing exists", () => {
+    expect(storeLinkFor("Edge", { ...none, chrome_web_store_id: id })).toBeNull();
+    expect(storeLinkFor("Edge", { ...none, edge_addons_id: "edgeid" })).toBe(
+      "https://microsoftedge.microsoft.com/addons/detail/edgeid",
+    );
+  });
+
+  it("links Firefox and Floorp to the add-on page once it is approved", () => {
+    const amo = "https://addons.mozilla.org/firefox/addon/odm/";
+    expect(storeLinkFor("Firefox", { ...none, amo_url: amo })).toBe(amo);
+    expect(storeLinkFor("Floorp", { ...none, amo_url: amo })).toBe(amo);
+    expect(storeLinkFor("Firefox", { ...none, chrome_web_store_id: id })).toBeNull();
+  });
+
+  it("ignores unknown browsers", () => {
+    expect(storeLinkFor("Netscape", { ...none, chrome_web_store_id: id })).toBeNull();
+  });
+
+  it("names each browser's extensions page", () => {
+    expect(extensionsPageFor("Chrome")).toBe("chrome://extensions");
+    expect(extensionsPageFor("Edge")).toBe("edge://extensions");
+    expect(extensionsPageFor("Brave")).toBe("brave://extensions");
+    expect(extensionsPageFor("Vivaldi")).toBe("vivaldi://extensions");
+    expect(extensionsPageFor("Opera")).toBe("opera://extensions");
+    expect(extensionsPageFor("Firefox")).toBe("about:debugging#/runtime/this-firefox");
+    expect(extensionsPageFor("Floorp")).toBe("about:debugging#/runtime/this-firefox");
+  });
+
+  it("counts a message from a browser as connected, but not ODM's own test ping", () => {
+    const st: IntegrationStatus = {
+      host_found: true,
+      pipe_running: true,
+      browsers: [],
+      last_contact_ms: null,
+      last_command: null,
+    };
+    expect(browserConnected(st)).toBe(false);
+    expect(browserConnected(null)).toBe(false);
+    expect(browserConnected({ ...st, last_contact_ms: 5, last_command: "GET_SUMMARY" })).toBe(true);
+    expect(browserConnected({ ...st, last_contact_ms: 5, last_command: "PING" })).toBe(false);
   });
 });

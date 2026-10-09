@@ -1,6 +1,7 @@
 //! Everything the desktop app needs that does not depend on Tauri.
 pub mod api;
 pub mod bridge;
+pub mod browsers;
 pub mod capture;
 pub mod confirm;
 pub mod dto;

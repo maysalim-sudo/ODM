@@ -213,6 +213,9 @@ pub fn run() {
             commands::integration_test,
             commands::integration_repair,
             commands::open_extension_folder,
+            commands::open_browser_extensions_page,
+            commands::open_store_page,
+            commands::store_links,
             commands::tools_status,
             commands::tools_install,
         ])

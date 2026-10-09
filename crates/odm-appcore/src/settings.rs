@@ -30,6 +30,8 @@ pub struct Settings {
     pub notifications: bool,
     /// Ask where to save (and whether to start) when the browser hands ODM a download.
     pub confirm_browser_downloads: bool,
+    /// The first-run welcome screen has been completed.
+    pub onboarding_done: bool,
 }
 
 fn default_folders() -> BTreeMap<String, String> {
@@ -62,6 +64,7 @@ impl Default for Settings {
             start_minimized: false,
             notifications: true,
             confirm_browser_downloads: true,
+            onboarding_done: false,
         }
     }
 }

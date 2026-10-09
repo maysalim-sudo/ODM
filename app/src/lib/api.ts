@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AddArgs, BatchResult, ConfirmArgs, Detail, Download, IntegrationStatus, Offer, Settings, Suggestion, ToolsStatus, UiEvent } from "./types";
+import type { AddArgs, BatchResult, ConfirmArgs, Detail, Download, IntegrationStatus, Offer, Settings, StoreLinks, Suggestion, ToolsStatus, UiEvent } from "./types";
 
 export const listDownloads = () => invoke<Download[]>("list_downloads");
 export const getDetail = (id: string) => invoke<Detail | null>("get_detail", { id });
@@ -29,6 +29,12 @@ export const integrationStatus = () => invoke<IntegrationStatus>("integration_st
 export const integrationTest = () => invoke<string>("integration_test");
 export const integrationRepair = () => invoke<IntegrationStatus>("integration_repair");
 export const openExtensionFolder = (kind: "chromium" | "firefox") => invoke<void>("open_extension_folder", { kind });
+
+/** Opens the browser on its extensions page (chrome://extensions and the like). */
+export const openBrowserExtensionsPage = (browser: string) => invoke<void>("open_browser_extensions_page", { browser });
+/** Opens a store listing in the chosen browser (only the Chrome, Edge and Firefox stores are accepted). */
+export const openStorePage = (browser: string, url: string) => invoke<void>("open_store_page", { browser, url });
+export const storeLinks = () => invoke<StoreLinks>("store_links");
 
 export const toolsStatus = () => invoke<ToolsStatus>("tools_status");
 /** Downloads FFmpeg, yt-dlp and Deno; progress arrives as `tools_progress` events. */

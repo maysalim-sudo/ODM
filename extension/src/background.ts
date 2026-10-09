@@ -273,6 +273,8 @@ if (__TARGET__ === "chromium") {
 }
 
 ext.runtime.onInstalled.addListener(() => {
+  // Lets ODM's first-run guide show "Connected" right after the extension is added.
+  void send("GET_SUMMARY", {}, 2000);
   ext.contextMenus.create({
     id: MENU_ID,
     title: "Download with ODM",

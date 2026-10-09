@@ -108,6 +108,8 @@ export interface Settings {
   start_minimized: boolean;
   notifications: boolean;
   confirm_browser_downloads: boolean;
+  /** The first-run welcome screen has been completed. */
+  onboarding_done: boolean;
 }
 
 export interface AddArgs {
@@ -171,4 +173,11 @@ export interface IntegrationStatus {
   /** Epoch ms of the last request from a browser. */
   last_contact_ms: number | null;
   last_command: string | null;
+}
+
+/** Store listings of the extension; null = not published yet. */
+export interface StoreLinks {
+  chrome_web_store_id: string | null;
+  edge_addons_id: string | null;
+  amo_url: string | null;
 }

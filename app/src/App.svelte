@@ -10,10 +10,12 @@
   import RemoveDialog from "./components/RemoveDialog.svelte";
   import ReuseDialog from "./components/ReuseDialog.svelte";
   import BrowserDialog from "./components/BrowserDialog.svelte";
+  import WelcomeDialog from "./components/WelcomeDialog.svelte";
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
   import SettingsDialog from "./components/SettingsDialog.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toolbar from "./components/Toolbar.svelte";
+  import * as api from "./lib/api";
   import { downloads } from "./lib/downloads.svelte";
   import { integration } from "./lib/integration.svelte";
 
@@ -26,10 +28,16 @@
   let refreshOpen = $state(false);
   let programOpen = $state(false);
   let browserOpen = $state(false);
+  let welcomeOpen = $state(false);
   const detailName = $derived(detailId ? (downloads.rows.get(detailId)?.filename ?? "") : "");
 
   onMount(() => {
     void downloads.init();
+    // First start: the guided setup. A settings read that fails just skips it.
+    api
+      .getSettings()
+      .then((s) => (welcomeOpen = !s.onboarding_done))
+      .catch(() => {});
     return integration.startPolling();
   });
 
@@ -43,6 +51,7 @@
       refreshOpen ||
       programOpen ||
       browserOpen ||
+      welcomeOpen ||
       downloads.offers.length > 0
     )
       return;
@@ -98,8 +107,13 @@
 <SettingsDialog open={settingsOpen} onclose={() => (settingsOpen = false)} />
 <RefreshUrlDialog open={refreshOpen} id={detailId} onclose={() => (refreshOpen = false)} />
 <OpenProgramDialog open={programOpen} id={detailId} name={detailName} onclose={() => (programOpen = false)} />
+<WelcomeDialog open={welcomeOpen} onclose={() => (welcomeOpen = false)} />
 <BrowserDialog
   open={browserOpen}
+  onsetup={() => {
+    browserOpen = false;
+    welcomeOpen = true;
+  }}
   onclose={() => {
     browserOpen = false;
     void integration.refresh();

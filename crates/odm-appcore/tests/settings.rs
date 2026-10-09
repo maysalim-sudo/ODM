@@ -284,3 +284,15 @@ fn ytdlp_path_reaches_the_engine_config() {
         Some(std::path::PathBuf::from("C:/tools/yt-dlp.exe"))
     );
 }
+
+#[test]
+fn onboarding_done_defaults_false_and_round_trips() {
+    assert!(!Settings::default().onboarding_done);
+    let (s, w) = Settings::from_json(r#"{"onboarding_done": true}"#);
+    assert!(w.is_empty(), "{w:?}");
+    assert!(s.onboarding_done);
+    // Settings files written before the welcome screen existed lack the field.
+    let (old, w) = Settings::from_json(r#"{"max_concurrent": 2}"#);
+    assert!(w.is_empty());
+    assert!(!old.onboarding_done);
+}

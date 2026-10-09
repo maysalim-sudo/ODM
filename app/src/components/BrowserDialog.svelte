@@ -5,7 +5,7 @@
   import type { CheckStatus } from "../lib/types";
   import Modal from "./Modal.svelte";
 
-  let { open, onclose }: { open: boolean; onclose: () => void } = $props();
+  let { open, onclose, onsetup }: { open: boolean; onclose: () => void; onsetup: () => void } = $props();
 
   type Note = { kind: "ok" | "error"; text: string };
 
@@ -108,6 +108,7 @@
     {/if}
 
     <h3>Add the extension</h3>
+    <p class="guide">Not sure how? <button class="link" onclick={onsetup}>Open the setup guide</button></p>
     <div class="ext">
       <h4>Chromium browsers</h4>
       <ol>
@@ -207,6 +208,17 @@
     margin: 0 0 8px;
     padding-left: 20px;
     color: var(--muted);
+  }
+  .guide {
+    margin: 0 0 10px;
+    color: var(--muted);
+  }
+  .link {
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--accent-light);
+    text-decoration: underline;
   }
   code {
     color: var(--text);

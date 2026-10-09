@@ -249,6 +249,32 @@ pub fn open_extension_folder(app: AppHandle, kind: String) -> Res<()> {
         .map_err(|e| e.to_string())
 }
 
+/// Opens the browser on its extensions page (`chrome://extensions` and the like).
+#[tauri::command]
+pub async fn open_browser_extensions_page(browser: String) -> Res<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        odm_appcore::browsers::open_extensions_page(&browser)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Opens a store listing (Chrome Web Store, Edge Add-ons, AMO) in the chosen browser.
+#[tauri::command]
+pub async fn open_store_page(browser: String, url: String) -> Res<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        odm_appcore::browsers::open_store_page(&browser, &url)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Store listings of the extension; null entries are not published yet.
+#[tauri::command]
+pub fn store_links() -> odm_core::ids::StoreLinks {
+    odm_core::ids::store_links()
+}
+
 #[tauri::command]
 pub async fn tools_status(state: State<'_, AppState>) -> Res<ToolsStatus> {
     let cfg = state.settings.lock().unwrap().to_engine_config();

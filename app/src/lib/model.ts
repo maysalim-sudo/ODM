@@ -1,4 +1,4 @@
-import type { ChunkState, ChunkView, Download, DownloadState, IntegrationStatus, Offer, SegmentProgress, Settings, ToolInfo, ToolsStatus, UiEvent } from "./types";
+import type { ChunkState, ChunkView, Download, DownloadState, IntegrationStatus, Offer, SegmentProgress, Settings, StoreLinks, ToolInfo, ToolsStatus, UiEvent } from "./types";
 
 /** A list row: the stored download plus live values from progress events. */
 export interface Row extends Download {
@@ -405,4 +405,51 @@ export function toolsProgressText(p: { stage: string; done: number; total: numbe
 /** Whether a failed download's message says FFmpeg or yt-dlp is missing, so "Get video tools" can fix it. */
 export function needsVideoTools(message: string | null): boolean {
   return message !== null && /^(yt-dlp|FFmpeg) not found/.test(message);
+}
+
+/** The browsers the welcome screen offers (names match the native command's list). */
+export const WELCOME_BROWSERS = ["Chrome", "Edge", "Brave", "Vivaldi", "Opera", "Firefox", "Floorp"] as const;
+
+const FIREFOX_PAGE = "about:debugging#/runtime/this-firefox";
+
+const EXTENSIONS_PAGE: Record<string, string> = {
+  Chrome: "chrome://extensions",
+  Edge: "edge://extensions",
+  Brave: "brave://extensions",
+  Vivaldi: "vivaldi://extensions",
+  Opera: "opera://extensions",
+  Firefox: FIREFOX_PAGE,
+  Floorp: FIREFOX_PAGE,
+};
+
+/** The page to open for loading an extension by hand; null for an unknown browser. */
+export function extensionsPageFor(browser: string): string | null {
+  return EXTENSIONS_PAGE[browser] ?? null;
+}
+
+/**
+ * Where to add the extension from a store, or null when it isn't published for that browser yet
+ * (the welcome screen then shows the load-unpacked steps). Chromium browsers other than Edge
+ * use the Chrome Web Store.
+ */
+export function storeLinkFor(browser: string, links: StoreLinks): string | null {
+  switch (browser) {
+    case "Chrome":
+    case "Brave":
+    case "Vivaldi":
+    case "Opera":
+      return links.chrome_web_store_id ? `https://chromewebstore.google.com/detail/${links.chrome_web_store_id}` : null;
+    case "Edge":
+      return links.edge_addons_id ? `https://microsoftedge.microsoft.com/addons/detail/${links.edge_addons_id}` : null;
+    case "Firefox":
+    case "Floorp":
+      return links.amo_url;
+    default:
+      return null;
+  }
+}
+
+/** A browser extension has talked to ODM. ODM's own "Test connection" PING doesn't count. */
+export function browserConnected(st: IntegrationStatus | null): boolean {
+  return st !== null && st.last_contact_ms !== null && st.last_command !== "PING";
 }
