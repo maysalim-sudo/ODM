@@ -93,6 +93,10 @@ Some servers refuse extra connections (HTTP 429). ODM then keeps downloading wit
 
 `%APPDATA%\ODM\` holds the database (`odm.db`), `settings.json` and `logs\`. Set the `ODM_DATA_DIR` environment variable to use another folder, for example to try a build without touching your real data.
 
+## Privacy
+
+ODM collects nothing and sends nothing to any server. See [store/PRIVACY.md](store/PRIVACY.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
