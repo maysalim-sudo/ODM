@@ -29,15 +29,25 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "publisher": "Salim May",
+    "copyright": "© 2026 Salim May. MIT License.",
+    "homepage": "https://github.com/salimmay/ODM",
+    "shortDescription": "A personal download manager for Windows.",
+    "longDescription": "ODM (Open Downloader Manager) downloads files over several connections at once, resumes after a pause or a crash, and keeps a queue with speed and concurrency limits. It takes over downloads from Chrome, Edge, Brave, Vivaldi, Opera, Firefox and Floorp, and finds the videos a page plays.",
+    "licenseFile": "../../LICENSE",
     "externalBin": ["binaries/odm-host"],
     "resources": {
       "../../extension/dist/chromium/": "extension/chromium/",
       "../../extension/dist/firefox/": "extension/firefox/"
     },
     "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
       "nsis": {
         "installMode": "currentUser",
-        "installerHooks": "./installer-hooks.nsh"
+        "installerHooks": "./installer-hooks.nsh",
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "installer/header.bmp",
+        "sidebarImage": "installer/sidebar.bmp"
       }
     },
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
