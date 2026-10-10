@@ -453,3 +453,150 @@ async fn per_download_speed_limit() {
         None
     );
 }
+
+/// No QueueDone arrives within `ms`.
+async fn no_queue_done(rx: &mut broadcast::Receiver<EngineEvent>, ms: u64) {
+    let until = Instant::now() + Duration::from_millis(ms);
+    loop {
+        let left = until.saturating_duration_since(Instant::now());
+        match tokio::time::timeout(left, rx.recv()).await {
+            Err(_) => return,
+            Ok(Ok(EngineEvent::QueueDone)) => panic!("QueueDone with work still left"),
+            Ok(_) => {}
+        }
+    }
+}
+
+async fn wait_queue_done(rx: &mut broadcast::Receiver<EngineEvent>) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match tokio::time::timeout(left, rx.recv()).await {
+            Ok(Ok(EngineEvent::QueueDone)) => return,
+            Ok(_) => {}
+            Err(_) => panic!("no queue-done event"),
+        }
+    }
+}
+
+async fn slow_server() -> TestServer {
+    TestServer::start(
+        8 * MB,
+        Faults {
+            bytes_per_sec: Some(256 * KB),
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pausing_the_last_download_is_not_queue_done() {
+    let d = tempfile::tempdir().unwrap();
+    let fast = TestServer::start(64 * KB, Faults::default()).await;
+    let slow = slow_server().await;
+    let m = start(cfg(d.path())).await;
+    let mut rx = m.subscribe();
+    let b = m
+        .add(named(slow.url("/file"), d.path(), "b.bin"))
+        .await
+        .unwrap();
+    let a = m
+        .add(named(fast.url("/file"), d.path(), "a.bin"))
+        .await
+        .unwrap();
+    wait_state(m.store(), &a, DownloadState::Completed).await;
+    m.pause(&b).await.unwrap();
+    wait_state(m.store(), &b, DownloadState::Paused).await;
+    no_queue_done(&mut rx, 400).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_schedule_stop_time_is_not_queue_done() {
+    let d = tempfile::tempdir().unwrap();
+    let fast = TestServer::start(64 * KB, Faults::default()).await;
+    let slow = slow_server().await;
+    let clock = FakeClock::new(monday(13, 0));
+    let m = ManagerHandle::start_with_clock(
+        EngineConfig {
+            queue_window: Some(Window {
+                days: [true; 7],
+                from: 13 * 60,
+                to: 14 * 60,
+            }),
+            ..cfg(d.path())
+        },
+        Store::open_in_memory().unwrap(),
+        clock.clone(),
+    )
+    .await
+    .unwrap();
+    let mut rx = m.subscribe();
+    let b = m
+        .add(named(slow.url("/file"), d.path(), "b.bin"))
+        .await
+        .unwrap();
+    let a = m
+        .add(named(fast.url("/file"), d.path(), "a.bin"))
+        .await
+        .unwrap();
+    wait_state(m.store(), &a, DownloadState::Completed).await;
+    clock.set(|n| n.minute = 14 * 60);
+    let r = wait_state(m.store(), &b, DownloadState::Paused).await;
+    assert_eq!(r.pause_reason.as_deref(), Some("schedule"));
+    no_queue_done(&mut rx, 400).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancelling_the_waiting_download_ends_the_queue() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("b.bin"), b"old").unwrap();
+    let s = TestServer::start(64 * KB, Faults::default()).await;
+    let m = start(EngineConfig {
+        on_exists: ExistsPolicy::Ask,
+        max_concurrent: 1,
+        ..cfg(d.path())
+    })
+    .await;
+    let mut rx = m.subscribe();
+    let b = m
+        .add(named(s.url("/file"), d.path(), "b.bin"))
+        .await
+        .unwrap();
+    next_prompt(&mut rx).await;
+    let a = m
+        .add(named(s.url("/file"), d.path(), "a.bin"))
+        .await
+        .unwrap();
+    wait_state(m.store(), &a, DownloadState::Completed).await;
+    no_queue_done(&mut rx, 200).await;
+    // Cancelled from the list, not through the prompt.
+    m.cancel(&b, false).await.unwrap();
+    wait_queue_done(&mut rx).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_the_waiting_download_ends_the_queue() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("b.bin"), b"old").unwrap();
+    let s = TestServer::start(64 * KB, Faults::default()).await;
+    let m = start(EngineConfig {
+        on_exists: ExistsPolicy::Ask,
+        max_concurrent: 1,
+        ..cfg(d.path())
+    })
+    .await;
+    let mut rx = m.subscribe();
+    let b = m
+        .add(named(s.url("/file"), d.path(), "b.bin"))
+        .await
+        .unwrap();
+    next_prompt(&mut rx).await;
+    let a = m
+        .add(named(s.url("/file"), d.path(), "a.bin"))
+        .await
+        .unwrap();
+    wait_state(m.store(), &a, DownloadState::Completed).await;
+    m.remove(&b, false).await.unwrap();
+    wait_queue_done(&mut rx).await;
+}

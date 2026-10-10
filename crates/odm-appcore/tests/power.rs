@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[derive(Default)]
-struct Fake(Mutex<Vec<&'static str>>);
+struct Fake(Mutex<Vec<&'static str>>, Duration);
 
 impl Fake {
     fn calls(&self) -> Vec<&'static str> {
@@ -28,9 +28,12 @@ impl PowerActions for Fake {
     }
     fn sleep(&self) {
         self.0.lock().unwrap().push("sleep");
+        // The real SetSuspendState returns only after the PC wakes up.
+        std::thread::sleep(self.1);
     }
-    fn shutdown(&self) {
+    fn shutdown(&self) -> Result<(), String> {
         self.0.lock().unwrap().push("shutdown");
+        Ok(())
     }
     fn cancel_shutdown(&self) {
         self.0.lock().unwrap().push("cancel_shutdown");
@@ -120,4 +123,49 @@ async fn prevent_sleep_off_never_keeps_awake() {
     m.add(AddRequest::new(s.url("/file"))).await.unwrap();
     wait_until("sleep", || p.actions().calls().contains(&"sleep")).await;
     assert_eq!(p.actions().calls(), ["sleep"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sleep_that_blocks_does_not_stall_the_runner() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(256 << 10, Faults::default()).await;
+    let slow = TestServer::start(
+        4 << 20,
+        Faults {
+            bytes_per_sec: Some(512 << 10),
+            ..Default::default()
+        },
+    )
+    .await;
+    let m = ManagerHandle::start(
+        EngineConfig {
+            download_dir: d.path().to_path_buf(),
+            ..Default::default()
+        },
+        Store::open_in_memory().unwrap(),
+    )
+    .await
+    .unwrap();
+    let settings = Arc::new(Mutex::new(Settings {
+        after_queue: AfterQueue::Sleep,
+        ..Settings::default()
+    }));
+    let p = Arc::new(Power::new(Fake(Mutex::default(), Duration::from_secs(4))));
+    tokio::spawn(power::run(m.clone(), settings, p.clone(), |_| {}));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    m.add(AddRequest::new(s.url("/file"))).await.unwrap();
+    wait_until("sleep", || p.actions().calls().contains(&"sleep")).await;
+    // While "asleep", a new download still keeps the PC awake at once.
+    let t = Instant::now();
+    m.add(AddRequest::new(slow.url("/file"))).await.unwrap();
+    wait_until("awake again", || {
+        p.actions()
+            .calls()
+            .iter()
+            .filter(|c| **c == "awake")
+            .count()
+            == 2
+    })
+    .await;
+    assert!(t.elapsed() < Duration::from_secs(3), "{:?}", t.elapsed());
 }

@@ -11,14 +11,18 @@ use tokio::sync::broadcast::error::RecvError;
 /// Seconds between "ODM will shut down the PC" and the shutdown.
 pub const SHUTDOWN_DELAY_S: u32 = 60;
 
+/// Shown when Windows does not accept the shutdown.
+pub const SHUTDOWN_FAILED: &str = "ODM couldn't shut down the PC.";
+
 /// The side effects. The real one is `SystemPower` (Windows only, plus the app's quit).
 pub trait PowerActions: Send + Sync + 'static {
     /// Keep the PC from sleeping (on) or let it sleep again (off).
     fn keep_awake(&self, on: bool);
     /// Put the PC to sleep now.
     fn sleep(&self);
-    /// Shut the PC down in `SHUTDOWN_DELAY_S` seconds (`shutdown /s /t 60`).
-    fn shutdown(&self);
+    /// Shut the PC down in `SHUTDOWN_DELAY_S` seconds (`shutdown /s /t 60`). An error
+    /// means Windows did not accept it, so no shutdown is coming.
+    fn shutdown(&self) -> Result<(), String>;
     /// Cancel a shutdown asked for by `shutdown` (`shutdown /a`).
     fn cancel_shutdown(&self);
     /// Quit ODM.
@@ -76,8 +80,13 @@ impl<P: PowerActions> Power<P> {
                 let mut st = self.state.lock().unwrap_or_else(|p| p.into_inner());
                 if !st.shutdown_pending {
                     tracing::info!("the queue is done; shutting down in {SHUTDOWN_DELAY_S} s");
+                    if let Err(e) = self.actions.shutdown() {
+                        tracing::warn!("could not shut down the PC: {e}");
+                        return Some(UiEvent::ShutdownFailed {
+                            message: SHUTDOWN_FAILED.into(),
+                        });
+                    }
                     st.shutdown_pending = true;
-                    self.actions.shutdown();
                 }
                 Some(UiEvent::ShutdownPending {
                     seconds: SHUTDOWN_DELAY_S,
@@ -119,16 +128,35 @@ pub async fn run<P, F>(
     };
     let active = manager.active_count().await.unwrap_or(0);
     power.set_activity(active, prevent());
+    // What a finished after-queue action wants the UI to show.
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
     loop {
-        match rx.recv().await {
+        let event = tokio::select! {
+            ev = rx.recv() => ev,
+            Some(ui) = done_rx.recv() => {
+                emit(ui);
+                continue;
+            }
+        };
+        match event {
             Ok(EngineEvent::QueueDone) => {
                 let after = settings
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())
                     .after_queue;
-                if let Some(ev) = power.queue_done(after) {
-                    emit(ev);
-                }
+                // Sleep returns only after the PC wakes, and shutdown runs a program:
+                // they run on a blocking thread, and this loop keeps following events.
+                let p = power.clone();
+                let tx = done_tx.clone();
+                tokio::spawn(async move {
+                    match tokio::task::spawn_blocking(move || p.queue_done(after)).await {
+                        Ok(Some(ev)) => {
+                            let _ = tx.send(ev);
+                        }
+                        Ok(None) => {}
+                        Err(e) => tracing::warn!("the after-queue action stopped: {e}"),
+                    }
+                });
             }
             Ok(
                 EngineEvent::State { .. } | EngineEvent::Added { .. } | EngineEvent::Removed { .. },
@@ -193,19 +221,21 @@ impl PowerActions for SystemPower {
         win::sleep();
     }
 
-    fn shutdown(&self) {
-        run_shutdown(&["/s", "/t", &SHUTDOWN_DELAY_S.to_string()]);
+    fn shutdown(&self) -> Result<(), String> {
+        run_shutdown(&["/s", "/t", &SHUTDOWN_DELAY_S.to_string()])
     }
 
     fn cancel_shutdown(&self) {
-        run_shutdown(&["/a"]);
+        if let Err(e) = run_shutdown(&["/a"]) {
+            tracing::warn!("{e}");
+        }
     }
 
     fn quit(&self) {}
 }
 
 /// Runs Windows' `shutdown` tool without a console window.
-fn run_shutdown(args: &[&str]) {
+fn run_shutdown(args: &[&str]) -> Result<(), String> {
     let mut cmd = std::process::Command::new("shutdown");
     cmd.args(args);
     #[cfg(windows)]
@@ -215,9 +245,9 @@ fn run_shutdown(args: &[&str]) {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
     match cmd.status() {
-        Ok(s) if s.success() => {}
-        Ok(s) => tracing::warn!("shutdown {args:?} exited with {s}"),
-        Err(e) => tracing::warn!("could not run shutdown {args:?}: {e}"),
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("shutdown {args:?} exited with {s}")),
+        Err(e) => Err(format!("could not run shutdown {args:?}: {e}")),
     }
 }
 
@@ -302,7 +332,10 @@ pub(crate) mod tests {
 
     /// Records the calls instead of making them.
     #[derive(Default)]
-    pub struct FakePower(pub Mutex<Vec<&'static str>>);
+    pub struct FakePower(
+        pub Mutex<Vec<&'static str>>,
+        pub std::sync::atomic::AtomicBool,
+    );
 
     impl FakePower {
         pub fn calls(&self) -> Vec<&'static str> {
@@ -320,8 +353,13 @@ pub(crate) mod tests {
         fn sleep(&self) {
             self.0.lock().unwrap().push("sleep");
         }
-        fn shutdown(&self) {
+        fn shutdown(&self) -> Result<(), String> {
             self.0.lock().unwrap().push("shutdown");
+            if self.1.load(std::sync::atomic::Ordering::SeqCst) {
+                Err("shutdown.exe exited with 1190".into())
+            } else {
+                Ok(())
+            }
         }
         fn cancel_shutdown(&self) {
             self.0.lock().unwrap().push("cancel_shutdown");
@@ -365,6 +403,32 @@ pub(crate) mod tests {
         assert_eq!(p.actions().calls(), ["sleep"]);
         assert_eq!(p.queue_done(AfterQueue::Quit), None);
         assert_eq!(p.actions().calls(), ["sleep", "quit"]);
+    }
+
+    #[test]
+    fn a_failed_shutdown_is_reported_and_not_counted_down() {
+        let p = Power::new(FakePower::default());
+        p.actions()
+            .1
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(
+            p.queue_done(AfterQueue::Shutdown),
+            Some(UiEvent::ShutdownFailed {
+                message: "ODM couldn't shut down the PC.".into()
+            })
+        );
+        // Nothing is pending, so there is nothing to cancel, and a later try asks again.
+        assert_eq!(p.cancel_shutdown(), None);
+        p.actions()
+            .1
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(
+            p.queue_done(AfterQueue::Shutdown),
+            Some(UiEvent::ShutdownPending {
+                seconds: SHUTDOWN_DELAY_S
+            })
+        );
+        assert_eq!(p.actions().calls(), ["shutdown", "shutdown"]);
     }
 
     #[test]

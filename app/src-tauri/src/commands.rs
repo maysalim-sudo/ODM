@@ -70,12 +70,18 @@ pub async fn set_download_limit(
 
 /// Cancels the shutdown that "When the queue is done" started.
 #[tauri::command]
-pub fn cancel_shutdown(app: AppHandle, state: State<'_, AppState>) {
-    if let Some(ev) = state.power.cancel_shutdown() {
+pub async fn cancel_shutdown(app: AppHandle, state: State<'_, AppState>) -> Res<()> {
+    // `shutdown /a` runs a program; keep it off the async workers.
+    let power = state.power.clone();
+    let ev = tauri::async_runtime::spawn_blocking(move || power.cancel_shutdown())
+        .await
+        .map_err(|e| e.to_string())?;
+    if let Some(ev) = ev {
         if let Err(e) = app.emit(crate::EVENT, &ev) {
             tracing::warn!("could not send an event to the window: {e}");
         }
     }
+    Ok(())
 }
 
 #[tauri::command]

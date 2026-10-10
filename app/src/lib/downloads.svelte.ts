@@ -137,6 +137,11 @@ class DownloadsStore {
       this.shutdownAt = null;
       return;
     }
+    if (ev.type === "shutdown_failed") {
+      this.shutdownAt = null;
+      this.error = ev.message;
+      return;
+    }
     this.gate.record(ev);
     const r = applyEvent(this.rows, ev);
     this.rows = r.rows;

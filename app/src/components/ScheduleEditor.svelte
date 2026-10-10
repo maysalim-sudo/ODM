@@ -15,12 +15,15 @@
     onchange: (s: Schedule) => void;
   } = $props();
 
+  const NO_DAYS = "Pick at least one day.";
   let error = $state<string | null>(null);
+  // A schedule with no day would never run; the engine treats it as off.
+  const noDays = $derived(!schedule.days.some(Boolean));
 
   function toggleDay(i: number): void {
     const days = schedule.days.map((d, j) => (j === i ? !d : d));
     if (!days.some(Boolean)) {
-      error = "Keep at least one day.";
+      error = NO_DAYS;
       return;
     }
     error = null;
@@ -53,7 +56,11 @@
       <input type="time" value={schedule.to} onchange={(e) => setTime("to", e.currentTarget.value)} />
     </label>
   </div>
-  {#if error}<p class="field-error" role="alert">{error}</p>{/if}
+  {#if error}
+    <p class="field-error" role="alert">{error}</p>
+  {:else if noDays}
+    <p class="field-error" role="alert">{NO_DAYS}</p>
+  {/if}
 </div>
 
 <style>

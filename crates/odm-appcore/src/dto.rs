@@ -143,6 +143,10 @@ pub enum UiEvent {
     },
     /// The pending shutdown was cancelled.
     ShutdownCancelled,
+    /// "When the queue is done: Shut down" could not shut the PC down.
+    ShutdownFailed {
+        message: String,
+    },
 }
 
 /// The download in `ev`, if this event says it just completed.

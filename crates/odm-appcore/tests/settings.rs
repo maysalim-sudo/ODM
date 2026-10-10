@@ -577,3 +577,27 @@ fn behaviour_settings_reach_the_engine_config() {
         ExistsPolicy::Overwrite
     );
 }
+
+#[test]
+fn a_schedule_without_days_is_turned_off() {
+    let mut s = Settings {
+        queue_schedule: Schedule {
+            enabled: true,
+            days: [false; 7],
+            from: "01:00".into(),
+            to: "07:00".into(),
+        },
+        ..Settings::default()
+    };
+    // Even unclamped, it never reaches the engine as a window that can never open.
+    assert_eq!(s.to_engine_config().queue_window, None);
+    let w = s.clamp();
+    assert!(!s.queue_schedule.enabled);
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert!(w[0].contains("queue_schedule"), "{w:?}");
+    let (s, w) = Settings::from_json(
+        r#"{"limit_schedule": {"enabled": true, "days": [false,false,false,false,false,false,false]}}"#,
+    );
+    assert!(!s.limit_schedule.enabled);
+    assert_eq!(w.len(), 1, "{w:?}");
+}

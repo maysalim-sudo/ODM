@@ -108,6 +108,7 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
     case "exists_prompt":
     case "shutdown_pending":
     case "shutdown_cancelled":
+    case "shutdown_failed":
       // Offers and confirmations are not rows; the store handles them before this function.
       return { rows, resync: false };
   }

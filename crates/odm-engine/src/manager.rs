@@ -821,6 +821,8 @@ impl Manager {
                 transition(&self.env, id, DownloadState::Cancelled, None).await;
             }
         }
+        // It may have been the last thing left (a download waiting for an answer).
+        self.check_queue_done().await;
     }
 
     async fn remove(&mut self, id: &str, delete: bool) {
@@ -828,6 +830,7 @@ impl Manager {
         self.drop_staged(id);
         if !self.request_stop(id, Stop::Remove { delete }) {
             self.delete_record(id, delete).await;
+            self.check_queue_done().await;
         }
     }
 
@@ -858,6 +861,12 @@ impl Manager {
 
     async fn finished(&mut self, id: String, outcome: Outcome) {
         let stop = self.active.remove(&id).and_then(|a| a.stop);
+        // Paused, by the user or by the schedule's stop time: the work is not done.
+        let paused = match (&stop, &outcome) {
+            (_, Outcome::Completed { .. } | Outcome::Exists { .. }) => false,
+            (Some(Stop::Pause | Stop::SchedulePause), _) | (None, Outcome::Stopped) => true,
+            _ => false,
+        };
         match (stop, outcome) {
             (Some(Stop::Remove { delete }), Outcome::Completed { .. }) => {
                 transition(&self.env, &id, DownloadState::Completed, None).await;
@@ -904,7 +913,9 @@ impl Manager {
             transition(&self.env, &id, DownloadState::Queued, None).await;
         }
         self.schedule().await;
-        self.check_queue_done().await;
+        if !paused {
+            self.check_queue_done().await;
+        }
     }
 
     /// Pauses a finished download whose name is taken and asks the user what to do.
@@ -1029,7 +1040,7 @@ impl Manager {
     }
 
     /// Sends `QueueDone` once the queue has run something and has nothing left: nothing
-    /// queued, running or waiting for an answer.
+    /// queued, running, paused by the schedule or waiting for an answer.
     async fn check_queue_done(&mut self) {
         if !self.ran
             || self.shutdown_reply.is_some()
@@ -1038,12 +1049,25 @@ impl Manager {
         {
             return;
         }
-        match self.env.store.list_by_state(DownloadState::Queued).await {
-            Ok(q) if q.is_empty() => {
+        let left = async {
+            let queued = self.env.store.list_by_state(DownloadState::Queued).await?;
+            let paused = self.env.store.list_by_state(DownloadState::Paused).await?;
+            Ok::<bool, odm_store::StoreError>(
+                !queued.is_empty()
+                    || paused.iter().any(|r| {
+                        matches!(
+                            r.pause_reason.as_deref(),
+                            Some(REASON_SCHEDULE | REASON_EXISTS)
+                        )
+                    }),
+            )
+        };
+        match left.await {
+            Ok(false) => {
                 self.ran = false;
                 let _ = self.env.events.send(EngineEvent::QueueDone);
             }
-            Ok(_) => {}
+            Ok(true) => {}
             Err(e) => tracing::error!("queue check: {e}"),
         }
     }

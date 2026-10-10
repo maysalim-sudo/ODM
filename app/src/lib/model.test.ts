@@ -666,6 +666,7 @@ describe("exists prompts", () => {
       { type: "exists_prompt", id: "a", name: "a.bin" },
       { type: "shutdown_pending", seconds: 60 },
       { type: "shutdown_cancelled" },
+      { type: "shutdown_failed", message: "ODM couldn't shut down the PC." },
     ] as const) {
       const r = applyEvent(rows, ev);
       expect(r.rows).toBe(rows);

@@ -290,6 +290,14 @@ describe("tag checks", () => {
   });
 });
 
+describe("schedule editor", () => {
+  it("asks for at least one day, also when a schedule arrives with none", async () => {
+    const ed = (await import("../components/ScheduleEditor.svelte?raw")).default;
+    expect(ed).toContain('"Pick at least one day."');
+    expect(ed).toMatch(/schedule\.days\.some\(Boolean\)/);
+  });
+});
+
 describe("page source", () => {
   it("slides with the spring, fades for reduced motion, and moves only transform and opacity", async () => {
     const page = (await import("../components/SettingsPage.svelte?raw")).default;
@@ -321,6 +329,8 @@ describe("page source", () => {
     expect(shutdown).toContain("<Modal");
     expect(shutdown).toContain("ODM will shut down the PC in ${left} s.");
     expect(shutdown).toContain(">Cancel shutdown<");
+    const store = (await import("./downloads.svelte.ts?raw")).default;
+    expect(store).toMatch(/shutdown_failed[\s\S]*this\.error = ev\.message/);
     const app = (await import("../App.svelte?raw")).default;
     expect(app).toContain("<ExistsDialog />");
     expect(app).toContain("<ShutdownDialog />");

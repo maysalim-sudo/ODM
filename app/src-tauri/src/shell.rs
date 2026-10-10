@@ -217,14 +217,15 @@ impl PowerActions for ShellPower {
     fn sleep(&self) {
         self.system.sleep();
     }
-    fn shutdown(&self) {
-        self.system.shutdown();
-        notify(
-            &self.app,
-            "The queue is done",
-            "ODM will shut down the PC in 60 s.",
-        );
+    fn shutdown(&self) -> Result<(), String> {
+        let r = self.system.shutdown();
+        let text = match &r {
+            Ok(()) => "ODM will shut down the PC in 60 s.",
+            Err(_) => "ODM couldn't shut down the PC.",
+        };
+        notify(&self.app, "The queue is done", text);
         show_on_main_thread(&self.app);
+        r
     }
     fn cancel_shutdown(&self) {
         self.system.cancel_shutdown();

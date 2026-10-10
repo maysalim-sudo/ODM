@@ -170,6 +170,14 @@ impl Schedule {
         }
     }
 
+    /// Turns off a schedule with no day ticked, with a warning: it could never open.
+    fn fix_days(&mut self, name: &str, w: &mut Vec<String>) {
+        if self.enabled && !self.days.contains(&true) {
+            w.push(format!("{name}: no day is ticked; the schedule is off"));
+            self.enabled = false;
+        }
+    }
+
     /// Resets each time that is not "HH:MM" to the one in `def`, with a warning.
     fn fix_times(&mut self, name: &str, def: &Schedule, w: &mut Vec<String>) {
         for (field, value, fallback) in [
@@ -189,7 +197,8 @@ impl Schedule {
 impl Schedule {
     /// The engine's window, when the schedule is on and its times are valid.
     pub fn window(&self) -> Option<Window> {
-        if !self.enabled {
+        // A window with no days would never open and stop the queue for good.
+        if !self.enabled || !self.days.contains(&true) {
             return None;
         }
         Some(Window {
@@ -435,8 +444,10 @@ impl Settings {
         }
         self.limit_schedule
             .fix_times("limit_schedule", &default_limit_schedule(), &mut w);
+        self.limit_schedule.fix_days("limit_schedule", &mut w);
         self.queue_schedule
             .fix_times("queue_schedule", &default_queue_schedule(), &mut w);
+        self.queue_schedule.fix_days("queue_schedule", &mut w);
         let mut types: Vec<String> = Vec::new();
         for t in &self.skip_types {
             match normalize_type(t) {

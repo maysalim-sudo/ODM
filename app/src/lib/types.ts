@@ -82,7 +82,8 @@ export type UiEvent =
   | { type: "tools_progress"; stage: string; done: number; total: number }
   | { type: "exists_prompt"; id: string; name: string }
   | { type: "shutdown_pending"; seconds: number }
-  | { type: "shutdown_cancelled" };
+  | { type: "shutdown_cancelled" }
+  | { type: "shutdown_failed"; message: string };
 
 /** A finished download whose file name is taken, waiting for Replace, Keep both or Cancel. */
 export interface ExistsPrompt {

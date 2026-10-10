@@ -615,6 +615,14 @@ fn behaviour_event_json_shapes_are_pinned() {
     assert_eq!(json, r#"{"type":"shutdown_pending","seconds":60}"#);
     let json = serde_json::to_string(&UiEvent::ShutdownCancelled).unwrap();
     assert_eq!(json, r#"{"type":"shutdown_cancelled"}"#);
+    let json = serde_json::to_string(&UiEvent::ShutdownFailed {
+        message: "ODM couldn't shut down the PC.".into(),
+    })
+    .unwrap();
+    assert_eq!(
+        json,
+        r#"{"type":"shutdown_failed","message":"ODM couldn't shut down the PC."}"#
+    );
 }
 
 #[test]
