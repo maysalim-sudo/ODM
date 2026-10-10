@@ -34,6 +34,9 @@ pub struct DownloadRecord {
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
     pub auto_place: bool,
+    /// Why a paused download is paused: None (by the user), "schedule" or "exists"
+    /// (waiting for the user to say what to do with a file that already exists).
+    pub pause_reason: Option<String>,
 }
 
 impl DownloadRecord {
@@ -64,6 +67,7 @@ impl DownloadRecord {
             started_at: None,
             finished_at: None,
             auto_place: false,
+            pause_reason: None,
         }
     }
 }

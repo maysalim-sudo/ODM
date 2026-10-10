@@ -15,6 +15,7 @@ import {
   integrationProblem,
   relativeTime,
   addOffer,
+  addPrompt,
   nextConfirm,
   counts,
   COL,
@@ -61,6 +62,8 @@ function dl(id: string, patch: Partial<Download> = {}): Download {
     created_at: 1,
     started_at: null,
     finished_at: null,
+    pause_reason: null,
+    speed_limit_kbps: null,
     ...patch,
   };
 }
@@ -647,5 +650,26 @@ describe("first-run setup", () => {
     expect(browserConnected(null)).toBe(false);
     expect(browserConnected({ ...st, last_contact_ms: 5, last_command: "GET_SUMMARY" })).toBe(true);
     expect(browserConnected({ ...st, last_contact_ms: 5, last_command: "PING" })).toBe(false);
+  });
+});
+
+describe("exists prompts", () => {
+  it("addPrompt keeps one prompt per download", () => {
+    const once = addPrompt([], { id: "a", name: "f.zip" });
+    expect(once).toEqual([{ id: "a", name: "f.zip" }]);
+    expect(addPrompt(once, { id: "a", name: "f.zip" })).toBe(once);
+    expect(addPrompt(once, { id: "b", name: "g.zip" })).toHaveLength(2);
+  });
+  it("applyEvent leaves rows alone for prompts and the shutdown notice", () => {
+    const rows = replaceAll([dl("a")]);
+    for (const ev of [
+      { type: "exists_prompt", id: "a", name: "a.bin" },
+      { type: "shutdown_pending", seconds: 60 },
+      { type: "shutdown_cancelled" },
+    ] as const) {
+      const r = applyEvent(rows, ev);
+      expect(r.rows).toBe(rows);
+      expect(r.resync).toBe(false);
+    }
   });
 });

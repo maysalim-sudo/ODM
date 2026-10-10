@@ -1,6 +1,6 @@
 //! Runs yt-dlp for a site download and places the finished video.
 use odm_core::{DownloadState, ErrorKind, OdmError};
-use odm_store::{DownloadRecord, ProbeMeta, StoreError};
+use odm_store::{DownloadRecord, StoreError};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::{build_args, find_js_runtime, find_ytdlp, parse_line, temp_dir, ByteCounter, Line};
-use crate::download::{place_final, set_final_name, transition, DownloadEnv, Outcome};
+use crate::download::{finalize, transition, DownloadEnv, Outcome, Placed};
 use crate::events::{EngineEvent, ProgressSnapshot};
 use crate::hls::merge::resolve_ffmpeg;
 use crate::retry::io_err;
@@ -32,7 +32,7 @@ fn cancelled() -> OdmError {
 
 pub async fn run_site(env: &DownloadEnv, id: &str, cancel: CancellationToken) -> Outcome {
     match run_inner(env, id, &cancel).await {
-        Ok(path) => Outcome::Completed { path },
+        Ok(placed) => placed.into(),
         Err(_) if cancel.is_cancelled() => Outcome::Stopped,
         Err(e) => Outcome::Failed(e),
     }
@@ -109,7 +109,7 @@ async fn run_inner(
     env: &DownloadEnv,
     id: &str,
     cancel: &CancellationToken,
-) -> Result<PathBuf, OdmError> {
+) -> Result<Placed, OdmError> {
     let rec = env
         .store
         .get_download(id)
@@ -247,21 +247,5 @@ async fn run_inner(
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| rec.filename.clone())
     };
-    let final_path = place_final(&out, Path::new(&rec.save_dir), &name, &rec)?;
-    set_final_name(env, &rec, &final_path).await?;
-    let len = std::fs::metadata(&final_path).map_err(io_err)?.len();
-    env.store
-        .update_probe(
-            id,
-            ProbeMeta {
-                size: Some(len),
-                ..Default::default()
-            },
-        )
-        .await
-        .map_err(store_err)?;
-    if let Err(e) = std::fs::remove_dir_all(&tmp) {
-        tracing::warn!(%id, "could not remove the site temp dir: {e}");
-    }
-    Ok(final_path)
+    finalize(env, &rec, &out, &name, Some(tmp)).await
 }

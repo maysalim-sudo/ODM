@@ -1,7 +1,7 @@
 //! Downloads the segments of an HLS stream into a temp directory.
 use futures_util::StreamExt;
 use odm_core::{DownloadState, ErrorKind, OdmError};
-use odm_store::{DownloadRecord, HlsMeta, ProbeMeta, SegmentRecord, Store, StoreError};
+use odm_store::{DownloadRecord, HlsMeta, SegmentRecord, Store, StoreError};
 use reqwest::header::{self, HeaderMap};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use super::crypto::{decrypt_aes128, iv_for};
 use super::merge::{merge, resolve_ffmpeg};
 use super::playlist::{best_variant, parse, Key, KeyMethod, MediaPlaylist, Playlist};
-use crate::download::{header_map, place_final, set_final_name, transition, DownloadEnv, Outcome};
+use crate::download::{finalize, header_map, transition, DownloadEnv, Outcome, Placed};
 use crate::events::{EngineEvent, ProgressSnapshot, SegmentProgress};
 use crate::retry::{backoff_delay, classify_status, http_err, io_err, parse_retry_after};
 use crate::speed::{eta, SpeedMeter};
@@ -40,7 +40,7 @@ fn cancelled() -> OdmError {
 
 pub async fn run_hls(env: &DownloadEnv, id: &str, cancel: CancellationToken) -> Outcome {
     match run_inner(env, id, &cancel).await {
-        Ok(path) => Outcome::Completed { path },
+        Ok(placed) => placed.into(),
         Err(_) if cancel.is_cancelled() => Outcome::Stopped,
         Err(e) => Outcome::Failed(e),
     }
@@ -285,7 +285,7 @@ async fn run_inner(
     env: &DownloadEnv,
     id: &str,
     cancel: &CancellationToken,
-) -> Result<PathBuf, OdmError> {
+) -> Result<Placed, OdmError> {
     let rec = env
         .store
         .get_download(id)
@@ -457,21 +457,5 @@ async fn run_inner(
     let ffmpeg = resolve_ffmpeg(&env.config)
         .ok_or_else(|| other("FFmpeg not found — set its path in Settings."))?;
     let out = merge(&ffmpeg, &dir, total, media.map_url.is_some(), cancel).await?;
-    let final_path = place_final(&out, Path::new(&rec.save_dir), &rec.filename, &rec)?;
-    set_final_name(env, &rec, &final_path).await?;
-    let len = std::fs::metadata(&final_path).map_err(io_err)?.len();
-    env.store
-        .update_probe(
-            id,
-            ProbeMeta {
-                size: Some(len),
-                ..Default::default()
-            },
-        )
-        .await
-        .map_err(store_err)?;
-    if let Err(e) = std::fs::remove_dir_all(&dir) {
-        tracing::warn!(%id, "could not remove the HLS temp dir: {e}");
-    }
-    Ok(final_path)
+    finalize(env, &rec, &out, &rec.filename, Some(dir)).await
 }

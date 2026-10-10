@@ -1,6 +1,6 @@
 <script lang="ts">
   import { downloads } from "../lib/downloads.svelte";
-  import { formatBytes, formatDate, formatEta, formatSpeed, stateLabel } from "../lib/format";
+  import { formatBytes, formatDate, formatEta, formatSpeed, statusLabel } from "../lib/format";
   import { progressPct, type SortKey } from "../lib/model";
   import ProgressBar from "./ProgressBar.svelte";
 
@@ -73,8 +73,8 @@
             </td>
             <td class="num c-speed">{row.state === "downloading" ? formatSpeed(row.speed_bps) : "—"}</td>
             <td class="num c-eta">{row.state === "downloading" ? formatEta(row.eta_s) : "—"}</td>
-            <td class="status" class:bad={row.state === "failed"} title={row.error_message ?? ""}>
-              {stateLabel(row.state)}
+            <td class="status" class:bad={row.state === "failed"} title={row.error_message ?? statusLabel(row.state, row.pause_reason)}>
+              {statusLabel(row.state, row.pause_reason)}
             </td>
             <td class="num added c-added">{formatDate(row.created_at)}</td>
           </tr>

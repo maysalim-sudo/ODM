@@ -9,6 +9,7 @@ use odm_appcore::ipc::IpcContext;
 use odm_appcore::offers::Offers;
 #[cfg(windows)]
 use odm_appcore::pipe;
+use odm_appcore::power::{Power, SystemPower};
 use odm_appcore::{bridge, logging, registration, summary, AppPaths, Settings};
 use odm_engine::ManagerHandle;
 use odm_store::Store;
@@ -43,6 +44,8 @@ pub struct AppState {
     pub pipe_running: AtomicBool,
     /// True while "Get video tools" is downloading, so it cannot start twice.
     pub tools_busy: AtomicBool,
+    /// Prevent sleep and the "When the queue is done" action.
+    pub power: Arc<Power<shell::ShellPower>>,
 }
 
 fn start_engine(paths: &AppPaths, settings: &Settings) -> Result<ManagerHandle, String> {
@@ -102,6 +105,10 @@ pub fn run() {
             let pending = Arc::new(Pending::default());
             let ipc_stop = CancellationToken::new();
             let contact = Arc::new(Contact::default());
+            let power = Arc::new(Power::new(shell::ShellPower {
+                system: SystemPower::new(),
+                app: app.handle().clone(),
+            }));
             app.manage(AppState {
                 manager: manager.clone(),
                 settings: settings.clone(),
@@ -114,11 +121,23 @@ pub fn run() {
                 contact: contact.clone(),
                 pipe_running: AtomicBool::new(false),
                 tools_busy: AtomicBool::new(false),
+                power: power.clone(),
             });
             // Keep the log flushing for as long as the app runs.
             app.manage(Mutex::new(log_guard));
 
             let handle = app.handle().clone();
+            let power_handle = handle.clone();
+            tauri::async_runtime::spawn(odm_appcore::power::run(
+                manager.clone(),
+                settings.clone(),
+                power,
+                move |ev: UiEvent| {
+                    if let Err(e) = power_handle.emit(EVENT, &ev) {
+                        tracing::warn!("could not send an event to the window: {e}");
+                    }
+                },
+            ));
             // `track` spawns a task, so it needs the async runtime context.
             let speeds = tauri::async_runtime::block_on(async { summary::track(&manager) });
             let show_handle = handle.clone();
@@ -221,6 +240,9 @@ pub fn run() {
             commands::store_links,
             commands::tools_status,
             commands::tools_install,
+            commands::answer_exists,
+            commands::set_download_limit,
+            commands::cancel_shutdown,
         ])
         .build(tauri::generate_context!())
         .expect("error while building ODM");

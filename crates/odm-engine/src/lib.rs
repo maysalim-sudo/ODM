@@ -8,9 +8,10 @@ pub mod probe;
 pub use probe::{probe, ProbeResult};
 pub mod config;
 pub mod events;
+pub mod schedule;
 pub mod speed;
 
-pub use config::EngineConfig;
+pub use config::{EngineConfig, ExistsChoice, ExistsPolicy};
 pub use events::{ChunkView, ChunkViewState, EngineEvent, ProgressSnapshot, SegmentProgress};
 pub mod worker;
 

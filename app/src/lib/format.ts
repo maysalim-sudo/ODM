@@ -63,6 +63,17 @@ export function stateLabel(state: DownloadState): string {
   return LABELS[state];
 }
 
+const PAUSE_REASONS: Record<string, string> = {
+  schedule: "Paused by schedule",
+  exists: "Waiting for your choice",
+};
+
+/** The status of a row, saying why a paused download is paused. */
+export function statusLabel(state: DownloadState, pauseReason: string | null): string {
+  if (state === "paused" && pauseReason) return PAUSE_REASONS[pauseReason] ?? LABELS.paused;
+  return LABELS[state];
+}
+
 /** Join a folder and a file name with the separator the folder already uses. */
 export function joinPath(dir: string, name: string): string {
   const sep = dir.includes("\\") ? "\\" : "/";

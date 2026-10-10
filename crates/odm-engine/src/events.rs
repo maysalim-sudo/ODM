@@ -61,6 +61,15 @@ pub enum EngineEvent {
     Removed {
         id: String,
     },
+    /// A finished download's file name is taken and the policy is "ask". The
+    /// download is paused (reason "exists") until `ManagerHandle::answer_exists`.
+    ExistsPrompt {
+        id: String,
+        name: String,
+    },
+    /// The queue ran at least one download to completion and now has nothing left
+    /// to run (nothing queued, active or waiting for an answer).
+    QueueDone,
 }
 
 #[cfg(test)]
@@ -129,6 +138,14 @@ mod tests {
             json(&EngineEvent::Removed { id: "a1".into() }),
             r#"{"type":"removed","id":"a1"}"#
         );
+        assert_eq!(
+            json(&EngineEvent::ExistsPrompt {
+                id: "a1".into(),
+                name: "f.zip".into()
+            }),
+            r#"{"type":"exists_prompt","id":"a1","name":"f.zip"}"#
+        );
+        assert_eq!(json(&EngineEvent::QueueDone), r#"{"type":"queue_done"}"#);
     }
 
     #[test]

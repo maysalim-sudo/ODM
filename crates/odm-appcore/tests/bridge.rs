@@ -244,3 +244,31 @@ async fn upsert_never_reports_fewer_bytes_than_pending_progress() {
     );
     assert_eq!(upsert_bytes_after_progress(DownloadState::Paused).await, 38);
 }
+
+#[tokio::test]
+async fn exists_prompts_reach_the_ui_and_queue_done_does_not() {
+    let (tx, rx) = broadcast::channel(8);
+    let (log, emit) = sink();
+    let task = tokio::spawn(bridge::pump(
+        rx,
+        |_id| async { None },
+        Duration::from_secs(60),
+        emit,
+    ));
+    tx.send(EngineEvent::ExistsPrompt {
+        id: "a".into(),
+        name: "f.zip".into(),
+    })
+    .unwrap();
+    tx.send(EngineEvent::QueueDone).unwrap();
+    settle().await;
+    drop(tx);
+    task.await.unwrap();
+    assert_eq!(
+        log.lock().unwrap().clone(),
+        vec![UiEvent::ExistsPrompt {
+            id: "a".into(),
+            name: "f.zip".into()
+        }]
+    );
+}

@@ -131,6 +131,7 @@ async fn batch_adds_valid_urls_and_reports_the_rest() {
         &m,
         &text,
         Some(d.path().join("batch").to_string_lossy().into_owned()),
+        false,
     )
     .await
     .unwrap();
@@ -551,4 +552,79 @@ async fn add_with_page_flag_adds_a_site_download() {
     assert_eq!(rec.kind, "site");
     assert_eq!(rec.url, "https://www.youtube.com/watch?v=abc");
     assert_eq!(rec.state, DownloadState::Paused);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn batch_can_add_paused() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(1000, Faults::default()).await;
+    let m = manager(d.path()).await;
+    let r = api::add_batch(&m, &s.url("/file"), None, true)
+        .await
+        .unwrap();
+    let (rec, _) = m.get(&r.added[0]).await.unwrap().unwrap();
+    assert_eq!(rec.state, DownloadState::Paused);
+}
+
+#[test]
+fn start_mode_decides_whether_adds_start_paused() {
+    use odm_appcore::settings::StartMode;
+    assert!(!api::starts_paused(&Settings::default()));
+    let paused = Settings {
+        start_mode: StartMode::Paused,
+        ..Settings::default()
+    };
+    assert!(api::starts_paused(&paused));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn add_with_a_speed_limit_and_change_it() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(1000, Faults::default()).await;
+    let m = manager(d.path()).await;
+    let id = api::add(
+        &m,
+        AddArgs {
+            url: s.url("/file"),
+            start_paused: true,
+            speed_limit_kbps: Some(300),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let dto = api::detail(&m, &id).await.unwrap().unwrap().download;
+    assert_eq!(dto.speed_limit_kbps, Some(300));
+    api::set_download_limit(&m, &id, None).await.unwrap();
+    let dto = api::detail(&m, &id).await.unwrap().unwrap().download;
+    assert_eq!(dto.speed_limit_kbps, None);
+    api::set_download_limit(&m, &id, Some(64)).await.unwrap();
+    let (rec, _) = m.get(&id).await.unwrap().unwrap();
+    assert_eq!(rec.speed_limit, Some(64 * 1024));
+}
+
+#[test]
+fn behaviour_event_json_shapes_are_pinned() {
+    let json = serde_json::to_string(&UiEvent::ExistsPrompt {
+        id: "a".into(),
+        name: "f.zip".into(),
+    })
+    .unwrap();
+    assert_eq!(json, r#"{"type":"exists_prompt","id":"a","name":"f.zip"}"#);
+    let json = serde_json::to_string(&UiEvent::ShutdownPending { seconds: 60 }).unwrap();
+    assert_eq!(json, r#"{"type":"shutdown_pending","seconds":60}"#);
+    let json = serde_json::to_string(&UiEvent::ShutdownCancelled).unwrap();
+    assert_eq!(json, r#"{"type":"shutdown_cancelled"}"#);
+}
+
+#[test]
+fn rows_say_why_a_download_is_paused() {
+    let mut r = odm_store::DownloadRecord::new_file("a", "https://e.com/f", "f", "C:/dl");
+    r.state = DownloadState::Paused;
+    r.pause_reason = Some("schedule".into());
+    let dto = odm_appcore::dto::to_dto(&r, 0);
+    assert_eq!(dto.pause_reason.as_deref(), Some("schedule"));
+    let json = serde_json::to_value(&dto).unwrap();
+    assert_eq!(json["pause_reason"], "schedule");
+    assert!(json["speed_limit_kbps"].is_null());
 }

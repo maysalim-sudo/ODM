@@ -115,6 +115,11 @@ fn confirm_wanted(ctx: &IpcContext) -> bool {
         .confirm_browser_downloads
 }
 
+/// "Start new downloads: Paused": added paused, without the New download dialog.
+fn paused_wanted(ctx: &IpcContext) -> bool {
+    crate::api::starts_paused(&ctx.settings.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
 /// The download was added paused: queue it for the "New download" dialog and bring the window up.
 fn ask_to_confirm(ctx: &IpcContext, download_id: &str) {
     ctx.pending.push(download_id.to_string());
@@ -157,7 +162,7 @@ async fn add_stream(ctx: &IpcContext, id: Option<String>, payload: Value) -> Res
         ..Default::default()
     };
     let confirm = confirm_wanted(ctx);
-    req.start_paused = confirm;
+    req.start_paused = confirm || paused_wanted(ctx);
     match ctx.manager.add_stream(req).await {
         Ok(download_id) => {
             if confirm {
@@ -200,7 +205,7 @@ async fn add_page(ctx: &IpcContext, id: Option<String>, payload: Value) -> Respo
         page_url: p.page_url,
         page_title: p.page_title.filter(|t| !t.trim().is_empty()),
         headers: normalize_headers(headers),
-        start_paused: confirm,
+        start_paused: confirm || paused_wanted(ctx),
         ..Default::default()
     };
     match ctx.manager.add_site(req).await {
@@ -238,7 +243,7 @@ async fn add_download(ctx: &IpcContext, id: Option<String>, payload: Value) -> R
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        if let Some(reason) = skip_reason(&settings, &p.url, p.filesize) {
+        if let Some(reason) = skip_reason(&settings, &p.url, p.filename.as_deref(), p.filesize) {
             return Response::err(id, code::SKIPPED, reason);
         }
     }
@@ -299,7 +304,7 @@ async fn add_download(ctx: &IpcContext, id: Option<String>, payload: Value) -> R
     }
 
     let confirm = confirm_wanted(ctx);
-    req.start_paused = confirm;
+    req.start_paused = confirm || paused_wanted(ctx);
     match ctx.manager.add(req).await {
         Ok(download_id) => {
             if confirm {

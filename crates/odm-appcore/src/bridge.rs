@@ -51,6 +51,9 @@ pub async fn pump<L, Fut, F>(
                     pending.remove(&id);
                     emit(UiEvent::Removed { id });
                 }
+                Ok(EngineEvent::ExistsPrompt { id, name }) => emit(UiEvent::ExistsPrompt { id, name }),
+                // The power module acts on it; the list has nothing to show.
+                Ok(EngineEvent::QueueDone) => {}
                 Err(RecvError::Lagged(missed)) => {
                     tracing::warn!(missed, "UI bridge lagged behind engine events; asking the UI to reload");
                     pending.clear();

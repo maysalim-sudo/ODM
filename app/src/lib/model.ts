@@ -1,4 +1,4 @@
-import type { ChunkState, ChunkView, Download, DownloadState, IntegrationStatus, Offer, SegmentProgress, StoreLinks, ToolInfo, ToolsStatus, UiEvent } from "./types";
+import type { ChunkState, ChunkView, Download, DownloadState, ExistsPrompt, IntegrationStatus, Offer, SegmentProgress, StoreLinks, ToolInfo, ToolsStatus, UiEvent } from "./types";
 
 /** A list row: the stored download plus live values from progress events. */
 export interface Row extends Download {
@@ -105,6 +105,9 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
     case "reuse_offer":
     case "confirm_download":
     case "tools_progress":
+    case "exists_prompt":
+    case "shutdown_pending":
+    case "shutdown_cancelled":
       // Offers and confirmations are not rows; the store handles them before this function.
       return { rows, resync: false };
   }
@@ -196,6 +199,11 @@ export function isRiskyFile(name: string): boolean {
 /** The list with `o` added, or the same list when its offer_id is already there. */
 export function addOffer(list: Offer[], o: Offer): Offer[] {
   return list.some((x) => x.offer_id === o.offer_id) ? list : [...list, o];
+}
+
+/** "<name> already exists" prompts waiting for an answer, one per download, oldest first. */
+export function addPrompt(list: ExistsPrompt[], p: ExistsPrompt): ExistsPrompt[] {
+  return list.some((x) => x.id === p.id) ? list : [...list, p];
 }
 
 /** The first pending id whose row is paused, i.e. the next "New download" dialog to show. */

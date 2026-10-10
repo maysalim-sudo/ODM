@@ -1,6 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AddArgs, BatchResult, ConfirmArgs, Detail, Download, IntegrationStatus, Offer, Settings, StoreLinks, Suggestion, ToolsStatus, UiEvent } from "./types";
+import type {
+  AddArgs,
+  BatchResult,
+  ConfirmArgs,
+  Detail,
+  Download,
+  ExistsChoice,
+  IntegrationStatus,
+  Offer,
+  Settings,
+  StoreLinks,
+  Suggestion,
+  ToolsStatus,
+  UiEvent,
+} from "./types";
 
 export const listDownloads = () => invoke<Download[]>("list_downloads");
 export const getDetail = (id: string) => invoke<Detail | null>("get_detail", { id });
@@ -54,3 +68,9 @@ export const pickProgram = (start: string | null) => invoke<string | null>("pick
 /** The settings a new install starts with. */
 export const defaultSettings = () => invoke<Settings>("default_settings");
 export const openAppFolder = (kind: "logs" | "data") => invoke<void>("open_app_folder", { kind });
+/** The answer to "<name> already exists". */
+export const answerExists = (id: string, choice: ExistsChoice) => invoke<void>("answer_exists", { id, choice });
+/** A download's own speed limit in KB/s; null removes it. */
+export const setDownloadLimit = (id: string, kbps: number | null) => invoke<void>("set_download_limit", { id, kbps });
+/** Cancels the shutdown that "When the queue is done" started. */
+export const cancelShutdown = () => invoke<void>("cancel_shutdown");

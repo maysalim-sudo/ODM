@@ -4,13 +4,16 @@ use odm_engine::hls::output_name;
 use odm_engine::hls::playlist::{parse, Playlist, Variant};
 use odm_engine::retry::{classify_status, http_err};
 use odm_engine::site::is_site_page_url;
-use odm_engine::{AddRequest, EngineConfig, ManagerHandle, SiteRequest, StreamRequest};
+use odm_engine::{
+    AddRequest, EngineConfig, ExistsChoice, ManagerHandle, SiteRequest, StreamRequest,
+};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::confirm::Pending;
 use crate::dto::{chunk_views, to_dto, DetailDto, DownloadDto};
 use crate::offers::Offers;
+use crate::settings::StartMode;
 use crate::Settings;
 
 pub use crate::messages::user_message;
@@ -60,6 +63,13 @@ pub struct AddArgs {
     pub stream: bool,
     /// `url` is a page of a video site: add it as a site download (yt-dlp).
     pub page: bool,
+    /// This download's own speed limit in KB/s; None or 0 = none. Plain files only.
+    pub speed_limit_kbps: Option<u64>,
+}
+
+/// Whether new downloads are added paused ("Start new downloads: Paused").
+pub fn starts_paused(s: &Settings) -> bool {
+    s.start_mode == StartMode::Paused
 }
 
 pub async fn add(m: &ManagerHandle, a: AddArgs) -> Result<String, String> {
@@ -91,7 +101,30 @@ pub async fn add(m: &ManagerHandle, a: AddArgs) -> Result<String, String> {
     req.checksum = given(a.checksum);
     req.max_connections = a.connections;
     req.start_paused = a.start_paused;
+    req.speed_limit = a
+        .speed_limit_kbps
+        .filter(|&k| k > 0)
+        .map(|k| k.saturating_mul(1024));
     m.add(req).await.map_err(msg)
+}
+
+/// A download's own speed limit in KB/s; None or 0 removes it.
+pub async fn set_download_limit(
+    m: &ManagerHandle,
+    id: &str,
+    kbps: Option<u64>,
+) -> Result<(), String> {
+    let bps = kbps.filter(|&k| k > 0).map(|k| k.saturating_mul(1024));
+    m.set_download_limit(id, bps).await.map_err(msg)
+}
+
+/// The user's answer when a finished download's file name is taken.
+pub async fn answer_exists(
+    m: &ManagerHandle,
+    id: &str,
+    choice: ExistsChoice,
+) -> Result<(), String> {
+    m.answer_exists(id, choice).await.map_err(msg)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -138,6 +171,7 @@ pub async fn add_batch(
     m: &ManagerHandle,
     text: &str,
     save_dir: Option<String>,
+    start_paused: bool,
 ) -> Result<BatchResult, String> {
     let parsed = parse_urls(text);
     let save_dir = given(save_dir);
@@ -147,6 +181,7 @@ pub async fn add_batch(
         let args = AddArgs {
             url: url.clone(),
             save_dir: save_dir.clone(),
+            start_paused,
             ..Default::default()
         };
         match add(m, args).await {

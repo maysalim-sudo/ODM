@@ -67,8 +67,11 @@ CREATE TABLE hls_meta (
 
 const V2: &str = "ALTER TABLE downloads ADD COLUMN auto_place INTEGER NOT NULL DEFAULT 0;";
 
+/// Why a paused download is paused: NULL (by the user), 'schedule' or 'exists'.
+const V3: &str = "ALTER TABLE downloads ADD COLUMN pause_reason TEXT;";
+
 /// Ordered; index i migrates to user_version i+1. Append only — never edit a shipped entry.
-const MIGRATIONS: &[&str] = &[V1, V2];
+const MIGRATIONS: &[&str] = &[V1, V2, V3];
 
 pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;

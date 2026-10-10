@@ -1,7 +1,32 @@
 use odm_core::Category;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
+
+use crate::schedule::{active, LocalNow, Window};
+
+/// What to do when a finished download's file name is already taken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExistsPolicy {
+    /// Keep both: the new file gets a number, `name (1).ext`.
+    #[default]
+    Rename,
+    /// Replace the existing file.
+    Overwrite,
+    /// Pause the download and ask (`EngineEvent::ExistsPrompt`).
+    Ask,
+}
+
+/// The user's answer to `EngineEvent::ExistsPrompt`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExistsChoice {
+    Replace,
+    KeepBoth,
+    Cancel,
+}
 
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
@@ -29,6 +54,15 @@ pub struct EngineConfig {
     /// ODM's own folder for downloaded tools (`ffmpeg.exe`, `yt-dlp.exe`, `deno.exe`). It is
     /// searched after the configured paths and before `PATH`.
     pub tools_dir: Option<PathBuf>,
+    pub on_exists: ExistsPolicy,
+    /// When `speed_limit_bps` applies; None = always.
+    pub limit_window: Option<Window>,
+    /// When queued downloads may run; None = always. Running ones pause when it ends.
+    pub queue_window: Option<Window>,
+    /// Remove completed records older than this many days, once a day; 0 = never.
+    pub history_days: u32,
+    /// How often the manager checks the schedules and the history.
+    pub timer_interval: Duration,
 }
 
 impl Default for EngineConfig {
@@ -58,6 +92,11 @@ impl Default for EngineConfig {
             ytdlp_path: None,
             ytdlp_search: true,
             tools_dir: None,
+            on_exists: ExistsPolicy::Rename,
+            limit_window: None,
+            queue_window: None,
+            history_days: 0,
+            timer_interval: Duration::from_secs(30),
         }
     }
 }
@@ -76,7 +115,22 @@ impl EngineConfig {
             .clamp(Duration::from_secs(10), Duration::from_secs(300));
         self.progress_interval = self.progress_interval.max(Duration::from_millis(50));
         self.persist_interval = self.persist_interval.max(Duration::from_millis(100));
+        self.timer_interval = self.timer_interval.max(Duration::from_millis(10));
         self
+    }
+
+    /// The total speed limit in force at `now`: `speed_limit_bps` inside the limit
+    /// window (or always, without one), unlimited (0) outside it.
+    pub fn limit_at(&self, now: LocalNow) -> u64 {
+        match &self.limit_window {
+            Some(w) if !active(now, w) => 0,
+            _ => self.speed_limit_bps,
+        }
+    }
+
+    /// Whether queued downloads may start at `now`.
+    pub fn queue_open_at(&self, now: LocalNow) -> bool {
+        self.queue_window.as_ref().is_none_or(|w| active(now, w))
     }
 
     pub fn save_dir_for(&self, category: &str) -> PathBuf {
@@ -113,6 +167,33 @@ mod tests {
         assert_eq!(c.save_dir_for("video"), c.download_dir);
         assert_eq!(c.save_dir_for("general"), c.download_dir);
         assert!(super::EngineConfig::default().sort_by_type);
+    }
+
+    #[test]
+    fn the_limit_applies_only_inside_its_window() {
+        use crate::schedule::{LocalNow, Window};
+        let at = |minute| LocalNow {
+            unix_ms: 0,
+            weekday: 0,
+            minute,
+        };
+        let mut c = super::EngineConfig {
+            speed_limit_bps: 1000,
+            ..Default::default()
+        };
+        assert_eq!(c.limit_at(at(0)), 1000, "no window: always");
+        c.limit_window = Some(Window {
+            days: [true; 7],
+            from: 9 * 60,
+            to: 18 * 60,
+        });
+        assert_eq!(c.limit_at(at(9 * 60)), 1000);
+        assert_eq!(c.limit_at(at(18 * 60)), 0);
+        assert_eq!(c.limit_at(at(3 * 60)), 0);
+        assert!(c.queue_open_at(at(3 * 60)), "no queue window: always open");
+        c.queue_window = c.limit_window;
+        assert!(!c.queue_open_at(at(3 * 60)));
+        assert!(c.queue_open_at(at(10 * 60)));
     }
 
     #[test]

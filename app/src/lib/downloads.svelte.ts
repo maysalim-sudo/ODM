@@ -1,6 +1,6 @@
 import * as api from "./api";
-import { ReloadGate, addOffer, applyEvent, counts, keepVisible, nextConfirm, visible, type Filter, type Row, type SortDir, type SortKey } from "./model";
-import type { ConfirmArgs, Offer, UiEvent } from "./types";
+import { ReloadGate, addOffer, addPrompt, applyEvent, counts, keepVisible, nextConfirm, visible, type Filter, type Row, type SortDir, type SortKey } from "./model";
+import type { ConfirmArgs, ExistsChoice, ExistsPrompt, Offer, UiEvent } from "./types";
 
 class DownloadsStore {
   rows = $state<Map<string, Row>>(new Map());
@@ -16,6 +16,12 @@ class DownloadsStore {
 
   /** Browser downloads added paused that wait for the "New download" dialog, oldest first. */
   confirms = $state<string[]>([]);
+
+  /** Finished downloads whose file name is taken, waiting for Replace, Keep both or Cancel. */
+  prompts = $state<ExistsPrompt[]>([]);
+
+  /** When "When the queue is done: Shut down" will shut the PC down (epoch ms), or null. */
+  shutdownAt = $state<number | null>(null);
 
   visible = $derived(visible(this.rows, this.filter, this.sortKey, this.sortDir));
   counts = $derived(counts(this.rows));
@@ -45,6 +51,17 @@ class DownloadsStore {
     this.offers = this.offers.filter((o) => o.offer_id !== offer.offer_id);
   }
 
+  /** Send the answer, then drop the prompt. Throws the command's message on failure; the prompt stays. */
+  async answerExists(p: ExistsPrompt, choice: ExistsChoice): Promise<void> {
+    await api.answerExists(p.id, choice);
+    this.dismissPrompt(p.id);
+  }
+
+  /** Hide a prompt without answering; the download keeps waiting and Resume asks again. */
+  dismissPrompt(id: string): void {
+    this.prompts = this.prompts.filter((p) => p.id !== id);
+  }
+
   private addConfirm(id: string): void {
     if (!this.confirms.includes(id)) this.confirms = [...this.confirms, id];
   }
@@ -56,6 +73,12 @@ class DownloadsStore {
       return r === undefined || r.state === "paused";
     });
     if (kept.length !== this.confirms.length) this.confirms = kept;
+    // A prompt goes once its download is no longer waiting (cancelled or removed from the list).
+    const waiting = this.prompts.filter((p) => {
+      const r = this.rows.get(p.id);
+      return r === undefined || (r.state === "paused" && r.pause_reason === "exists");
+    });
+    if (waiting.length !== this.prompts.length) this.prompts = waiting;
   }
 
   /**
@@ -100,6 +123,18 @@ class DownloadsStore {
     }
     if (ev.type === "confirm_download") {
       this.addConfirm(ev.id);
+      return;
+    }
+    if (ev.type === "exists_prompt") {
+      this.prompts = addPrompt(this.prompts, { id: ev.id, name: ev.name });
+      return;
+    }
+    if (ev.type === "shutdown_pending") {
+      this.shutdownAt = Date.now() + ev.seconds * 1000;
+      return;
+    }
+    if (ev.type === "shutdown_cancelled") {
+      this.shutdownAt = null;
       return;
     }
     this.gate.record(ev);

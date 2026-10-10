@@ -1,5 +1,5 @@
 use odm_core::ErrorKind;
-use odm_engine::download::{build_client, part_path, run_download, DownloadEnv, Outcome};
+use odm_engine::download::{part_path, run_download, DownloadEnv, Outcome};
 use odm_engine::{EngineConfig, SpeedLimiter};
 use odm_store::{ChunkRecord, DownloadRecord, Store};
 use odm_testserver::{body, Faults, TestServer};
@@ -26,13 +26,12 @@ fn fx() -> Fx {
         ..Default::default()
     };
     let (events, _) = tokio::sync::broadcast::channel(1024);
-    let env = DownloadEnv {
-        store: Store::open_in_memory().unwrap(),
-        client: build_client(&config),
-        limiter: Arc::new(SpeedLimiter::new(0)),
-        events,
+    let env = DownloadEnv::new(
+        Store::open_in_memory().unwrap(),
         config,
-    };
+        Arc::new(SpeedLimiter::new(0)),
+        events,
+    );
     Fx { env, dir }
 }
 

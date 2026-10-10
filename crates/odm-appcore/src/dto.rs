@@ -26,6 +26,10 @@ pub struct DownloadDto {
     pub created_at: i64,
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
+    /// Why a paused download is paused: null (by the user), "schedule" or "exists".
+    pub pause_reason: Option<String>,
+    /// This download's own speed limit; null = none.
+    pub speed_limit_kbps: Option<u64>,
 }
 
 /// The stored failure text, rewritten in plain language when its code is known.
@@ -64,6 +68,8 @@ pub fn to_dto(r: &DownloadRecord, bytes: u64) -> DownloadDto {
         created_at: r.created_at,
         started_at: r.started_at,
         finished_at: r.finished_at,
+        pause_reason: r.pause_reason.clone(),
+        speed_limit_kbps: r.speed_limit.map(|b| (b / 1024).max(1)),
     }
 }
 
@@ -126,6 +132,17 @@ pub enum UiEvent {
         done: u64,
         total: u64,
     },
+    /// A finished download's file name is taken: ask Replace, Keep both or Cancel.
+    ExistsPrompt {
+        id: String,
+        name: String,
+    },
+    /// The queue is done and the PC shuts down in `seconds` unless the user cancels.
+    ShutdownPending {
+        seconds: u32,
+    },
+    /// The pending shutdown was cancelled.
+    ShutdownCancelled,
 }
 
 /// The download in `ev`, if this event says it just completed.

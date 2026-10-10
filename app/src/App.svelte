@@ -12,6 +12,8 @@
   import BrowserDialog from "./components/BrowserDialog.svelte";
   import WelcomeDialog from "./components/WelcomeDialog.svelte";
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
+  import ExistsDialog from "./components/ExistsDialog.svelte";
+  import ShutdownDialog from "./components/ShutdownDialog.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toolbar from "./components/Toolbar.svelte";
@@ -52,7 +54,9 @@
       programOpen ||
       browserOpen ||
       welcomeOpen ||
-      downloads.offers.length > 0
+      downloads.offers.length > 0 ||
+      downloads.prompts.length > 0 ||
+      downloads.shutdownAt !== null
     )
       return;
     if (e.ctrlKey && e.key === ",") {
@@ -126,6 +130,8 @@
 <SettingsPage open={settingsOpen} onclose={() => (settingsOpen = false)} onbrowser={() => (browserOpen = true)} />
 <ReuseDialog />
 <ConfirmDialog />
+<ExistsDialog />
+<ShutdownDialog />
 
 <style>
   .app {

@@ -6,7 +6,7 @@ use crate::models::{now_ms, ChunkRecord, DownloadRecord, HlsMeta, ProbeMeta, Seg
 const COLS: &str =
     "id,url,final_url,filename,save_dir,size,mime,category,state,error_kind,error_msg,\
 priority,max_connections,speed_limit,etag,last_modified,checksum,kind,page_url,page_title,\
-filename_locked,created_at,started_at,finished_at,auto_place";
+filename_locked,created_at,started_at,finished_at,auto_place,pause_reason";
 
 fn to_record(r: &Row) -> rusqlite::Result<DownloadRecord> {
     let state: String = r.get(8)?;
@@ -36,6 +36,7 @@ fn to_record(r: &Row) -> rusqlite::Result<DownloadRecord> {
         started_at: r.get(22)?,
         finished_at: r.get(23)?,
         auto_place: r.get::<_, i64>(24)? != 0,
+        pause_reason: r.get(25)?,
     })
 }
 
@@ -43,14 +44,14 @@ pub fn insert_download(c: &Connection, d: &DownloadRecord) -> rusqlite::Result<(
     c.execute(
         &format!(
             "INSERT INTO downloads ({COLS}) VALUES \
-             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)"
+             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)"
         ),
         params![
             d.id, d.url, d.final_url, d.filename, d.save_dir, d.size.map(|v| v as i64), d.mime,
             d.category, d.state.as_str(), d.error_kind, d.error_msg, d.priority,
             d.max_connections as i64, d.speed_limit.map(|v| v as i64), d.etag, d.last_modified,
             d.checksum, d.kind, d.page_url, d.page_title, d.filename_locked as i64, d.created_at,
-            d.started_at, d.finished_at, d.auto_place as i64
+            d.started_at, d.finished_at, d.auto_place as i64, d.pause_reason
         ],
     )?;
     Ok(())
@@ -92,7 +93,7 @@ pub fn set_state(
         None => (None, None),
     };
     c.execute(
-        "UPDATE downloads SET state=?2, error_kind=?3, error_msg=?4,
+        "UPDATE downloads SET state=?2, error_kind=?3, error_msg=?4, pause_reason=NULL,
             started_at = CASE WHEN ?2='downloading' AND started_at IS NULL THEN ?5 ELSE started_at END,
             finished_at = CASE WHEN ?2 IN ('completed','failed','cancelled') THEN ?5
                                WHEN ?2='queued' THEN NULL ELSE finished_at END
@@ -234,7 +235,7 @@ pub fn list_with_bytes(c: &Connection) -> rusqlite::Result<Vec<(DownloadRecord, 
     let mut st = c.prepare(&format!(
         "SELECT {COLS}, {BYTES} FROM downloads ORDER BY created_at DESC, rowid DESC"
     ))?;
-    let rows = st.query_map([], |r| Ok((to_record(r)?, r.get::<_, i64>(25)? as u64)))?;
+    let rows = st.query_map([], |r| Ok((to_record(r)?, r.get::<_, i64>(26)? as u64)))?;
     rows.collect()
 }
 
@@ -242,7 +243,7 @@ pub fn get_with_bytes(c: &Connection, id: &str) -> rusqlite::Result<Option<(Down
     c.query_row(
         &format!("SELECT {COLS}, {BYTES} FROM downloads WHERE id=?1"),
         [id],
-        |r| Ok((to_record(r)?, r.get::<_, i64>(25)? as u64)),
+        |r| Ok((to_record(r)?, r.get::<_, i64>(26)? as u64)),
     )
     .optional()
 }
@@ -367,4 +368,45 @@ pub fn get_hls_meta(c: &Connection, id: &str) -> rusqlite::Result<Option<HlsMeta
         },
     )
     .optional()
+}
+
+/// Pauses with a reason (`None` = by the user). Any later `set_state` clears the reason.
+pub fn set_paused(c: &Connection, id: &str, reason: Option<&str>) -> rusqlite::Result<()> {
+    c.execute(
+        "UPDATE downloads SET state='paused', error_kind=NULL, error_msg=NULL, pause_reason=?2
+         WHERE id=?1",
+        params![id, reason],
+    )?;
+    Ok(())
+}
+
+/// Deletes the records (never the files) of downloads completed before `cutoff_ms`.
+/// Returns their ids.
+pub fn delete_completed_before(
+    c: &mut Connection,
+    cutoff_ms: i64,
+) -> rusqlite::Result<Vec<String>> {
+    let tx = c.transaction()?;
+    let ids: Vec<String> = {
+        let mut st = tx.prepare(
+            "SELECT id FROM downloads WHERE state='completed' AND finished_at IS NOT NULL
+             AND finished_at < ?1 ORDER BY finished_at",
+        )?;
+        let rows = st.query_map([cutoff_ms], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    for id in &ids {
+        tx.execute("DELETE FROM downloads WHERE id=?1", [id])?;
+    }
+    tx.commit()?;
+    Ok(ids)
+}
+
+/// Bytes per second; None = no limit of its own.
+pub fn set_speed_limit(c: &Connection, id: &str, bps: Option<u64>) -> rusqlite::Result<()> {
+    c.execute(
+        "UPDATE downloads SET speed_limit=?2 WHERE id=?1",
+        params![id, bps.map(|v| v as i64)],
+    )?;
+    Ok(())
 }

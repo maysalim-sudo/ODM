@@ -419,3 +419,71 @@ async fn add_download_passes_filesize_hint() {
     assert_eq!(rec.state, DownloadState::Paused);
     assert_eq!(rec.size, Some(123_456));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn start_mode_paused_adds_paused_without_asking() {
+    let f = fixture().await;
+    let s = server().await;
+    f.ctx.settings.lock().unwrap().start_mode = odm_appcore::settings::StartMode::Paused;
+    let r = dispatch(
+        &f.ctx,
+        req(
+            cmd::ADD_DOWNLOAD,
+            json!({"url": s.url("/file"), "filename": "a.bin", "source": "menu"}),
+        ),
+    )
+    .await;
+    assert!(r.ok, "{:?}", r.error);
+    let id = r.payload.unwrap()["download_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (rec, _) = f.ctx.manager.get(&id).await.unwrap().unwrap();
+    assert_eq!(rec.state, DownloadState::Paused);
+    assert!(f.ctx.pending.list().is_empty(), "no New download dialog");
+    assert_eq!((f.confirms().len(), f.shows()), (0, 0));
+
+    let r = dispatch(
+        &f.ctx,
+        req(
+            cmd::ADD_PAGE,
+            json!({"page_url": "https://www.youtube.com/watch?v=abc", "headers": {}}),
+        ),
+    )
+    .await;
+    assert!(r.ok, "{:?}", r.error);
+    let id = r.payload.unwrap()["download_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (rec, _) = f.ctx.manager.get(&id).await.unwrap().unwrap();
+    assert_eq!(rec.state, DownloadState::Paused);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn skip_types_leave_captured_files_to_the_browser() {
+    let f = fixture().await;
+    let s = server().await;
+    f.ctx.settings.lock().unwrap().skip_types = vec!["pdf".into()];
+    let by_name = json!({"url": s.url("/file"), "filename": "Report.PDF", "filesize": 8388608});
+    let r = dispatch(&f.ctx, req(cmd::ADD_DOWNLOAD, by_name.clone())).await;
+    let e = r.error.unwrap();
+    assert_eq!(
+        (e.code.as_str(), e.message.as_str()),
+        (code::SKIPPED, "this file type is on the skip list")
+    );
+    // Without a name, the address decides.
+    let by_url = json!({"url": s.url("/docs/a.pdf?x=1"), "filesize": 8388608});
+    assert_eq!(
+        dispatch(&f.ctx, req(cmd::ADD_DOWNLOAD, by_url))
+            .await
+            .error
+            .unwrap()
+            .code,
+        code::SKIPPED
+    );
+    // A click on "Download with ODM" is never filtered.
+    let mut menu = by_name;
+    menu["source"] = json!("menu");
+    assert!(dispatch(&f.ctx, req(cmd::ADD_DOWNLOAD, menu)).await.ok);
+}

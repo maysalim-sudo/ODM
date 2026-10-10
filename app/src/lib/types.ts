@@ -29,6 +29,10 @@ export interface Download {
   created_at: number;
   started_at: number | null;
   finished_at: number | null;
+  /** Why a paused download is paused: null (by the user), "schedule" or "exists". */
+  pause_reason: string | null;
+  /** This download's own speed limit; null = none. */
+  speed_limit_kbps: number | null;
 }
 
 export interface ChunkView {
@@ -75,7 +79,18 @@ export type UiEvent =
   | { type: "resync" }
   | { type: "reuse_offer"; offer: Offer }
   | { type: "confirm_download"; id: string }
-  | { type: "tools_progress"; stage: string; done: number; total: number };
+  | { type: "tools_progress"; stage: string; done: number; total: number }
+  | { type: "exists_prompt"; id: string; name: string }
+  | { type: "shutdown_pending"; seconds: number }
+  | { type: "shutdown_cancelled" };
+
+/** A finished download whose file name is taken, waiting for Replace, Keep both or Cancel. */
+export interface ExistsPrompt {
+  id: string;
+  name: string;
+}
+
+export type ExistsChoice = "replace" | "keep_both" | "cancel";
 
 /** The video tools ODM can use, found the way the engine finds them; null = not found. */
 export interface ToolsStatus {
@@ -169,6 +184,8 @@ export interface AddArgs {
   stream?: boolean;
   /** Site page (YouTube, Facebook…): add `url` as a video downloaded with yt-dlp. */
   page?: boolean;
+  /** This download's own speed limit in KB/s; null = none. Plain files only. */
+  speed_limit_kbps?: number | null;
 }
 
 export interface ConfirmArgs {

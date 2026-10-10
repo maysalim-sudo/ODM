@@ -14,6 +14,7 @@ import {
   matchesQuery,
   resetAll,
   restoreSection,
+  undoRestore,
   sectionHasRestore,
   splitTags,
   springEase,
@@ -91,11 +92,26 @@ describe("sections", () => {
 
 describe("READY", () => {
   it("hides rows whose engine work has not landed", () => {
-    expect(isShown("on_exists", "")).toBe(READY.on_exists === true);
-    expect(READY.on_exists).toBe(false);
+    expect(isShown("start_with_windows", "")).toBe(false);
+    expect(READY.start_with_windows).toBe(false);
     expect(isShown("download_dir", "")).toBe(true);
     expect(isShown("sort_by_type", "")).toBe(true);
     expect(isShown("notify_failed", "")).toBe(true);
+  });
+  it("shows the download behaviour rows", () => {
+    for (const id of [
+      "prevent_sleep",
+      "on_exists",
+      "on_complete",
+      "start_mode",
+      "history_days",
+      "limit_schedule",
+      "queue_schedule",
+      "after_queue",
+      "skip_types",
+    ]) {
+      expect(isShown(id, ""), id).toBe(true);
+    }
   });
   it("only names rows that exist", () => {
     const ids = new Set(ROWS.map((r) => r.id));
@@ -139,7 +155,8 @@ describe("restore defaults", () => {
     expect(out.max_connections).toBe(16);
     expect(out.download_dir).toBe("D:\\dl");
     const dl = restoreSection(changed, DEFAULTS, "downloads");
-    expect(dl.download_dir).toBe(DEFAULTS.download_dir);
+    // Users keep their folder; only "Reset all settings" puts it back.
+    expect(dl.download_dir).toBe("D:\\dl");
     expect(dl.sort_by_type).toBe(true);
     expect(dl.close_to_tray).toBe(false);
   });
@@ -155,6 +172,35 @@ describe("restore defaults", () => {
   it("reset all keeps the finished welcome screen", () => {
     const out = resetAll(changed, DEFAULTS);
     expect(out).toEqual({ ...DEFAULTS, onboarding_done: true });
+  });
+  it("reset all still resets the download folder", () => {
+    expect(resetAll(changed, DEFAULTS).download_dir).toBe(DEFAULTS.download_dir);
+  });
+  it("undo puts back only what the restore changed, keeping later edits", () => {
+    const before = changed;
+    const after = restoreSection(before, DEFAULTS, "general");
+    // Within the 5 s window the user changes a setting in another section.
+    const current: Settings = { ...after, max_connections: 4 };
+    const out = undoRestore(before, after, current);
+    expect(out.close_to_tray).toBe(false);
+    expect(out.notify_failed).toBe(false);
+    expect(out.max_connections).toBe(4);
+    expect(out.download_dir).toBe("D:\\dl");
+  });
+  it("undo of reset all keeps later edits to fields the reset did not change", () => {
+    const before: Settings = { ...DEFAULTS, close_to_tray: false };
+    const after = resetAll(before, DEFAULTS);
+    const current: Settings = { ...after, max_attempts: 9 };
+    const out = undoRestore(before, after, current);
+    expect(out.close_to_tray).toBe(false);
+    expect(out.max_attempts).toBe(9);
+  });
+  it("undo copies nested values", () => {
+    const before: Settings = { ...DEFAULTS, skip_hosts: ["a.com"] };
+    const after = restoreSection(before, DEFAULTS, "browser");
+    const out = undoRestore(before, after, after);
+    expect(out.skip_hosts).toEqual(["a.com"]);
+    expect(out.skip_hosts).not.toBe(before.skip_hosts);
   });
 });
 
@@ -265,5 +311,18 @@ describe("page source", () => {
     expect(app).not.toContain("SettingsDialog");
     expect(app).toContain("<SettingsPage");
     expect(app).toMatch(/e\.ctrlKey && e\.key === ","/);
+  });
+  it("the file-exists prompt and the shutdown notice use the shared Modal, with the plain choices", async () => {
+    const exists = (await import("../components/ExistsDialog.svelte?raw")).default;
+    expect(exists).toContain("<Modal");
+    expect(exists).toContain("already exists");
+    for (const choice of ["Replace", "Keep both", "Cancel download"]) expect(exists).toContain(`>${choice}<`);
+    const shutdown = (await import("../components/ShutdownDialog.svelte?raw")).default;
+    expect(shutdown).toContain("<Modal");
+    expect(shutdown).toContain("ODM will shut down the PC in ${left} s.");
+    expect(shutdown).toContain(">Cancel shutdown<");
+    const app = (await import("../App.svelte?raw")).default;
+    expect(app).toContain("<ExistsDialog />");
+    expect(app).toContain("<ShutdownDialog />");
   });
 });

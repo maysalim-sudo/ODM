@@ -204,4 +204,20 @@ impl Store {
         let id = id.to_string();
         self.call(move |c| repo::get_hls_meta(c, &id)).await
     }
+    /// Pauses with a reason (`None` = by the user); any later `set_state` clears it.
+    pub async fn set_paused(&self, id: &str, reason: Option<String>) -> Result<(), StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::set_paused(c, &id, reason.as_deref()))
+            .await
+    }
+    /// Deletes the records (never the files) of downloads completed before `cutoff_ms`.
+    pub async fn delete_completed_before(&self, cutoff_ms: i64) -> Result<Vec<String>, StoreError> {
+        self.call(move |c| repo::delete_completed_before(c, cutoff_ms))
+            .await
+    }
+    /// A download's own speed limit in bytes per second; None = none.
+    pub async fn set_speed_limit(&self, id: &str, bps: Option<u64>) -> Result<(), StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::set_speed_limit(c, &id, bps)).await
+    }
 }

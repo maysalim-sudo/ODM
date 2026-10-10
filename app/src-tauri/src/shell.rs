@@ -1,9 +1,12 @@
-use odm_appcore::dto::{Finished, UiEvent};
+use odm_appcore::completion::{completion_action, CompletionAction};
+use odm_appcore::dto::{DownloadDto, Finished, UiEvent};
+use odm_appcore::power::{PowerActions, SystemPower};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Manager, Window, WindowEvent};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_opener::OpenerExt;
 
 use std::sync::atomic::Ordering;
 
@@ -153,26 +156,80 @@ pub fn on_ui_event(app: &AppHandle, ev: &UiEvent) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
+    if let UiEvent::ExistsPrompt { .. } = ev {
+        // The download waits for an answer, even with ODM hidden in the tray: bring it forward.
+        show_on_main_thread(app);
+        return;
+    }
     let Some((download, how)) = state.completions.lock().unwrap().newly_finished(ev) else {
         return;
     };
-    let (wanted, title) = {
+    let (wanted, title, on_complete) = {
         let s = state.settings.lock().unwrap();
         match how {
-            Finished::Completed => (s.notify_complete, "Download complete"),
-            Finished::Failed => (s.notify_failed, "Download failed"),
+            Finished::Completed => (s.notify_complete, "Download complete", Some(s.on_complete)),
+            Finished::Failed => (s.notify_failed, "Download failed", None),
         }
     };
-    if !wanted {
-        return;
+    if let Some(action) = on_complete.and_then(|c| completion_action(c, &download.filename)) {
+        open_finished(app, download, action);
     }
-    if let Err(e) = app
-        .notification()
-        .builder()
-        .title(title)
-        .body(&download.filename)
-        .show()
-    {
+    if wanted {
+        notify(app, title, &download.filename);
+    }
+}
+
+fn notify(app: &AppHandle, title: &str, body: &str) {
+    if let Err(e) = app.notification().builder().title(title).body(body).show() {
         tracing::debug!("notification failed: {e}");
+    }
+}
+
+fn show_on_main_thread(app: &AppHandle) {
+    let h = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || show_main(&h)) {
+        tracing::warn!("could not show the window: {e}");
+    }
+}
+
+/// "When a download finishes": show the file in its folder, or open it.
+fn open_finished(app: &AppHandle, d: &DownloadDto, action: CompletionAction) {
+    let file = std::path::Path::new(&d.save_dir).join(&d.filename);
+    let r = match action {
+        CompletionAction::OpenFolder => app.opener().reveal_item_in_dir(&file),
+        CompletionAction::OpenFile => app.opener().open_path(file.to_string_lossy(), None::<&str>),
+    };
+    if let Err(e) = r {
+        tracing::warn!("could not open the finished download: {e}");
+    }
+}
+
+/// The side effects of "Prevent sleep" and "When the queue is done", plus quitting ODM.
+pub struct ShellPower {
+    pub system: SystemPower,
+    pub app: AppHandle,
+}
+
+impl PowerActions for ShellPower {
+    fn keep_awake(&self, on: bool) {
+        self.system.keep_awake(on);
+    }
+    fn sleep(&self) {
+        self.system.sleep();
+    }
+    fn shutdown(&self) {
+        self.system.shutdown();
+        notify(
+            &self.app,
+            "The queue is done",
+            "ODM will shut down the PC in 60 s.",
+        );
+        show_on_main_thread(&self.app);
+    }
+    fn cancel_shutdown(&self) {
+        self.system.cancel_shutdown();
+    }
+    fn quit(&self) {
+        request_quit(&self.app);
     }
 }

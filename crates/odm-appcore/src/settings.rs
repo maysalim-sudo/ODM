@@ -1,6 +1,7 @@
 use crate::capture::normalize_host;
 use odm_core::Category;
-use odm_engine::EngineConfig;
+use odm_engine::schedule::Window;
+use odm_engine::{EngineConfig, ExistsPolicy};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -185,6 +186,20 @@ impl Schedule {
     }
 }
 
+impl Schedule {
+    /// The engine's window, when the schedule is on and its times are valid.
+    pub fn window(&self) -> Option<Window> {
+        if !self.enabled {
+            return None;
+        }
+        Some(Window {
+            days: self.days,
+            from: parse_hhmm(&self.from)?,
+            to: parse_hhmm(&self.to)?,
+        })
+    }
+}
+
 impl Default for Schedule {
     fn default() -> Self {
         Self::new("00:00", "06:00")
@@ -208,6 +223,24 @@ pub fn parse_hhmm(text: &str) -> Option<u16> {
     }
     let (h, m): (u16, u16) = (h.parse().ok()?, m.parse().ok()?);
     (h < 24 && m < 60).then_some(h * 60 + m)
+}
+
+/// The history choices the Settings page offers, in days; 0 = never.
+pub const HISTORY_CHOICES: [u32; 4] = [0, 7, 30, 90];
+
+/// The offered choice nearest to `days`. Any value above 0 keeps removing (at least 7),
+/// and halfway between two choices keeps the longer history.
+pub fn snap_history_days(days: u32) -> u32 {
+    if days == 0 {
+        return 0;
+    }
+    let mut best = HISTORY_CHOICES[1];
+    for &c in &HISTORY_CHOICES[1..] {
+        if c.abs_diff(days) <= best.abs_diff(days) {
+            best = c;
+        }
+    }
+    best
 }
 
 /// A file type as the skip list keeps it: lower case, no dot. None if it is not a plain extension.
@@ -392,7 +425,14 @@ impl Settings {
             }
         }
         self.skip_hosts = hosts;
-        clamp_num("history_days", &mut self.history_days, 0, 3650, &mut w);
+        let snapped = snap_history_days(self.history_days);
+        if snapped != self.history_days {
+            w.push(format!(
+                "history_days: {} is not one of the choices; using {snapped}",
+                self.history_days
+            ));
+            self.history_days = snapped;
+        }
         self.limit_schedule
             .fix_times("limit_schedule", &default_limit_schedule(), &mut w);
         self.queue_schedule
@@ -473,6 +513,14 @@ impl Settings {
             ytdlp_path: Some(self.ytdlp_path.trim())
                 .filter(|p| !p.is_empty())
                 .map(PathBuf::from),
+            on_exists: match self.on_exists {
+                OnExists::Rename => ExistsPolicy::Rename,
+                OnExists::Overwrite => ExistsPolicy::Overwrite,
+                OnExists::Ask => ExistsPolicy::Ask,
+            },
+            limit_window: self.limit_schedule.window(),
+            queue_window: self.queue_schedule.window(),
+            history_days: self.history_days,
             ..EngineConfig::default()
         }
         .sanitized()

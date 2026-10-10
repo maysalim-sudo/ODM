@@ -8,14 +8,14 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::chunks::{plan_chunks, ChunkRef, ChunkTable};
-use crate::config::EngineConfig;
+use crate::config::{EngineConfig, ExistsPolicy};
 use crate::events::{ChunkViewState, EngineEvent, ProgressSnapshot};
 use crate::probe::{probe, ProbeResult};
 use crate::retry::{backoff_delay, io_err};
@@ -30,13 +30,74 @@ pub struct DownloadEnv {
     pub limiter: Arc<SpeedLimiter>,
     pub events: broadcast::Sender<EngineEvent>,
     pub config: EngineConfig,
+    /// A policy the user chose for one download ("Replace" or "Keep both"), used
+    /// instead of `config.on_exists` the next time it finishes.
+    pub exists_overrides: Arc<Mutex<HashMap<String, ExistsPolicy>>>,
+    /// The own speed limiter of each running file download, so its limit can change live.
+    pub local_limits: Arc<Mutex<HashMap<String, Arc<SpeedLimiter>>>>,
+}
+
+impl DownloadEnv {
+    pub fn new(
+        store: Store,
+        config: EngineConfig,
+        limiter: Arc<SpeedLimiter>,
+        events: broadcast::Sender<EngineEvent>,
+    ) -> Self {
+        Self {
+            store,
+            client: build_client(&config),
+            limiter,
+            events,
+            config,
+            exists_overrides: Arc::default(),
+            local_limits: Arc::default(),
+        }
+    }
+
+    /// The file-exists policy for this download: the user's answer, else the setting.
+    pub fn exists_policy(&self, id: &str) -> ExistsPolicy {
+        self.exists_overrides
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(id)
+            .copied()
+            .unwrap_or(self.config.on_exists)
+    }
 }
 
 #[derive(Debug)]
 pub enum Outcome {
-    Completed { path: PathBuf },
+    Completed {
+        path: PathBuf,
+    },
+    /// The file is ready at `staged`, but `name` is taken and the policy is "ask".
+    Exists {
+        staged: PathBuf,
+        name: String,
+    },
     Stopped,
     Failed(OdmError),
+}
+
+/// Where a finished file ended up.
+#[derive(Debug)]
+pub enum Placed {
+    Done(PathBuf),
+    /// Not moved: the name is taken and the user must choose. `staged` is the finished file.
+    Exists {
+        staged: PathBuf,
+        name: String,
+    },
+}
+
+impl From<Placed> for Outcome {
+    fn from(p: Placed) -> Self {
+        match p {
+            Placed::Done(path) => Outcome::Completed { path },
+            Placed::Exists { staged, name } => Outcome::Exists { staged, name },
+        }
+    }
 }
 
 type Joined = (ChunkRef, Result<(), ChunkFailure>);
@@ -114,9 +175,22 @@ pub async fn transition(env: &DownloadEnv, id: &str, state: DownloadState, err: 
     });
 }
 
+/// Pauses a download for a reason ("schedule", "exists") and tells the subscribers.
+pub async fn pause_with_reason(env: &DownloadEnv, id: &str, reason: &str) {
+    if let Err(e) = env.store.set_paused(id, Some(reason.to_string())).await {
+        tracing::error!(%id, "failed to persist state: {e}");
+    }
+    let _ = env.events.send(EngineEvent::State {
+        id: id.to_string(),
+        state: DownloadState::Paused,
+        error_code: None,
+        error_message: None,
+    });
+}
+
 pub async fn run_download(env: &DownloadEnv, id: &str, cancel: CancellationToken) -> Outcome {
     match run_inner(env, id, &cancel).await {
-        Ok(path) => Outcome::Completed { path },
+        Ok(placed) => placed.into(),
         Err(_) if cancel.is_cancelled() => Outcome::Stopped,
         Err(e) => Outcome::Failed(e),
     }
@@ -134,7 +208,7 @@ async fn run_inner(
     env: &DownloadEnv,
     id: &str,
     cancel: &CancellationToken,
-) -> Result<PathBuf, OdmError> {
+) -> Result<Placed, OdmError> {
     let mut restarts: u32 = 0;
     loop {
         let mut rec = load(env, id).await?;
@@ -224,7 +298,26 @@ async fn run_inner(
             }
         }
 
-        match transfer(env, &rec, Arc::new(file), &chunks, require_partial, cancel).await {
+        let local = Arc::new(SpeedLimiter::new(rec.speed_limit.unwrap_or(0)));
+        env.local_limits
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(id.to_string(), local.clone());
+        let moved = transfer(
+            env,
+            &rec,
+            Arc::new(file),
+            &chunks,
+            require_partial,
+            local,
+            cancel,
+        )
+        .await;
+        env.local_limits
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(id);
+        match moved {
             Ok(()) => return finish(env, &rec, &part).await,
             Err(e)
                 if restarts < env.config.max_attempts
@@ -360,6 +453,7 @@ async fn transfer(
     file: Arc<File>,
     chunks: &[ChunkRecord],
     require_partial: bool,
+    local_limit: Arc<SpeedLimiter>,
     cancel: &CancellationToken,
 ) -> Result<(), OdmError> {
     let cfg = &env.config;
@@ -377,7 +471,7 @@ async fn transfer(
         validator: validator_of(rec),
         file,
         global_limit: env.limiter.clone(),
-        local_limit: rec.speed_limit.map(|b| Arc::new(SpeedLimiter::new(b))),
+        local_limit: Some(local_limit),
         cancel: work.clone(),
         require_partial,
         session_bytes: session.clone(),
@@ -629,52 +723,84 @@ fn verify_checksum(path: &Path, spec: &str) -> Result<(), OdmError> {
     }
 }
 
-async fn finish(env: &DownloadEnv, rec: &DownloadRecord, part: &Path) -> Result<PathBuf, OdmError> {
+async fn finish(env: &DownloadEnv, rec: &DownloadRecord, part: &Path) -> Result<Placed, OdmError> {
     if let Some(spec) = rec.checksum.clone() {
         let p = part.to_path_buf();
         tokio::task::spawn_blocking(move || verify_checksum(&p, &spec))
             .await
             .map_err(|e| OdmError::new(ErrorKind::Other, e.to_string()))??;
     }
-    let dir = Path::new(&rec.save_dir);
-    let final_path = place_final(part, dir, &rec.filename, rec)?;
-    set_final_name(env, rec, &final_path).await?;
-    if rec.size.is_none() {
-        let len = std::fs::metadata(&final_path).map_err(io_err)?.len();
-        env.store
-            .update_probe(
-                &rec.id,
-                ProbeMeta {
-                    size: Some(len),
-                    ..Default::default()
-                },
-            )
-            .await
-            .map_err(store_err)?;
-    }
-    tracing::info!(id = %rec.id, path = %final_path.display(), "completed");
-    Ok(final_path)
+    finalize(env, rec, part, &rec.filename, None).await
 }
 
-/// Moves `src` into `dir` under a name that is unique there (`name`, `name (1)`, ...)
-/// and marks it as downloaded from the internet. Choosing the name and renaming is
+/// Moves the finished file `staged` into the download's folder as `name`, following the
+/// file-exists policy, then records the final name and size and removes `temp_dir`.
+/// With the policy "ask" and the name taken, nothing moves and `Placed::Exists` says so.
+pub async fn finalize(
+    env: &DownloadEnv,
+    rec: &DownloadRecord,
+    staged: &Path,
+    name: &str,
+    temp_dir: Option<PathBuf>,
+) -> Result<Placed, OdmError> {
+    let policy = env.exists_policy(&rec.id);
+    let Some(final_path) = place_final(staged, Path::new(&rec.save_dir), name, rec, policy)? else {
+        return Ok(Placed::Exists {
+            staged: staged.to_path_buf(),
+            name: name.to_string(),
+        });
+    };
+    env.exists_overrides
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remove(&rec.id);
+    set_final_name(env, rec, &final_path).await?;
+    let len = std::fs::metadata(&final_path).map_err(io_err)?.len();
+    env.store
+        .update_probe(
+            &rec.id,
+            ProbeMeta {
+                size: Some(len),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(store_err)?;
+    if let Some(dir) = temp_dir {
+        if let Err(e) = std::fs::remove_dir_all(&dir) {
+            tracing::warn!(id = %rec.id, "could not remove the temp dir: {e}");
+        }
+    }
+    tracing::info!(id = %rec.id, path = %final_path.display(), "completed");
+    Ok(Placed::Done(final_path))
+}
+
+/// Moves `src` into `dir` as `name` and marks it as downloaded from the internet.
+/// When `name` is taken: `Rename` picks a free `name (1)`, `Overwrite` replaces the
+/// file, and `Ask` moves nothing and returns None. Choosing the name and renaming is
 /// atomic with respect to other finishing downloads.
 pub(crate) fn place_final(
     src: &Path,
     dir: &Path,
     name: &str,
     rec: &DownloadRecord,
-) -> Result<PathBuf, OdmError> {
-    // std::fs::rename REPLACES an existing target on Windows.
+    policy: ExistsPolicy,
+) -> Result<Option<PathBuf>, OdmError> {
     let final_path = {
         let _guard = FINISH_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let name = filename::unique_name(name, |n| dir.join(n).exists());
+        let name = match policy {
+            ExistsPolicy::Rename => filename::unique_name(name, |n| dir.join(n).exists()),
+            // std::fs::rename REPLACES an existing target file on Windows.
+            ExistsPolicy::Overwrite => name.to_string(),
+            ExistsPolicy::Ask if dir.join(name).exists() => return Ok(None),
+            ExistsPolicy::Ask => name.to_string(),
+        };
         let final_path = dir.join(&name);
         std::fs::rename(src, &final_path).map_err(io_err)?;
         final_path
     };
     write_mark_of_the_web(&final_path, &rec.url, rec.page_url.as_deref());
-    Ok(final_path)
+    Ok(Some(final_path))
 }
 
 /// Stores the file name that `place_final` actually chose.

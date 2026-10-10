@@ -28,8 +28,13 @@ pub async fn get_detail(state: State<'_, AppState>, id: String) -> Res<Option<De
     api::detail(&state.manager, &id).await
 }
 
+fn starts_paused(state: &AppState) -> bool {
+    api::starts_paused(&state.settings.lock().unwrap())
+}
+
 #[tauri::command]
-pub async fn add_download(state: State<'_, AppState>, args: AddArgs) -> Res<String> {
+pub async fn add_download(state: State<'_, AppState>, mut args: AddArgs) -> Res<String> {
+    args.start_paused |= starts_paused(&state);
     api::add(&state.manager, args).await
 }
 
@@ -39,7 +44,38 @@ pub async fn add_batch(
     text: String,
     save_dir: Option<String>,
 ) -> Res<BatchResult> {
-    api::add_batch(&state.manager, &text, save_dir).await
+    let paused = starts_paused(&state);
+    api::add_batch(&state.manager, &text, save_dir, paused).await
+}
+
+/// The answer to "<name> already exists": replace, keep_both or cancel.
+#[tauri::command]
+pub async fn answer_exists(
+    state: State<'_, AppState>,
+    id: String,
+    choice: odm_engine::ExistsChoice,
+) -> Res<()> {
+    api::answer_exists(&state.manager, &id, choice).await
+}
+
+/// A download's own speed limit in KB/s; null removes it.
+#[tauri::command]
+pub async fn set_download_limit(
+    state: State<'_, AppState>,
+    id: String,
+    kbps: Option<u64>,
+) -> Res<()> {
+    api::set_download_limit(&state.manager, &id, kbps).await
+}
+
+/// Cancels the shutdown that "When the queue is done" started.
+#[tauri::command]
+pub fn cancel_shutdown(app: AppHandle, state: State<'_, AppState>) {
+    if let Some(ev) = state.power.cancel_shutdown() {
+        if let Err(e) = app.emit(crate::EVENT, &ev) {
+            tracing::warn!("could not send an event to the window: {e}");
+        }
+    }
 }
 
 #[tauri::command]
@@ -104,6 +140,9 @@ pub async fn save_settings(state: State<'_, AppState>, settings: Settings) -> Re
         tracing::warn!("settings: {w}");
     }
     *state.settings.lock().unwrap() = saved.clone();
+    // "Prevent sleep" applies at once, not at the next download change.
+    let active = state.manager.active_count().await.unwrap_or(0);
+    state.power.set_activity(active, saved.prevent_sleep);
     Ok(saved)
 }
 

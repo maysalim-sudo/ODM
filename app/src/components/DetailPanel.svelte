@@ -1,8 +1,9 @@
 <script lang="ts">
   import * as api from "../lib/api";
   import { downloads } from "../lib/downloads.svelte";
-  import { formatBytes, formatEta, formatSpeed, joinPath, stateLabel } from "../lib/format";
+  import { formatBytes, formatEta, formatSpeed, joinPath, statusLabel } from "../lib/format";
   import { canRefresh, canResume, isRiskyFile, needsVideoTools, progressPct } from "../lib/model";
+  import { checkSpeed } from "../lib/settingsPage";
   import type { Detail } from "../lib/types";
   import ChunkMap from "./ChunkMap.svelte";
   import ToolsCard from "./ToolsCard.svelte";
@@ -52,6 +53,43 @@
     };
   });
 
+  // The own speed limit: a draft while "Custom" is being typed, applied on Enter or blur.
+  let limitCustom = $state(false);
+  let limitDraft = $state<number | null>(null);
+  let limitError = $state<string | null>(null);
+  const rowLimit = $derived(row?.speed_limit_kbps ?? null);
+
+  $effect(() => {
+    void id;
+    limitCustom = rowLimit !== null;
+    limitDraft = rowLimit;
+    limitError = null;
+  });
+
+  async function setLimit(kbps: number | null) {
+    if (!row) return;
+    const target = row.id;
+    if (await downloads.run(() => api.setDownloadLimit(target, kbps))) {
+      // The list row is refreshed by the next upsert; reload it now so the panel shows it.
+      void downloads.reload();
+    }
+  }
+
+  function chooseLimit(e: Event) {
+    const custom = (e.currentTarget as HTMLSelectElement).value === "custom";
+    limitCustom = custom;
+    limitError = null;
+    if (!custom) void setLimit(null);
+    else if (limitDraft === null) limitDraft = 512;
+  }
+
+  function applyLimit() {
+    limitError = checkSpeed(limitDraft, "kb");
+    if (limitError || limitDraft === null) return;
+    const kbps = Math.round(limitDraft);
+    if (kbps !== rowLimit) void setLimit(kbps);
+  }
+
   // The download was removed while its panel was open (not merely not loaded yet).
   $effect(() => {
     if (id && downloads.loaded && !row) onclose();
@@ -84,7 +122,7 @@
 
     <dl>
       <dt>Status</dt>
-      <dd class:bad={row.state === "failed"}>{stateLabel(row.state)}</dd>
+      <dd class:bad={row.state === "failed"}>{statusLabel(row.state, row.pause_reason)}</dd>
       {#if row.error_message}
         <dt>Problem</dt>
         <dd class="bad wrap">{row.error_message}</dd>
@@ -115,6 +153,31 @@
       {:else}
         <dt>Connections</dt>
         <dd>Up to {row.max_connections}</dd>
+      {/if}
+      {#if row.kind === "file" && row.state !== "completed" && row.state !== "cancelled"}
+        <dt><label for="detail-limit">Speed limit</label></dt>
+        <dd class="limit">
+          <select id="detail-limit" value={limitCustom ? "custom" : "none"} onchange={chooseLimit}>
+            <option value="none">Unlimited</option>
+            <option value="custom">Custom</option>
+          </select>
+          {#if limitCustom}
+            <span class="limit-value">
+              <input
+                type="number"
+                min="1"
+                step="1"
+                aria-label="Speed limit in KB/s"
+                aria-invalid={limitError !== null}
+                bind:value={limitDraft}
+                onblur={applyLimit}
+                onkeydown={(e) => e.key === "Enter" && applyLimit()}
+              />
+              KB/s
+            </span>
+          {/if}
+          {#if limitError}<span class="bad" role="alert">{limitError}</span>{/if}
+        </dd>
       {/if}
       {#if detail && detail.header_names.length > 0}
         <dt>Sent headers</dt>
@@ -193,6 +256,20 @@
   }
   .wrap {
     overflow-wrap: anywhere;
+  }
+  .limit {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .limit-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .limit-value input {
+    width: 88px;
   }
   .bad {
     color: var(--error);

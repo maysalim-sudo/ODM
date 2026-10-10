@@ -76,8 +76,30 @@ pub fn normalize_headers(h: Vec<(String, String)>) -> Vec<(String, String)> {
     out
 }
 
+/// The lower-case extension of a file name, if it has one.
+fn extension(name: &str) -> Option<String> {
+    let (_, ext) = name.rsplit_once('.')?;
+    (!ext.is_empty()).then(|| ext.to_ascii_lowercase())
+}
+
+/// The file's type: from the browser's file name when it gave one, else from the address.
+fn file_type(url: &str, filename: Option<&str>) -> Option<String> {
+    if let Some(name) = filename.map(str::trim).filter(|n| !n.is_empty()) {
+        return extension(name.rsplit(['/', '\\']).next().unwrap_or(name));
+    }
+    let u = Url::parse(url).ok()?;
+    let last = u.path_segments()?.next_back()?.to_string();
+    extension(&last)
+}
+
 /// Why a captured download should stay in the browser, or None to take it.
-pub fn skip_reason(s: &Settings, url: &str, filesize: Option<u64>) -> Option<&'static str> {
+/// `filename` is the name the browser suggested, if any.
+pub fn skip_reason(
+    s: &Settings,
+    url: &str,
+    filename: Option<&str>,
+    filesize: Option<u64>,
+) -> Option<&'static str> {
     if !s.capture_enabled {
         return Some("capture is off");
     }
@@ -86,6 +108,11 @@ pub fn skip_reason(s: &Settings, url: &str, filesize: Option<u64>) -> Option<&'s
     }
     if host_skipped(url, &s.skip_hosts) {
         return Some("this site is on the skip list");
+    }
+    if !s.skip_types.is_empty()
+        && file_type(url, filename).is_some_and(|t| s.skip_types.contains(&t))
+    {
+        return Some("this file type is on the skip list");
     }
     None
 }
@@ -131,18 +158,47 @@ mod tests {
     fn skip_reason_checks_in_order() {
         let mut s = Settings::default();
         let url = "https://example.com/a.zip";
-        assert_eq!(skip_reason(&s, url, Some(5 << 20)), None);
-        assert_eq!(skip_reason(&s, url, None), None);
+        assert_eq!(skip_reason(&s, url, None, Some(5 << 20)), None);
+        assert_eq!(skip_reason(&s, url, None, None), None);
         assert_eq!(
-            skip_reason(&s, url, Some(10)),
+            skip_reason(&s, url, None, Some(10)),
             Some("the file is smaller than the minimum capture size")
+        );
+        s.skip_types = vec!["zip".into()];
+        assert_eq!(
+            skip_reason(&s, url, None, Some(5 << 20)),
+            Some("this file type is on the skip list")
         );
         s.skip_hosts = vec!["example.com".into()];
         assert_eq!(
-            skip_reason(&s, url, Some(5 << 20)),
+            skip_reason(&s, url, None, Some(5 << 20)),
             Some("this site is on the skip list")
         );
         s.capture_enabled = false;
-        assert_eq!(skip_reason(&s, url, Some(5 << 20)), Some("capture is off"));
+        assert_eq!(
+            skip_reason(&s, url, None, Some(5 << 20)),
+            Some("capture is off")
+        );
+    }
+
+    #[test]
+    fn skip_types_match_the_name_first_then_the_address() {
+        let s = Settings {
+            skip_types: vec!["pdf".into(), "jpg".into()],
+            ..Settings::default()
+        };
+        let skipped = |url: &str, name: Option<&str>| skip_reason(&s, url, name, None).is_some();
+        assert!(skipped("https://e.com/get?id=1", Some("Paper.PDF")));
+        assert!(skipped("https://e.com/a/photo.JPG?size=big#x", None));
+        // The browser's name wins over the address.
+        assert!(!skipped("https://e.com/a.pdf", Some("a.zip")));
+        assert!(!skipped("https://e.com/pdf", None));
+        assert!(!skipped("https://e.com/a.pdf.zip", None));
+        assert!(!skipped("https://e.com/noext", Some("noext")));
+        let none = Settings::default();
+        assert_eq!(
+            skip_reason(&none, "https://e.com/a.pdf", Some("a.pdf"), None),
+            None
+        );
     }
 }

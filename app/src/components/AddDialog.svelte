@@ -2,6 +2,7 @@
   import * as api from "../lib/api";
   import { formatBytes } from "../lib/format";
   import { CATEGORIES, nextFilename, toInt } from "../lib/model";
+  import { checkSpeed } from "../lib/settingsPage";
   import type { Suggestion } from "../lib/types";
   import Modal from "./Modal.svelte";
 
@@ -12,6 +13,10 @@
   let saveDir = $state("");
   let category = $state("");
   let connections = $state<number | null>(8);
+  /** KB/s; empty = no limit of its own. */
+  let limitKbps = $state<number | null>(null);
+  /** "Start new downloads: Paused" adds this one paused too. */
+  let addsPaused = $state(false);
   let defaultConnections = 8;
   let lastAuto: string | null = null;
   let suggestion = $state<Suggestion | null>(null);
@@ -33,11 +38,13 @@
     suggestion = null;
     variantUrl = "";
     error = null;
+    limitKbps = null;
     api
       .getSettings()
       .then((s) => {
         defaultConnections = s.max_connections;
         connections = s.max_connections;
+        addsPaused = s.start_mode === "paused";
       })
       .catch(() => {});
   });
@@ -69,9 +76,12 @@
     if (picked) saveDir = picked;
   }
 
+  const plainFile = $derived(!suggestion?.is_page && !suggestion?.is_stream);
+  const limitError = $derived(limitKbps == null || !plainFile ? null : checkSpeed(limitKbps, "kb"));
+
   async function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (!validUrl || busy) return;
+    if (!validUrl || busy || limitError) return;
     busy = true;
     error = null;
     try {
@@ -83,6 +93,7 @@
         connections: toInt(connections, defaultConnections),
         ...(suggestion?.is_stream ? { stream: true, variant_url: variantUrl || null } : {}),
         ...(suggestion?.is_page ? { page: true } : {}),
+        ...(plainFile && limitKbps != null ? { speed_limit_kbps: Math.round(limitKbps) } : {}),
       });
       onclose();
     } catch (err) {
@@ -157,13 +168,22 @@
           <input type="number" min="1" max="32" bind:value={connections} />
         </label>
       {/if}
+      {#if plainFile}
+        <label class="field" style="width:140px">
+          <span>Limit speed (KB/s)</span>
+          <input type="number" min="1" step="1" placeholder="No limit" aria-invalid={limitError !== null} bind:value={limitKbps} />
+        </label>
+      {/if}
     </div>
+    {#if limitError}<p class="form-error" role="alert">{limitError}</p>{/if}
 
     {#if error}<p class="form-error" role="alert">{error}</p>{/if}
 
     <div class="actions">
       <button type="button" onclick={onclose}>Cancel</button>
-      <button type="submit" class="primary" disabled={!validUrl || busy}>Start download</button>
+      <button type="submit" class="primary" disabled={!validUrl || busy || limitError !== null}>
+        {addsPaused ? "Add paused" : "Start download"}
+      </button>
     </div>
   </form>
 </Modal>

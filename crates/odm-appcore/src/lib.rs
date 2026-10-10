@@ -3,6 +3,7 @@ pub mod api;
 pub mod bridge;
 pub mod browsers;
 pub mod capture;
+pub mod completion;
 pub mod confirm;
 pub mod dto;
 pub mod integration;
@@ -13,6 +14,7 @@ pub mod offers;
 pub mod paths;
 #[cfg(windows)]
 pub mod pipe;
+pub mod power;
 pub mod registration;
 pub mod settings;
 pub mod summary;

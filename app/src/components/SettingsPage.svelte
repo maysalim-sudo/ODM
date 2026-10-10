@@ -19,6 +19,7 @@
     sectionHasRestore,
     springEase,
     toKbps,
+    undoRestore,
     visibleRows,
     type SectionId,
     type SpeedUnit,
@@ -60,7 +61,8 @@
   let folderErrors = $state<Record<string, string>>({});
   let proxyDraft = $state("");
   let proxyError = $state<string | null>(null);
-  let toast = $state<{ text: string; undo: Settings } | null>(null);
+  /** What the last restore changed, so Undo can put back just those fields. */
+  let toast = $state<{ text: string; before: Settings; after: Settings } | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   let searchEl = $state<HTMLInputElement>();
   let returnFocus: HTMLElement | null = null;
@@ -142,16 +144,17 @@
     commit({ ...($state.snapshot(s) as Settings), [key]: value });
   }
 
-  function showToast(text: string, undo: Settings): void {
+  function showToast(text: string, before: Settings, after: Settings): void {
     clearTimeout(toastTimer);
-    toast = { text, undo };
+    toast = { text, before, after };
     toastTimer = setTimeout(() => (toast = null), 5000);
   }
 
+  // Only the fields the restore changed go back; edits made since then stay.
   function undo(): void {
-    if (!toast) return;
+    if (!toast || !s) return;
     clearTimeout(toastTimer);
-    const prev = toast.undo;
+    const prev = undoRestore(toast.before, toast.after, $state.snapshot(s) as Settings);
     toast = null;
     commit(prev);
     adopt(prev);
@@ -163,7 +166,7 @@
     const next = restoreSection(before, defaults, id);
     commit(next);
     adopt(next);
-    showToast(`${title} settings are back to their defaults.`, before);
+    showToast(`${title} settings are back to their defaults.`, before, next);
   }
 
   function resetEverything(): void {
@@ -172,7 +175,7 @@
     const next = resetAll(before, defaults);
     commit(next);
     adopt(next);
-    showToast("All settings are back to their defaults.", before);
+    showToast("All settings are back to their defaults.", before, next);
   }
 
   async function chooseFolder(): Promise<void> {

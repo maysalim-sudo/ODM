@@ -7,12 +7,22 @@ use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use crate::download::{build_client, part_path, run_download, transition, DownloadEnv, Outcome};
+use crate::download::{
+    build_client, finalize, part_path, pause_with_reason, run_download, transition, DownloadEnv,
+    Outcome, Placed,
+};
 use crate::hls::run::{run_hls, temp_dir};
+use crate::schedule::{Clock, LocalNow, SystemClock};
 use crate::site::{run_site, temp_dir as site_temp_dir};
-use crate::{EngineConfig, EngineEvent, SpeedLimiter};
+use crate::{EngineConfig, EngineEvent, ExistsChoice, ExistsPolicy, SpeedLimiter};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
+const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// `pause_reason` of a download paused by the queue schedule at its stop time.
+pub const REASON_SCHEDULE: &str = "schedule";
+/// `pause_reason` of a download whose file name is taken, waiting for the user's choice.
+pub const REASON_EXISTS: &str = "exists";
 
 #[derive(Debug, Clone, Default)]
 pub struct AddRequest {
@@ -29,6 +39,8 @@ pub struct AddRequest {
     pub start_paused: bool,
     /// The size the browser already reported; the probe overwrites it.
     pub size_hint: Option<u64>,
+    /// This download's own speed limit in bytes per second; None or 0 = none.
+    pub speed_limit: Option<u64>,
 }
 
 impl AddRequest {
@@ -67,8 +79,12 @@ pub struct SiteRequest {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Stop {
     Pause,
+    /// The queue schedule's stop time.
+    SchedulePause,
     Cancel,
-    Remove { delete: bool },
+    Remove {
+        delete: bool,
+    },
     Shutdown,
 }
 
@@ -98,6 +114,9 @@ enum Cmd {
     SetMaxConcurrent(usize),
     SetConfig(Box<EngineConfig>),
     Finished(String, Outcome),
+    AnswerExists(String, ExistsChoice, oneshot::Sender<Result<(), OdmError>>),
+    SetDownloadLimit(String, Option<u64>, oneshot::Sender<Result<(), OdmError>>),
+    Tick,
     Shutdown(oneshot::Sender<()>),
     ShutdownDeadline,
 }
@@ -107,6 +126,12 @@ struct Active {
     stop: Option<Stop>,
 }
 
+/// A finished file whose name is taken, waiting for the user's choice.
+struct Staged {
+    path: PathBuf,
+    name: String,
+}
+
 struct Manager {
     env: DownloadEnv,
     tx: mpsc::Sender<Cmd>,
@@ -114,6 +139,15 @@ struct Manager {
     resume_after: HashSet<String>,
     shutdown_reply: Option<oneshot::Sender<()>>,
     max_concurrent: usize,
+    clock: Arc<dyn Clock>,
+    /// Downloads paused with reason "exists" in this session, by id.
+    waiting: HashMap<String, Staged>,
+    /// Whether the queue schedule lets downloads run (always, without one).
+    queue_open: bool,
+    /// When the history pass last ran (clock time).
+    last_prune: Option<i64>,
+    /// A download completed since the queue last reported itself done.
+    ran: bool,
 }
 
 #[derive(Clone)]
@@ -133,6 +167,15 @@ fn is_http_url(url: &str) -> bool {
         url.get(..p.len())
             .is_some_and(|head| head.eq_ignore_ascii_case(p))
     })
+}
+
+/// The folder a stream or site download works in, removed once it is placed.
+fn work_dir(rec: &DownloadRecord) -> Option<PathBuf> {
+    match rec.kind.as_str() {
+        "hls" => Some(temp_dir(rec)),
+        "site" => Some(site_temp_dir(rec)),
+        _ => None,
+    }
 }
 
 /// Deletes what an unfinished download leaves behind: its part file, or for an
@@ -156,16 +199,20 @@ fn closed() -> OdmError {
 
 impl ManagerHandle {
     pub async fn start(config: EngineConfig, store: Store) -> Result<ManagerHandle, OdmError> {
+        Self::start_with_clock(config, store, Arc::new(SystemClock)).await
+    }
+
+    /// Like `start`, reading the schedules and the history age from `clock`.
+    pub async fn start_with_clock(
+        config: EngineConfig,
+        store: Store,
+        clock: Arc<dyn Clock>,
+    ) -> Result<ManagerHandle, OdmError> {
         let config = config.sanitized();
         store.reset_interrupted().await.map_err(store_err)?;
         let (events, _) = broadcast::channel(4096);
-        let env = DownloadEnv {
-            store: store.clone(),
-            client: build_client(&config),
-            limiter: Arc::new(SpeedLimiter::new(config.speed_limit_bps)),
-            events: events.clone(),
-            config: config.clone(),
-        };
+        let limiter = Arc::new(SpeedLimiter::new(config.limit_at(clock.now())));
+        let env = DownloadEnv::new(store.clone(), config.clone(), limiter, events.clone());
         let (tx, rx) = mpsc::channel(256);
         let manager = Manager {
             env,
@@ -174,7 +221,26 @@ impl ManagerHandle {
             resume_after: HashSet::new(),
             shutdown_reply: None,
             max_concurrent: config.max_concurrent.clamp(1, 10),
+            clock,
+            waiting: HashMap::new(),
+            // The first tick opens it (resuming what the schedule paused) unless it is closed.
+            queue_open: false,
+            last_prune: None,
+            ran: false,
         };
+        let timer = tx.clone();
+        let every = config.timer_interval;
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(every);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                if timer.send(Cmd::Tick).await.is_err() {
+                    break;
+                }
+            }
+        });
         tokio::spawn(manager.run(rx));
         Ok(ManagerHandle { tx, events, store })
     }
@@ -256,6 +322,21 @@ impl ManagerHandle {
         self.send(Cmd::SetConfig(Box::new(config))).await
     }
 
+    /// The user's answer to `EngineEvent::ExistsPrompt` for a download paused with reason "exists".
+    pub async fn answer_exists(&self, id: &str, choice: ExistsChoice) -> Result<(), OdmError> {
+        let (tx, rx) = oneshot::channel();
+        self.send(Cmd::AnswerExists(id.into(), choice, tx)).await?;
+        rx.await.map_err(|_| closed())?
+    }
+
+    /// A download's own speed limit in bytes per second; None (or 0) removes it. A running
+    /// download slows down or speeds up at once.
+    pub async fn set_download_limit(&self, id: &str, bps: Option<u64>) -> Result<(), OdmError> {
+        let (tx, rx) = oneshot::channel();
+        self.send(Cmd::SetDownloadLimit(id.into(), bps, tx)).await?;
+        rx.await.map_err(|_| closed())?
+    }
+
     pub async fn list(&self) -> Result<Vec<(DownloadRecord, u64)>, OdmError> {
         self.store.list_with_bytes().await.map_err(store_err)
     }
@@ -325,6 +406,7 @@ impl ManagerHandle {
 
 impl Manager {
     async fn run(mut self, mut rx: mpsc::Receiver<Cmd>) {
+        self.tick().await;
         self.schedule().await;
         while let Some(cmd) = rx.recv().await {
             match cmd {
@@ -361,10 +443,15 @@ impl Manager {
                     {
                         self.pause(&id).await;
                     }
+                    // What the schedule paused is now paused by the user: it stays paused.
+                    for id in self.paused_for(Some(REASON_SCHEDULE)).await {
+                        transition(&self.env, &id, DownloadState::Paused, None).await;
+                    }
                 }
                 Cmd::ResumeAll => {
+                    // Downloads paused by the schedule or waiting for an answer are left alone.
                     for id in self
-                        .ids_in(&[DownloadState::Paused])
+                        .paused_for(None)
                         .await
                         .into_iter()
                         .chain(self.active.keys().cloned().collect::<Vec<_>>())
@@ -372,20 +459,38 @@ impl Manager {
                         self.resume(&id).await;
                     }
                 }
-                Cmd::SetSpeedLimit(bps) => self.env.limiter.set_rate(bps),
+                Cmd::SetSpeedLimit(bps) => {
+                    self.env.config.speed_limit_bps = bps;
+                    self.env
+                        .limiter
+                        .set_rate(self.env.config.limit_at(self.clock.now()));
+                }
                 Cmd::SetMaxConcurrent(n) => {
                     self.max_concurrent = n.clamp(1, 10);
                     self.schedule().await;
                 }
                 Cmd::SetConfig(cfg) => {
                     let cfg = cfg.sanitized();
-                    self.env.limiter.set_rate(cfg.speed_limit_bps);
+                    if cfg.history_days != self.env.config.history_days {
+                        self.last_prune = None;
+                    }
+                    self.env.limiter.set_rate(cfg.limit_at(self.clock.now()));
                     self.env.client = build_client(&cfg);
                     self.max_concurrent = cfg.max_concurrent;
                     self.env.config = cfg;
+                    self.tick().await;
                     self.schedule().await;
                 }
                 Cmd::Finished(id, outcome) => self.finished(id, outcome).await,
+                Cmd::AnswerExists(id, choice, reply) => {
+                    let r = self.answer_exists(&id, choice).await;
+                    let _ = reply.send(r);
+                }
+                Cmd::SetDownloadLimit(id, bps, reply) => {
+                    let r = self.set_download_limit(&id, bps).await;
+                    let _ = reply.send(r);
+                }
+                Cmd::Tick => self.tick().await,
                 Cmd::Shutdown(reply) => {
                     self.shutdown_reply = Some(reply);
                     for a in self.active.values_mut() {
@@ -421,6 +526,21 @@ impl Manager {
             }
         }
         out
+    }
+
+    /// Paused downloads with this pause reason (None = paused by the user).
+    async fn paused_for(&self, reason: Option<&str>) -> Vec<String> {
+        match self.env.store.list_by_state(DownloadState::Paused).await {
+            Ok(v) => v
+                .into_iter()
+                .filter(|r| r.pause_reason.as_deref() == reason)
+                .map(|r| r.id)
+                .collect(),
+            Err(e) => {
+                tracing::error!("listing paused downloads: {e}");
+                Vec::new()
+            }
+        }
     }
 
     async fn state_of(&self, id: &str) -> Option<DownloadState> {
@@ -469,6 +589,7 @@ impl Manager {
         rec.page_title = req.page_title;
         rec.priority = req.priority;
         rec.size = req.size_hint.filter(|&n| n > 0);
+        rec.speed_limit = req.speed_limit.filter(|&n| n > 0);
         if req.start_paused {
             rec.state = DownloadState::Paused;
         }
@@ -640,9 +761,9 @@ impl Manager {
     fn request_stop(&mut self, id: &str, stop: Stop) -> bool {
         match self.active.get_mut(id) {
             Some(a) => {
-                // Remove/Cancel outrank Pause; never downgrade.
+                // Remove/Cancel outrank a pause; never downgrade.
                 let keep = matches!(a.stop, Some(Stop::Remove { .. } | Stop::Cancel))
-                    && stop == Stop::Pause;
+                    && matches!(stop, Stop::Pause | Stop::SchedulePause);
                 if !keep {
                     a.stop = Some(stop);
                 }
@@ -663,6 +784,14 @@ impl Manager {
     }
 
     async fn resume(&mut self, id: &str) {
+        if let Some(staged) = self.waiting.get(id) {
+            // The file is ready; only the answer is missing. Ask again.
+            let _ = self.env.events.send(EngineEvent::ExistsPrompt {
+                id: id.to_string(),
+                name: staged.name.clone(),
+            });
+            return;
+        }
         if let Some(a) = self.active.get(id) {
             if a.stop == Some(Stop::Pause) {
                 self.resume_after.insert(id.to_string());
@@ -682,6 +811,7 @@ impl Manager {
     /// `_delete_file` only matters for a completed file, which cancel never touches.
     async fn cancel(&mut self, id: &str, _delete_file: bool) {
         self.resume_after.remove(id);
+        self.drop_staged(id);
         if self.request_stop(id, Stop::Cancel) {
             return;
         }
@@ -695,6 +825,7 @@ impl Manager {
 
     async fn remove(&mut self, id: &str, delete: bool) {
         self.resume_after.remove(id);
+        self.drop_staged(id);
         if !self.request_stop(id, Stop::Remove { delete }) {
             self.delete_record(id, delete).await;
         }
@@ -732,11 +863,25 @@ impl Manager {
                 transition(&self.env, &id, DownloadState::Completed, None).await;
                 self.delete_record(&id, delete).await;
             }
+            (Some(Stop::Remove { delete }), Outcome::Exists { staged, .. }) => {
+                let _ = std::fs::remove_file(staged);
+                self.delete_record(&id, delete).await;
+            }
             (Some(Stop::Remove { delete }), _) => self.delete_record(&id, delete).await,
+            (Some(Stop::Cancel), Outcome::Exists { staged, .. }) => {
+                let _ = std::fs::remove_file(staged);
+                self.delete_part(&id).await;
+                transition(&self.env, &id, DownloadState::Cancelled, None).await;
+            }
             (_, Outcome::Completed { .. }) => {
+                self.ran = true;
                 transition(&self.env, &id, DownloadState::Completed, None).await
             }
+            (_, Outcome::Exists { staged, name }) => self.wait_for_answer(&id, staged, name).await,
             (Some(Stop::Pause), _) => transition(&self.env, &id, DownloadState::Paused, None).await,
+            (Some(Stop::SchedulePause), _) => {
+                pause_with_reason(&self.env, &id, REASON_SCHEDULE).await
+            }
             (Some(Stop::Cancel), _) => {
                 self.delete_part(&id).await;
                 transition(&self.env, &id, DownloadState::Cancelled, None).await;
@@ -752,15 +897,219 @@ impl Manager {
                 transition(&self.env, &id, DownloadState::Paused, None).await
             }
         }
-        if self.resume_after.remove(&id) && self.state_of(&id).await == Some(DownloadState::Paused)
+        if self.resume_after.remove(&id)
+            && !self.waiting.contains_key(&id)
+            && self.state_of(&id).await == Some(DownloadState::Paused)
         {
             transition(&self.env, &id, DownloadState::Queued, None).await;
         }
         self.schedule().await;
+        self.check_queue_done().await;
+    }
+
+    /// Pauses a finished download whose name is taken and asks the user what to do.
+    async fn wait_for_answer(&mut self, id: &str, staged: PathBuf, name: String) {
+        pause_with_reason(&self.env, id, REASON_EXISTS).await;
+        self.waiting.insert(
+            id.to_string(),
+            Staged {
+                path: staged,
+                name: name.clone(),
+            },
+        );
+        let _ = self.env.events.send(EngineEvent::ExistsPrompt {
+            id: id.to_string(),
+            name,
+        });
+    }
+
+    /// Forgets a waiting download's finished file and deletes it.
+    fn drop_staged(&mut self, id: &str) {
+        if let Some(s) = self.waiting.remove(id) {
+            let _ = std::fs::remove_file(s.path);
+        }
+    }
+
+    async fn answer_exists(&mut self, id: &str, choice: ExistsChoice) -> Result<(), OdmError> {
+        let policy = match choice {
+            ExistsChoice::Replace => Some(ExistsPolicy::Overwrite),
+            ExistsChoice::KeepBoth => Some(ExistsPolicy::Rename),
+            ExistsChoice::Cancel => None,
+        };
+        let not_waiting = || {
+            OdmError::new(
+                ErrorKind::Other,
+                "this download is not waiting for an answer",
+            )
+        };
+        let Some(staged) = self.waiting.remove(id) else {
+            // Asked in an earlier session: the finished file is not known any more.
+            // Download it again with the answer, or cancel it.
+            let rec = self
+                .env
+                .store
+                .get_download(id)
+                .await
+                .map_err(store_err)?
+                .ok_or_else(not_waiting)?;
+            if rec.state != DownloadState::Paused
+                || rec.pause_reason.as_deref() != Some(REASON_EXISTS)
+            {
+                return Err(not_waiting());
+            }
+            match policy {
+                Some(p) => {
+                    self.set_override(id, p);
+                    transition(&self.env, id, DownloadState::Queued, None).await;
+                    self.schedule().await;
+                }
+                None => self.cancel(id, false).await,
+            }
+            return Ok(());
+        };
+        let Some(policy) = policy else {
+            let _ = std::fs::remove_file(&staged.path);
+            self.delete_part(id).await;
+            transition(&self.env, id, DownloadState::Cancelled, None).await;
+            self.check_queue_done().await;
+            return Ok(());
+        };
+        self.set_override(id, policy);
+        let rec = self
+            .env
+            .store
+            .get_download(id)
+            .await
+            .map_err(store_err)?
+            .ok_or_else(not_waiting)?;
+        match finalize(&self.env, &rec, &staged.path, &staged.name, work_dir(&rec)).await {
+            Ok(Placed::Done(_)) => {
+                self.ran = true;
+                transition(&self.env, id, DownloadState::Completed, None).await;
+            }
+            Ok(Placed::Exists { staged, name }) => self.wait_for_answer(id, staged, name).await,
+            Err(e) => {
+                tracing::warn!(%id, "could not place the file: {e}");
+                transition(&self.env, id, DownloadState::Failed, Some(&e)).await;
+            }
+        }
+        self.schedule().await;
+        self.check_queue_done().await;
+        Ok(())
+    }
+
+    fn set_override(&self, id: &str, policy: ExistsPolicy) {
+        self.env
+            .exists_overrides
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(id.to_string(), policy);
+    }
+
+    async fn set_download_limit(&mut self, id: &str, bps: Option<u64>) -> Result<(), OdmError> {
+        let bps = bps.filter(|&n| n > 0);
+        if self.state_of(id).await.is_none() {
+            return Err(OdmError::new(ErrorKind::Other, "download not found"));
+        }
+        self.env
+            .store
+            .set_speed_limit(id, bps)
+            .await
+            .map_err(store_err)?;
+        if let Some(l) = self
+            .env
+            .local_limits
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(id)
+        {
+            l.set_rate(bps.unwrap_or(0));
+        }
+        Ok(())
+    }
+
+    /// Sends `QueueDone` once the queue has run something and has nothing left: nothing
+    /// queued, running or waiting for an answer.
+    async fn check_queue_done(&mut self) {
+        if !self.ran
+            || self.shutdown_reply.is_some()
+            || !self.active.is_empty()
+            || !self.waiting.is_empty()
+        {
+            return;
+        }
+        match self.env.store.list_by_state(DownloadState::Queued).await {
+            Ok(q) if q.is_empty() => {
+                self.ran = false;
+                let _ = self.env.events.send(EngineEvent::QueueDone);
+            }
+            Ok(_) => {}
+            Err(e) => tracing::error!("queue check: {e}"),
+        }
+    }
+
+    /// The timer: the speed-limit and queue schedules, and the daily history pass.
+    async fn tick(&mut self) {
+        if self.shutdown_reply.is_some() {
+            return;
+        }
+        let now = self.clock.now();
+        let rate = self.env.config.limit_at(now);
+        if self.env.limiter.rate() != rate {
+            self.env.limiter.set_rate(rate);
+        }
+        let open = self.env.config.queue_open_at(now);
+        if open != self.queue_open {
+            self.queue_open = open;
+            if open {
+                for id in self.paused_for(Some(REASON_SCHEDULE)).await {
+                    transition(&self.env, &id, DownloadState::Queued, None).await;
+                }
+                self.schedule().await;
+            } else {
+                let ids: Vec<String> = self.active.keys().cloned().collect();
+                for id in ids {
+                    self.resume_after.remove(&id);
+                    self.request_stop(&id, Stop::SchedulePause);
+                }
+            }
+        }
+        self.prune_history(now).await;
+    }
+
+    /// Once a day, deletes the records (never the files) of downloads completed more
+    /// than `history_days` ago.
+    async fn prune_history(&mut self, now: LocalNow) {
+        let days = self.env.config.history_days;
+        if days == 0 {
+            return;
+        }
+        if self
+            .last_prune
+            .is_some_and(|t| now.unix_ms >= t && now.unix_ms - t < DAY_MS)
+        {
+            return;
+        }
+        self.last_prune = Some(now.unix_ms);
+        let cutoff = now.unix_ms - i64::from(days) * DAY_MS;
+        match self.env.store.delete_completed_before(cutoff).await {
+            Ok(ids) => {
+                if !ids.is_empty() {
+                    tracing::info!(
+                        count = ids.len(),
+                        "removed old finished downloads from the list"
+                    );
+                }
+                for id in ids {
+                    let _ = self.env.events.send(EngineEvent::Removed { id });
+                }
+            }
+            Err(e) => tracing::error!("history pass: {e}"),
+        }
     }
 
     async fn schedule(&mut self) {
-        if self.shutdown_reply.is_some() {
+        if self.shutdown_reply.is_some() || !self.queue_open {
             return;
         }
         let free = self.max_concurrent.saturating_sub(self.active.len());

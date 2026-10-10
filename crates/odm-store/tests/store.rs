@@ -15,7 +15,7 @@ async fn fresh_db_is_migrated_and_reopen_is_idempotent() {
             .call(|c| c.query_row("PRAGMA user_version", [], |r| r.get(0)))
             .await
             .unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, 3);
         s.insert_download(rec("a")).await.unwrap();
     }
     let s = Store::open(&path).unwrap();
@@ -246,7 +246,7 @@ async fn newer_schema_is_rejected() {
     match Store::open(&path) {
         Err(odm_store::StoreError::NewerSchema { found, supported }) => {
             assert_eq!(found, 99);
-            assert_eq!(supported, 2);
+            assert_eq!(supported, 3);
         }
         Err(e) => panic!("wrong error: {e}"),
         Ok(_) => panic!("opened a newer schema"),
@@ -254,15 +254,18 @@ async fn newer_schema_is_rejected() {
 }
 
 #[tokio::test]
-async fn v1_database_is_migrated_to_v2() {
+async fn v1_database_is_migrated_to_the_latest() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("odm.db");
     {
         let s = Store::open(&path).unwrap();
         s.insert_download(rec("a")).await.unwrap();
-        // Rewind to a V1-shaped database: drop the V2 column and the version.
+        // Rewind to a V1-shaped database: drop the V2 and V3 columns and the version.
         s.call(|c| {
-            c.execute_batch("ALTER TABLE downloads DROP COLUMN auto_place;")?;
+            c.execute_batch(
+                "ALTER TABLE downloads DROP COLUMN auto_place;
+                 ALTER TABLE downloads DROP COLUMN pause_reason;",
+            )?;
             c.pragma_update(None, "user_version", 1)
         })
         .await
@@ -271,11 +274,12 @@ async fn v1_database_is_migrated_to_v2() {
     let s = Store::open(&path).unwrap();
     let got = s.get_download("a").await.unwrap().unwrap();
     assert!(!got.auto_place);
+    assert_eq!(got.pause_reason, None);
     let v: i64 = s
         .call(|c| c.query_row("PRAGMA user_version", [], |r| r.get(0)))
         .await
         .unwrap();
-    assert_eq!(v, 2);
+    assert_eq!(v, 3);
 }
 
 #[tokio::test]
@@ -462,4 +466,90 @@ async fn set_target_updates_and_locks() {
         ("new.zip", "D:/else")
     );
     assert!(d.filename_locked && !d.auto_place);
+}
+
+#[tokio::test]
+async fn pause_reason_is_set_by_set_paused_and_cleared_by_any_other_state() {
+    let s = Store::open_in_memory().unwrap();
+    s.insert_download(rec("a")).await.unwrap();
+    assert_eq!(
+        s.get_download("a").await.unwrap().unwrap().pause_reason,
+        None
+    );
+    s.set_paused("a", Some("schedule".into())).await.unwrap();
+    let r = s.get_download("a").await.unwrap().unwrap();
+    assert_eq!(r.state, DownloadState::Paused);
+    assert_eq!(r.pause_reason.as_deref(), Some("schedule"));
+    s.set_state("a", DownloadState::Queued, None).await.unwrap();
+    assert_eq!(
+        s.get_download("a").await.unwrap().unwrap().pause_reason,
+        None
+    );
+    s.set_paused("a", Some("exists".into())).await.unwrap();
+    // A plain pause (by the user) has no reason.
+    s.set_state("a", DownloadState::Paused, None).await.unwrap();
+    assert_eq!(
+        s.get_download("a").await.unwrap().unwrap().pause_reason,
+        None
+    );
+}
+
+#[tokio::test]
+async fn delete_completed_before_removes_only_old_completed_records() {
+    let s = Store::open_in_memory().unwrap();
+    for id in ["old", "new", "failed", "queued"] {
+        s.insert_download(rec(id)).await.unwrap();
+    }
+    s.set_state("old", DownloadState::Completed, None)
+        .await
+        .unwrap();
+    s.set_state("new", DownloadState::Completed, None)
+        .await
+        .unwrap();
+    s.set_state("failed", DownloadState::Failed, None)
+        .await
+        .unwrap();
+    s.call(|c| {
+        c.execute(
+            "UPDATE downloads SET finished_at = 1000 WHERE id IN ('old','failed')",
+            [],
+        )
+    })
+    .await
+    .unwrap();
+    s.call(|c| {
+        c.execute(
+            "UPDATE downloads SET finished_at = 5000 WHERE id = 'new'",
+            [],
+        )
+    })
+    .await
+    .unwrap();
+    let gone = s.delete_completed_before(2000).await.unwrap();
+    assert_eq!(gone, vec!["old".to_string()]);
+    let left: Vec<String> = s
+        .list_downloads()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| r.id)
+        .collect();
+    assert_eq!(left.len(), 3);
+    assert!(!left.contains(&"old".to_string()));
+}
+
+#[tokio::test]
+async fn set_speed_limit_round_trips() {
+    let s = Store::open_in_memory().unwrap();
+    s.insert_download(rec("a")).await.unwrap();
+    s.set_speed_limit("a", Some(65536)).await.unwrap();
+    assert_eq!(
+        s.get_download("a").await.unwrap().unwrap().speed_limit,
+        Some(65536)
+    );
+    s.set_speed_limit("a", None).await.unwrap();
+    assert_eq!(
+        s.get_download("a").await.unwrap().unwrap().speed_limit,
+        None
+    );
 }

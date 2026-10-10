@@ -53,7 +53,7 @@ export const ROWS: RowDef[] = [
   row("speed", "limit_schedule", "Limit only at certain times", "Outside these hours downloads run at full speed.", ["limit_schedule"]),
   row("speed", "max_connections", "Connections per download", "More connections can be faster. Some servers allow only a few.", ["max_connections"]),
   row("speed", "queue_schedule", "Run the queue at certain times", "Downloads start at the start time and pause at the stop time.", ["queue_schedule"]),
-  row("speed", "after_queue", "When the queue is done", "Runs once the scheduled queue has nothing left.", ["after_queue"]),
+  row("speed", "after_queue", "When the queue is done", "Runs once the queue has nothing left to download.", ["after_queue"]),
 
   row("browser", "capture_enabled", "Take over downloads from the browser", "Needs the ODM browser extension.", ["capture_enabled"]),
   row("browser", "confirm_browser_downloads", "Ask where to save each one", "Shows the new download window before it starts.", ["confirm_browser_downloads"]),
@@ -98,16 +98,6 @@ export const READY: Partial<Record<string, boolean>> = {
   ytdlp_auto_update: false,
   proxy: false,
   user_agent: false,
-  // Task 3
-  prevent_sleep: false,
-  on_exists: false,
-  on_complete: false,
-  start_mode: false,
-  history_days: false,
-  limit_schedule: false,
-  queue_schedule: false,
-  after_queue: false,
-  skip_types: false,
   // Task 1
   update_check: false,
   update_install: false,
@@ -145,8 +135,13 @@ export function visibleRows(section: SectionId | null, query: string): string[] 
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
+/** Settings a section's "Restore defaults" never touches: users keep their download folder. */
+const KEPT_ON_RESTORE: (keyof Settings)[] = ["download_dir"];
+
 function restorable(section: SectionId): (keyof Settings)[] {
-  return ROWS.filter((r) => r.section === section && ready(r.id)).flatMap((r) => r.fields);
+  return ROWS.filter((r) => r.section === section && ready(r.id))
+    .flatMap((r) => r.fields)
+    .filter((f) => !KEPT_ON_RESTORE.includes(f));
 }
 
 export function sectionHasRestore(section: SectionId): boolean {
@@ -159,6 +154,20 @@ export function restoreSection(current: Settings, defaults: Settings, section: S
   const d = clone(defaults);
   for (const f of restorable(section)) (out as unknown as Record<string, unknown>)[f] = d[f];
   return out;
+}
+
+/**
+ * Undo for "Restore defaults" and "Reset all settings": the fields that went from `before` to
+ * `after` get their `before` values back, on top of `current`, so edits made since then stay.
+ */
+export function undoRestore(before: Settings, after: Settings, current: Settings): Settings {
+  const out = clone(current) as unknown as Record<string, unknown>;
+  const b = before as unknown as Record<string, unknown>;
+  const a = after as unknown as Record<string, unknown>;
+  for (const k of Object.keys(b)) {
+    if (JSON.stringify(b[k]) !== JSON.stringify(a[k])) out[k] = clone(b[k]);
+  }
+  return out as unknown as Settings;
 }
 
 /** Every setting at its default, except that the welcome screen stays done. */

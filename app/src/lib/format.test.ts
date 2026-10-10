@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatEta, formatSpeed, joinPath, percent, stateLabel } from "./format";
+import { formatBytes, formatEta, formatSpeed, joinPath, percent, stateLabel, statusLabel } from "./format";
 
 describe("formatBytes", () => {
   it("picks a readable unit", () => {
@@ -55,5 +55,15 @@ describe("joinPath", () => {
   it("does not double a trailing separator", () => {
     expect(joinPath("C:\\dl\\", "a.zip")).toBe("C:\\dl\\a.zip");
     expect(joinPath("/dl/", "a.zip")).toBe("/dl/a.zip");
+  });
+});
+
+describe("statusLabel", () => {
+  it("says why a download is paused", () => {
+    expect(statusLabel("paused", null)).toBe("Paused");
+    expect(statusLabel("paused", "schedule")).toBe("Paused by schedule");
+    expect(statusLabel("paused", "exists")).toBe("Waiting for your choice");
+    expect(statusLabel("downloading", "schedule")).toBe("Downloading");
+    expect(statusLabel("paused", "something new")).toBe("Paused");
   });
 });

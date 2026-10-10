@@ -108,6 +108,18 @@ pub fn unique_name(name: &str, exists: impl Fn(&str) -> bool) -> String {
         .expect("infinite iterator")
 }
 
+/// File types that run code when opened. The UI keeps the same list in `app/src/lib/model.ts`.
+pub const RISKY_EXTENSIONS: [&str; 21] = [
+    "exe", "msi", "bat", "cmd", "com", "scr", "ps1", "vbs", "vbe", "js", "jse", "wsf", "wsh",
+    "hta", "lnk", "reg", "cpl", "msc", "jar", "appx", "msix",
+];
+
+/// True for a file that runs code when opened, judged by its extension only.
+pub fn is_risky(name: &str) -> bool {
+    name.rsplit_once('.')
+        .is_some_and(|(_, ext)| RISKY_EXTENSIONS.iter().any(|r| ext.eq_ignore_ascii_case(r)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +211,38 @@ mod tests {
         assert_eq!(unique_name("x.bin", |n| taken.contains(&n)), "x (2).bin");
         assert_eq!(unique_name("y.bin", |n| taken.contains(&n)), "y.bin");
         assert_eq!(unique_name("noext", |n| n == "noext"), "noext (1)");
+    }
+}
+
+#[cfg(test)]
+mod risky_tests {
+    use super::is_risky;
+
+    #[test]
+    fn risky_types_are_programs_and_scripts() {
+        assert!(is_risky("setup.EXE"));
+        assert!(is_risky("script.ps1"));
+        assert!(is_risky(".exe"));
+        assert!(!is_risky("a.tar.gz"));
+        assert!(!is_risky("noext"));
+        assert!(!is_risky("movie.mp4"));
+    }
+
+    /// The UI keeps its own copy (app/src/lib/model.ts); both must name the same types.
+    #[test]
+    fn risky_list_matches_the_ui() {
+        let ts = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/lib/model.ts"),
+        )
+        .expect("model.ts");
+        let start = ts
+            .find("RISKY_EXTENSIONS")
+            .expect("RISKY_EXTENSIONS in model.ts");
+        let quoted = ts[start..].split('"').nth(1).expect("the quoted list");
+        let mut ui: Vec<&str> = quoted.split(' ').collect();
+        ui.sort_unstable();
+        let mut ours = super::RISKY_EXTENSIONS.to_vec();
+        ours.sort_unstable();
+        assert_eq!(ui, ours);
     }
 }

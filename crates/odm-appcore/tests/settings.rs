@@ -476,8 +476,8 @@ fn skip_types_and_history_days_are_normalized() {
     };
     let w = s.clamp();
     assert_eq!(s.skip_types, ["pdf", "jpg"]);
-    assert_eq!(s.history_days, 3650);
-    assert_eq!(w.len(), 2, "{w:?}"); // the bad type and the clamp
+    assert_eq!(s.history_days, 90);
+    assert_eq!(w.len(), 2, "{w:?}"); // the bad type and the snap
 }
 
 #[test]
@@ -491,4 +491,89 @@ fn sort_by_type_reaches_the_engine_config() {
     let c = off.to_engine_config();
     assert!(!c.sort_by_type);
     assert_eq!(c.save_dir_for("video"), std::path::PathBuf::from("D:/dl"));
+}
+
+#[test]
+fn history_days_snap_to_the_offered_choices() {
+    // The page offers Never (0), 7, 30 and 90 days.
+    for (given, want) in [
+        (0, 0),
+        (7, 7),
+        (30, 30),
+        (90, 90),
+        (1, 7),
+        (18, 7),
+        (19, 30),
+        (59, 30),
+        // Halfway keeps the longer history.
+        (60, 90),
+        (365, 90),
+        (u32::MAX, 90),
+    ] {
+        let mut s = Settings {
+            history_days: given,
+            ..Settings::default()
+        };
+        let w = s.clamp();
+        assert_eq!(s.history_days, want, "{given} days");
+        assert_eq!(w.is_empty(), given == want, "{given}: {w:?}");
+    }
+    let (s, w) = Settings::from_json(r#"{"history_days": 45}"#);
+    assert_eq!((s.history_days, w.len()), (30, 1));
+}
+
+#[test]
+fn behaviour_settings_reach_the_engine_config() {
+    use odm_engine::schedule::Window;
+    use odm_engine::ExistsPolicy;
+    let d = Settings::default().to_engine_config();
+    assert_eq!(d.on_exists, ExistsPolicy::Rename);
+    assert_eq!((d.limit_window, d.queue_window), (None, None));
+    assert_eq!(d.history_days, 0);
+    assert_eq!(d.timer_interval, Duration::from_secs(30));
+
+    let s = Settings {
+        on_exists: OnExists::Ask,
+        history_days: 30,
+        limit_schedule: Schedule {
+            enabled: true,
+            days: [true, true, true, true, true, false, false],
+            from: "09:30".into(),
+            to: "17:00".into(),
+        },
+        queue_schedule: Schedule {
+            enabled: true,
+            days: [false, false, false, false, false, true, true],
+            from: "22:00".into(),
+            to: "06:00".into(),
+        },
+        ..Settings::default()
+    };
+    let c = s.to_engine_config();
+    assert_eq!(c.on_exists, ExistsPolicy::Ask);
+    assert_eq!(c.history_days, 30);
+    assert_eq!(
+        c.limit_window,
+        Some(Window {
+            days: [true, true, true, true, true, false, false],
+            from: 9 * 60 + 30,
+            to: 17 * 60,
+        })
+    );
+    assert_eq!(
+        c.queue_window,
+        Some(Window {
+            days: [false, false, false, false, false, true, true],
+            from: 22 * 60,
+            to: 6 * 60,
+        })
+    );
+    let overwrite = Settings {
+        on_exists: OnExists::Overwrite,
+        ..Settings::default()
+    };
+    assert_eq!(
+        overwrite.to_engine_config().on_exists,
+        ExistsPolicy::Overwrite
+    );
 }
