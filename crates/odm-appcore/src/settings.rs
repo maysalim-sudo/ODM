@@ -1,5 +1,6 @@
 use crate::capture::normalize_host;
 use odm_core::Category;
+use odm_engine::config::{Container, ProxyConfig, Quality, VideoOptions};
 use odm_engine::schedule::Window;
 use odm_engine::{EngineConfig, ExistsPolicy};
 use serde::{Deserialize, Serialize};
@@ -59,7 +60,8 @@ pub struct Settings {
     pub video_subtitles: bool,
     pub ytdlp_auto_update: bool,
     pub proxy_mode: ProxyMode,
-    /// Used when `proxy_mode` is manual: `http://host:port` or `socks5://host:port`.
+    /// Used when `proxy_mode` is manual: `http`, `https`, `socks5` or `socks5h`, with a port
+    /// (see `check_proxy_url`). Empty while none has been entered.
     pub proxy_url: String,
     /// Empty = ODM's default User-Agent.
     pub user_agent: String,
@@ -234,6 +236,63 @@ pub fn parse_hhmm(text: &str) -> Option<u16> {
     (h < 24 && m < 60).then_some(h * 60 + m)
 }
 
+pub const PROXY_FORMAT: &str = "Enter an address like http://host:8080 or socks5://host:1080.";
+pub const PROXY_NO_PORT: &str = "Add the port, like http://host:8080.";
+pub const PROXY_BAD_PORT: &str = "The port must be from 1 to 65535.";
+pub const UA_CHARS: &str = "Use only standard keyboard characters, on one line.";
+pub const UA_LONG: &str = "Use at most 512 characters.";
+
+/// The proxy schemes reqwest (with its `socks` feature) and yt-dlp both accept.
+const PROXY_SCHEMES: [&str; 4] = ["http", "https", "socks5", "socks5h"];
+
+/// A host name or IPv4 address: dot-separated labels of letters, digits and inner hyphens.
+fn plain_host(h: &str) -> bool {
+    !h.is_empty()
+        && h.split('.').all(|l| {
+            !l.is_empty()
+                && !l.starts_with('-')
+                && !l.ends_with('-')
+                && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+}
+
+/// A manual proxy address: `scheme://host:port` with an optional trailing `/`, after trimming.
+/// No sign-in part, path or IPv6 literal. The Settings page has the same rule (`checkProxyUrl`).
+pub fn check_proxy_url(url: &str) -> Result<(), &'static str> {
+    let (scheme, rest) = url.trim().split_once("://").ok_or(PROXY_FORMAT)?;
+    if !PROXY_SCHEMES.iter().any(|s| s.eq_ignore_ascii_case(scheme)) {
+        return Err(PROXY_FORMAT);
+    }
+    let rest = rest.strip_suffix('/').unwrap_or(rest);
+    let (host, port) = match rest.split_once(':') {
+        Some((h, p)) => (h, Some(p)),
+        None => (rest, None),
+    };
+    if !plain_host(host) {
+        return Err(PROXY_FORMAT);
+    }
+    let port = port.ok_or(PROXY_NO_PORT)?;
+    if port.is_empty() || !port.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(PROXY_FORMAT);
+    }
+    match port.parse::<u32>() {
+        Ok(1..=65535) if port.len() <= 5 => Ok(()),
+        _ => Err(PROXY_BAD_PORT),
+    }
+}
+
+/// A custom User-Agent: printable ASCII on one line (a valid header value), at most 512.
+/// Empty means ODM's own. The Settings page has the same rule (`checkUserAgent`).
+pub fn check_user_agent(ua: &str) -> Result<(), &'static str> {
+    if !ua.bytes().all(|b| (0x20..0x7f).contains(&b)) {
+        return Err(UA_CHARS);
+    }
+    if ua.len() > 512 {
+        return Err(UA_LONG);
+    }
+    Ok(())
+}
+
 /// The history choices the Settings page offers, in days; 0 = never.
 pub const HISTORY_CHOICES: [u32; 4] = [0, 7, 30, 90];
 
@@ -393,8 +452,31 @@ impl Settings {
         (s, warnings)
     }
 
+    /// What the settings command refuses outright, with the message to show: a bad proxy
+    /// address (in any mode, so one is never stored) or a bad User-Agent.
+    pub fn validate(&self) -> Result<(), String> {
+        let url = self.proxy_url.trim();
+        if !url.is_empty() {
+            check_proxy_url(url)?;
+        }
+        check_user_agent(self.user_agent.trim())?;
+        Ok(())
+    }
+
     pub fn clamp(&mut self) -> Vec<String> {
         let mut w = Vec::new();
+        self.proxy_url = self.proxy_url.trim().to_string();
+        if !self.proxy_url.is_empty() {
+            if let Err(e) = check_proxy_url(&self.proxy_url) {
+                w.push(format!("proxy_url: {e} The address is cleared."));
+                self.proxy_url.clear();
+            }
+        }
+        self.user_agent = self.user_agent.trim().to_string();
+        if let Err(e) = check_user_agent(&self.user_agent) {
+            w.push(format!("user_agent: {e} The default is used."));
+            self.user_agent.clear();
+        }
         clamp_num("max_concurrent", &mut self.max_concurrent, 1, 10, &mut w);
         clamp_num("max_connections", &mut self.max_connections, 1, 32, &mut w);
         clamp_num("max_attempts", &mut self.max_attempts, 1, 20, &mut w);
@@ -532,6 +614,31 @@ impl Settings {
             limit_window: self.limit_schedule.window(),
             queue_window: self.queue_schedule.window(),
             history_days: self.history_days,
+            proxy: match self.proxy_mode {
+                ProxyMode::None => ProxyConfig::Direct,
+                // Manual without an address yet behaves like System until one is entered.
+                ProxyMode::Manual if !self.proxy_url.trim().is_empty() => {
+                    ProxyConfig::Manual(self.proxy_url.trim().to_string())
+                }
+                ProxyMode::Manual | ProxyMode::System => ProxyConfig::System,
+            },
+            custom_user_agent: Some(self.user_agent.trim())
+                .filter(|u| !u.is_empty())
+                .map(str::to_string),
+            video: VideoOptions {
+                quality: match self.video_quality {
+                    VideoQuality::Best => Quality::Best,
+                    VideoQuality::P1080 => Quality::P1080,
+                    VideoQuality::P720 => Quality::P720,
+                    VideoQuality::P480 => Quality::P480,
+                    VideoQuality::Audio => Quality::Audio,
+                },
+                container: match self.video_container {
+                    VideoContainer::Mp4 => Container::Mp4,
+                    VideoContainer::Mkv => Container::Mkv,
+                },
+                subtitles: self.video_subtitles,
+            },
             ..EngineConfig::default()
         }
         .sanitized()

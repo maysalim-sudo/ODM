@@ -381,20 +381,30 @@ async fn install_inner(
     Ok(())
 }
 
-/// yt-dlp changes often. At app start, if the managed `yt-dlp.exe` is more than 7 days old, run
-/// its own updater (`-U`) and log the outcome. A missing file does nothing.
-pub async fn update_ytdlp_if_stale(dir: &Path) {
+/// Whether the weekly yt-dlp update is due: the switch is on and the file is over 7 days old.
+pub fn should_update_ytdlp(enabled: bool, modified: SystemTime, now: SystemTime) -> bool {
+    enabled && is_stale(modified, now, Duration::from_secs(7 * 86_400))
+}
+
+/// yt-dlp changes often. At app start, if "Keep yt-dlp up to date" is on and the managed
+/// `yt-dlp.exe` is more than 7 days old, run its own updater (`-U`, through the proxy the
+/// settings name) and log the outcome. A missing file does nothing.
+pub async fn update_ytdlp_if_stale(dir: &Path, s: &crate::Settings) {
     let exe = dir.join(YTDLP_EXE);
     let Ok(modified) = std::fs::metadata(&exe).and_then(|m| m.modified()) else {
         return;
     };
-    let week = Duration::from_secs(7 * 86_400);
-    if !is_stale(modified, SystemTime::now(), week) {
+    if !should_update_ytdlp(s.ytdlp_auto_update, modified, SystemTime::now()) {
         return;
     }
+    let mut args = vec!["-U".to_string()];
+    args.extend(odm_engine::site::proxy_args(
+        &s.to_engine_config_with(dir.to_path_buf()).proxy,
+    ));
     tracing::info!("yt-dlp is older than 7 days; updating");
     let out = tokio::task::spawn_blocking(move || {
-        run_with_timeout(&exe, &["-U"], Duration::from_secs(120))
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        run_with_timeout(&exe, &args, Duration::from_secs(120))
     })
     .await;
     match out {

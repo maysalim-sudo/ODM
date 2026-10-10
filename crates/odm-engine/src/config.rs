@@ -28,6 +28,47 @@ pub enum ExistsChoice {
     Cancel,
 }
 
+/// How downloads reach the internet.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ProxyConfig {
+    /// The Windows proxy settings (and the `HTTP_PROXY`-style variables).
+    #[default]
+    System,
+    /// No proxy at all.
+    Direct,
+    /// This proxy URL, already checked: `http`, `https`, `socks5` or `socks5h`.
+    Manual(String),
+}
+
+/// The yt-dlp quality choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Quality {
+    #[default]
+    Best,
+    P1080,
+    P720,
+    P480,
+    /// Audio only, saved as MP3.
+    Audio,
+}
+
+/// The container yt-dlp merges video and audio into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Container {
+    #[default]
+    Mp4,
+    Mkv,
+}
+
+/// What yt-dlp is asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct VideoOptions {
+    pub quality: Quality,
+    pub container: Container,
+    /// Download the site's subtitles and embed them.
+    pub subtitles: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
     pub download_dir: PathBuf,
@@ -42,7 +83,13 @@ pub struct EngineConfig {
     pub speed_limit_bps: u64,
     pub progress_interval: Duration,
     pub persist_interval: Duration,
+    /// ODM's own User-Agent, sent when no custom one is set.
     pub user_agent: String,
+    /// The user's User-Agent; it replaces `user_agent` and also goes to yt-dlp. A header
+    /// captured from the browser still wins for that download.
+    pub custom_user_agent: Option<String>,
+    pub proxy: ProxyConfig,
+    pub video: VideoOptions,
     /// FFmpeg executable used to merge HLS streams; PATH is searched when unset.
     pub ffmpeg_path: Option<PathBuf>,
     /// Whether to look for FFmpeg on `PATH` when `ffmpeg_path` is unset or missing.
@@ -87,6 +134,9 @@ impl Default for EngineConfig {
             progress_interval: Duration::from_millis(250),
             persist_interval: Duration::from_secs(1),
             user_agent: format!("ODM/{}", env!("CARGO_PKG_VERSION")),
+            custom_user_agent: None,
+            proxy: ProxyConfig::System,
+            video: VideoOptions::default(),
             ffmpeg_path: None,
             ffmpeg_search_path: true,
             ytdlp_path: None,
@@ -117,6 +167,13 @@ impl EngineConfig {
         self.persist_interval = self.persist_interval.max(Duration::from_millis(100));
         self.timer_interval = self.timer_interval.max(Duration::from_millis(10));
         self
+    }
+
+    /// The User-Agent for ODM's own requests: the custom one, else ODM's.
+    pub fn http_user_agent(&self) -> &str {
+        self.custom_user_agent
+            .as_deref()
+            .unwrap_or(&self.user_agent)
     }
 
     /// The total speed limit in force at `now`: `speed_limit_bps` inside the limit

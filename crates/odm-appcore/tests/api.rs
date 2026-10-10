@@ -636,3 +636,132 @@ fn rows_say_why_a_download_is_paused() {
     assert_eq!(json["pause_reason"], "schedule");
     assert!(json["speed_limit_kbps"].is_null());
 }
+
+/// Review Focus 4: an invalid proxy address coming through the settings command is refused
+/// with the page's message and never written; the stored settings keep the old value.
+#[tokio::test(flavor = "multi_thread")]
+async fn proxy_url_validation() {
+    use odm_appcore::settings::{ProxyMode, PROXY_BAD_PORT, PROXY_FORMAT, PROXY_NO_PORT};
+    let data = tempfile::tempdir().unwrap();
+    let m = manager(data.path()).await;
+    let path = data.path().join("settings.json");
+    let good = Settings {
+        download_dir: data.path().to_string_lossy().into_owned(),
+        proxy_mode: ProxyMode::Manual,
+        proxy_url: "http://127.0.0.1:8080".into(),
+        ..Default::default()
+    };
+    api::save_settings(&m, &path, good.clone()).await.unwrap();
+    for (url, msg) in [
+        ("127.0.0.1:8080", PROXY_FORMAT),
+        ("proxy.local", PROXY_FORMAT),
+        ("http://proxy.local", PROXY_NO_PORT),
+        ("http://proxy.local:99999", PROXY_BAD_PORT),
+        ("http://proxy.local:0", PROXY_BAD_PORT),
+    ] {
+        let bad = Settings {
+            proxy_url: url.into(),
+            ..good.clone()
+        };
+        let err = api::save_settings(&m, &path, bad).await.unwrap_err();
+        assert_eq!(err, msg, "{url}");
+        assert_eq!(Settings::load(&path).0.proxy_url, "http://127.0.0.1:8080");
+    }
+    // The same rule holds when the proxy is not in use: a bad address is never stored.
+    let bad = Settings {
+        proxy_mode: ProxyMode::System,
+        proxy_url: "nope".into(),
+        ..good.clone()
+    };
+    assert!(api::save_settings(&m, &path, bad).await.is_err());
+    assert_eq!(Settings::load(&path).0, good);
+}
+
+#[derive(Default)]
+struct FakeAutostart {
+    calls: std::sync::Mutex<Vec<bool>>,
+    fail: bool,
+}
+
+impl odm_appcore::autostart::Autostart for FakeAutostart {
+    fn set_enabled(&self, on: bool) -> Result<(), String> {
+        self.calls.lock().unwrap().push(on);
+        if self.fail {
+            Err("registry says no".into())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn start_with_windows_round_trips_and_calls_autostart_on_change() {
+    let data = tempfile::tempdir().unwrap();
+    let m = manager(data.path()).await;
+    let path = data.path().join("settings.json");
+    let auto = FakeAutostart::default();
+    let before = Settings {
+        download_dir: data.path().to_string_lossy().into_owned(),
+        ..Default::default()
+    };
+    // Unchanged: the registry is not touched.
+    let (saved, _) = api::update_settings(&m, &path, &before, before.clone(), &auto)
+        .await
+        .unwrap();
+    assert!(auto.calls.lock().unwrap().is_empty());
+    let on = Settings {
+        start_with_windows: true,
+        ..saved
+    };
+    let (saved, _) = api::update_settings(&m, &path, &before, on, &auto)
+        .await
+        .unwrap();
+    assert!(saved.start_with_windows);
+    assert!(Settings::load(&path).0.start_with_windows);
+    assert_eq!(*auto.calls.lock().unwrap(), [true]);
+    let off = Settings {
+        start_with_windows: false,
+        ..saved.clone()
+    };
+    api::update_settings(&m, &path, &saved, off, &auto)
+        .await
+        .unwrap();
+    assert!(!Settings::load(&path).0.start_with_windows);
+    assert_eq!(*auto.calls.lock().unwrap(), [true, false]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_autostart_change_saves_nothing() {
+    let data = tempfile::tempdir().unwrap();
+    let m = manager(data.path()).await;
+    let path = data.path().join("settings.json");
+    let auto = FakeAutostart {
+        fail: true,
+        ..Default::default()
+    };
+    let before = Settings {
+        download_dir: data.path().to_string_lossy().into_owned(),
+        ..Default::default()
+    };
+    api::save_settings(&m, &path, before.clone()).await.unwrap();
+    let on = Settings {
+        start_with_windows: true,
+        ..before.clone()
+    };
+    let err = api::update_settings(&m, &path, &before, on, &auto)
+        .await
+        .unwrap_err();
+    assert!(err.contains("starts with Windows"), "{err}");
+    assert!(!Settings::load(&path).0.start_with_windows);
+    // An invalid proxy is refused before the registry is touched.
+    let ok = FakeAutostart::default();
+    let bad = Settings {
+        start_with_windows: true,
+        proxy_url: "nope".into(),
+        ..before.clone()
+    };
+    assert!(api::update_settings(&m, &path, &before, bad, &ok)
+        .await
+        .is_err());
+    assert!(ok.calls.lock().unwrap().is_empty());
+}

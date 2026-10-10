@@ -8,6 +8,12 @@ import {
   checkType,
   checkInt,
   checkProxyUrl,
+  checkUserAgent,
+  PROXY_BAD_PORT,
+  PROXY_FORMAT,
+  PROXY_NO_PORT,
+  UA_CHARS,
+  UA_LONG,
   checkSpeed,
   fromKbps,
   isShown,
@@ -92,8 +98,8 @@ describe("sections", () => {
 
 describe("READY", () => {
   it("hides rows whose engine work has not landed", () => {
-    expect(isShown("start_with_windows", "")).toBe(false);
-    expect(READY.start_with_windows).toBe(false);
+    expect(isShown("update_check", "")).toBe(false);
+    expect(READY.update_check).toBe(false);
     expect(isShown("download_dir", "")).toBe(true);
     expect(isShown("sort_by_type", "")).toBe(true);
     expect(isShown("notify_failed", "")).toBe(true);
@@ -113,6 +119,11 @@ describe("READY", () => {
       expect(isShown(id, ""), id).toBe(true);
     }
   });
+  it("shows the network and video rows", () => {
+    for (const id of ["start_with_windows", "video_quality", "video_container", "video_subtitles", "ytdlp_auto_update", "proxy", "user_agent"]) {
+      expect(isShown(id, ""), id).toBe(true);
+    }
+  });
   it("only names rows that exist", () => {
     const ids = new Set(ROWS.map((r) => r.id));
     for (const id of Object.keys(READY)) expect(ids.has(id as never), id).toBe(true);
@@ -128,7 +139,7 @@ describe("search", () => {
     expect(matchesQuery(row, "proxy")).toBe(false);
   });
   it("never shows a hidden row, even when it matches", () => {
-    expect(visibleRows("general", "")).not.toContain("start_with_windows");
+    expect(visibleRows("updates", "")).not.toContain("update_check");
     expect(visibleRows(null, "windows").every((id) => READY[id] !== false)).toBe(true);
   });
   it("searches every section when a query is given", () => {
@@ -220,13 +231,52 @@ describe("inline checks", () => {
     expect(checkFolderName("")).toBeNull();
     for (const bad of ["a\\b", "a/b", "C:", "..", ".", " lead", "trail "]) expect(checkFolderName(bad), bad).not.toBeNull();
   });
-  it("proxy URLs", () => {
-    expect(checkProxyUrl("http://127.0.0.1:8080")).toBeNull();
-    expect(checkProxyUrl("socks5://proxy.local:1080")).toBeNull();
-    expect(checkProxyUrl("proxy:8080")).not.toBeNull();
-    expect(checkProxyUrl("ftp://x:1")).not.toBeNull();
-    expect(checkProxyUrl("http://host:99999")).not.toBeNull();
-    expect(checkProxyUrl("")).not.toBeNull();
+  // The same cases as PROXY_CASES in crates/odm-appcore/tests/settings.rs, so both sides agree.
+  const PROXY_CASES: [string, string | null][] = [
+    ["http://127.0.0.1:8080", null],
+    ["https://proxy.example.com:443", null],
+    ["socks5://proxy.local:1080", null],
+    ["socks5h://proxy.local:1080/", null],
+    ["HTTP://Proxy-1.Local:3128", null],
+    ["  http://host:8080  ", null],
+    ["http://host:65535", null],
+    ["", PROXY_FORMAT],
+    ["proxy:8080", PROXY_FORMAT],
+    ["127.0.0.1:8080", PROXY_FORMAT],
+    ["ftp://x:1", PROXY_FORMAT],
+    ["socks4://host:1080", PROXY_FORMAT],
+    ["http://", PROXY_FORMAT],
+    ["http://:8080", PROXY_FORMAT],
+    ["http://user:pw@host:8080", PROXY_FORMAT],
+    ["http://host:8080/path", PROXY_FORMAT],
+    ["http://ho st:8080", PROXY_FORMAT],
+    ["http://-host:8080", PROXY_FORMAT],
+    ["http://host..local:8080", PROXY_FORMAT],
+    ["http://host:", PROXY_FORMAT],
+    ["http://host:abc", PROXY_FORMAT],
+    ["http://[::1]:8080", PROXY_FORMAT],
+    ["http://host", PROXY_NO_PORT],
+    ["socks5://host/", PROXY_NO_PORT],
+    ["http://host:99999", PROXY_BAD_PORT],
+    ["http://host:0", PROXY_BAD_PORT],
+    ["http://host:123456", PROXY_BAD_PORT],
+  ];
+  it("proxy URLs, with the same rule as the backend", () => {
+    for (const [url, want] of PROXY_CASES) expect(checkProxyUrl(url), JSON.stringify(url)).toBe(want);
+    expect(PROXY_FORMAT).toBe("Enter an address like http://host:8080 or socks5://host:1080.");
+    expect(PROXY_NO_PORT).toBe("Add the port, like http://host:8080.");
+    expect(PROXY_BAD_PORT).toBe("The port must be from 1 to 65535.");
+  });
+  it("user agents, with the same rule as the backend", () => {
+    expect(checkUserAgent("")).toBeNull();
+    expect(checkUserAgent("Mozilla/5.0 (Windows NT 10.0) Gecko/1")).toBeNull();
+    expect(checkUserAgent("a\r\nX-Evil: 1")).toBe(UA_CHARS);
+    expect(checkUserAgent("tab\there")).toBe(UA_CHARS);
+    expect(checkUserAgent("caf\u00e9")).toBe(UA_CHARS);
+    expect(checkUserAgent("a".repeat(512))).toBeNull();
+    expect(checkUserAgent("a".repeat(513))).toBe(UA_LONG);
+    expect(UA_CHARS).toBe("Use only standard keyboard characters, on one line.");
+    expect(UA_LONG).toBe("Use at most 512 characters.");
   });
   it("speed limit", () => {
     expect(checkSpeed(500, "kb")).toBeNull();

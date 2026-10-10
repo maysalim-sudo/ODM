@@ -85,6 +85,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        // "Start ODM with Windows": the Run entry starts ODM hidden in the tray.
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name("ODM")
+                .arg("--background")
+                .build(),
+        )
         .setup(move |app| {
             let manager = match start_engine(&paths, &settings) {
                 Ok(m) => m,
@@ -183,8 +190,9 @@ pub fn run() {
                 Err(e) => tracing::error!("browser integration is unavailable: {e}"),
             }
             let tools_dir = app.state::<AppState>().paths.tools_dir.clone();
+            let now = app.state::<AppState>().settings.lock().unwrap().clone();
             tauri::async_runtime::spawn(async move {
-                odm_appcore::tools::update_ytdlp_if_stale(&tools_dir).await;
+                odm_appcore::tools::update_ytdlp_if_stale(&tools_dir, &now).await;
             });
             if let Ok(app_exe) = std::env::current_exe() {
                 let host_exe = app_exe.with_file_name("odm-host.exe");

@@ -11,6 +11,7 @@
     checkHost,
     checkInt,
     checkProxyUrl,
+    checkUserAgent,
     checkSpeed,
     checkType,
     fromKbps,
@@ -61,6 +62,8 @@
   let folderErrors = $state<Record<string, string>>({});
   let proxyDraft = $state("");
   let proxyError = $state<string | null>(null);
+  let uaDraft = $state("");
+  let uaError = $state<string | null>(null);
   /** What the last restore changed, so Undo can put back just those fields. */
   let toast = $state<{ text: string; before: Settings; after: Settings } | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -113,6 +116,8 @@
     if (next.speed_limit_kbps > 0) lastKbps = next.speed_limit_kbps;
     proxyDraft = next.proxy_url;
     proxyError = null;
+    uaDraft = next.user_agent;
+    uaError = null;
     folderErrors = {};
   }
 
@@ -214,6 +219,12 @@
   function applyProxyUrl(): void {
     proxyError = checkProxyUrl(proxyDraft);
     if (!proxyError && s && proxyDraft.trim() !== s.proxy_url) set("proxy_url", proxyDraft.trim());
+  }
+
+  function applyUserAgent(): void {
+    const ua = uaDraft.trim();
+    uaError = checkUserAgent(ua);
+    if (!uaError && s && ua !== s.user_agent) set("user_agent", ua);
   }
 
   async function openFolder(kind: "logs" | "data"): Promise<void> {
@@ -665,7 +676,8 @@
                               oninput={() => (proxyError = null)}
                               onchange={applyProxyUrl}
                             />
-                            {#if proxyError}<p class="field-error" role="alert">{proxyError}</p>{/if}
+                            {#if proxyError}<p class="field-error" role="alert">{proxyError}</p>
+                            {:else if !s?.proxy_url}<p class="field-hint">Until you enter an address, ODM uses the Windows proxy settings.</p>{/if}
                           {/if}
                         {/snippet}
                       </SettingRow>
@@ -735,9 +747,12 @@
                               aria-describedby="set-user_agent-desc"
                               placeholder="Leave empty for the default"
                               spellcheck="false"
-                              value={s?.user_agent ?? ""}
-                              onchange={(e) => set("user_agent", e.currentTarget.value.trim())}
+                              aria-invalid={uaError !== null}
+                              bind:value={uaDraft}
+                              oninput={() => (uaError = null)}
+                              onchange={applyUserAgent}
                             />
+                            {#if uaError}<p class="field-error" role="alert">{uaError}</p>{/if}
                           {/snippet}
                         </SettingRow>
                       {/if}
@@ -947,6 +962,11 @@
   .field-error {
     margin: 6px 0 0;
     color: var(--error);
+    font-size: 12.5px;
+  }
+  .field-hint {
+    margin: 6px 0 0;
+    color: var(--muted);
     font-size: 12.5px;
   }
   .empty {

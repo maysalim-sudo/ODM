@@ -76,13 +76,40 @@ fn limit_bps(rec: &DownloadRecord, global: u64) -> u64 {
 }
 
 /// A finished video left in the temp dir when yt-dlp did not report its path.
+/// The files yt-dlp can leave as the result, given the quality and container choices.
+const OUTPUT_EXTS: [&str; 3] = ["mp4", "mkv", "mp3"];
+
 fn find_output(dir: &Path) -> Option<PathBuf> {
     std::fs::read_dir(dir)
         .ok()?
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("mp4")))
+        .filter(|p| {
+            p.extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| OUTPUT_EXTS.iter().any(|e| x.eq_ignore_ascii_case(e)))
+        })
         .max_by_key(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0))
+}
+
+/// A name the user chose, with the extension of the file yt-dlp made (MKV or MP3 can
+/// replace the `.mp4` the dialog suggested).
+fn final_name(chosen: &str, out: &Path) -> String {
+    let Some(ext) = out.extension().and_then(|e| e.to_str()) else {
+        return chosen.to_string();
+    };
+    let p = Path::new(chosen);
+    match p.extension().and_then(|e| e.to_str()) {
+        Some(e) if e.eq_ignore_ascii_case(ext) => chosen.to_string(),
+        Some(_) => format!(
+            "{}.{}",
+            p.file_stem()
+                .map(|s| s.to_string_lossy())
+                .unwrap_or_default(),
+            ext.to_ascii_lowercase()
+        ),
+        None => format!("{chosen}.{}", ext.to_ascii_lowercase()),
+    }
 }
 
 #[derive(Default)]
@@ -131,6 +158,7 @@ async fn run_inner(
         ffmpeg.as_deref(),
         js_runtime.as_deref(),
         limit_bps(&rec, env.config.speed_limit_bps),
+        &env.config,
     );
     tracing::info!(%id, url = %odm_core::redact_url(&rec.url), "downloading with yt-dlp");
 
@@ -241,11 +269,36 @@ async fn run_inner(
         .ok_or_else(|| other("yt-dlp finished without producing a video file."))?;
     // A name the user chose in the dialog is kept; otherwise the tool's own file name is used.
     let name = if rec.filename_locked {
-        rec.filename.clone()
+        final_name(&rec.filename, &out)
     } else {
         out.file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| rec.filename.clone())
     };
     finalize(env, &rec, &out, &name, Some(tmp)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn find_output_takes_mkv_and_mp3_too() {
+        let t = tempfile::tempdir().unwrap();
+        std::fs::write(t.path().join("a.vtt"), b"subs").unwrap();
+        std::fs::write(t.path().join("a.mkv.part"), vec![0u8; 50]).unwrap();
+        std::fs::write(t.path().join("a.mkv"), vec![0u8; 10]).unwrap();
+        assert_eq!(find_output(t.path()), Some(t.path().join("a.mkv")));
+        let t = tempfile::tempdir().unwrap();
+        std::fs::write(t.path().join("song.mp3"), vec![0u8; 10]).unwrap();
+        assert_eq!(find_output(t.path()), Some(t.path().join("song.mp3")));
+    }
+
+    #[test]
+    fn a_chosen_name_takes_the_extension_yt_dlp_produced() {
+        assert_eq!(final_name("Talk.mp4", Path::new("x/v [a].mkv")), "Talk.mkv");
+        assert_eq!(final_name("Talk.mp4", Path::new("x/v [a].mp3")), "Talk.mp3");
+        assert_eq!(final_name("Talk.mp4", Path::new("x/v [a].MP4")), "Talk.mp4");
+        assert_eq!(final_name("Talk", Path::new("x/v [a].mkv")), "Talk.mkv");
+    }
 }

@@ -1,6 +1,7 @@
 use odm_appcore::settings::{
-    parse_hhmm, AfterQueue, OnComplete, OnExists, ProxyMode, Schedule, StartMode, UpdateInstall,
-    VideoContainer, VideoQuality,
+    check_proxy_url, check_user_agent, parse_hhmm, AfterQueue, OnComplete, OnExists, ProxyMode,
+    Schedule, StartMode, UpdateInstall, VideoContainer, VideoQuality, PROXY_BAD_PORT, PROXY_FORMAT,
+    PROXY_NO_PORT, UA_CHARS, UA_LONG,
 };
 use odm_appcore::{AppPaths, Settings};
 use std::time::Duration;
@@ -600,4 +601,171 @@ fn a_schedule_without_days_is_turned_off() {
     );
     assert!(!s.limit_schedule.enabled);
     assert_eq!(w.len(), 1, "{w:?}");
+}
+
+/// The same cases are in `app/src/lib/settingsPage.test.ts`, so the page and the backend agree.
+const PROXY_CASES: &[(&str, Option<&str>)] = &[
+    ("http://127.0.0.1:8080", None),
+    ("https://proxy.example.com:443", None),
+    ("socks5://proxy.local:1080", None),
+    ("socks5h://proxy.local:1080/", None),
+    ("HTTP://Proxy-1.Local:3128", None),
+    ("  http://host:8080  ", None),
+    ("http://host:65535", None),
+    ("", Some(PROXY_FORMAT)),
+    ("proxy:8080", Some(PROXY_FORMAT)),
+    ("127.0.0.1:8080", Some(PROXY_FORMAT)),
+    ("ftp://x:1", Some(PROXY_FORMAT)),
+    ("socks4://host:1080", Some(PROXY_FORMAT)),
+    ("http://", Some(PROXY_FORMAT)),
+    ("http://:8080", Some(PROXY_FORMAT)),
+    ("http://user:pw@host:8080", Some(PROXY_FORMAT)),
+    ("http://host:8080/path", Some(PROXY_FORMAT)),
+    ("http://ho st:8080", Some(PROXY_FORMAT)),
+    ("http://-host:8080", Some(PROXY_FORMAT)),
+    ("http://host..local:8080", Some(PROXY_FORMAT)),
+    ("http://host:", Some(PROXY_FORMAT)),
+    ("http://host:abc", Some(PROXY_FORMAT)),
+    ("http://[::1]:8080", Some(PROXY_FORMAT)),
+    ("http://host", Some(PROXY_NO_PORT)),
+    ("socks5://host/", Some(PROXY_NO_PORT)),
+    ("http://host:99999", Some(PROXY_BAD_PORT)),
+    ("http://host:0", Some(PROXY_BAD_PORT)),
+    ("http://host:123456", Some(PROXY_BAD_PORT)),
+];
+
+#[test]
+fn proxy_url_checks_match_the_page() {
+    for (url, want) in PROXY_CASES {
+        assert_eq!(check_proxy_url(url).err(), *want, "{url:?}");
+    }
+}
+
+#[test]
+fn user_agent_checks() {
+    assert_eq!(check_user_agent(""), Ok(()));
+    assert_eq!(
+        check_user_agent("Mozilla/5.0 (Windows NT 10.0) Gecko/1"),
+        Ok(())
+    );
+    assert_eq!(check_user_agent("a\r\nX-Evil: 1"), Err(UA_CHARS));
+    assert_eq!(check_user_agent("tab\there"), Err(UA_CHARS));
+    assert_eq!(check_user_agent("caf\u{e9}"), Err(UA_CHARS));
+    assert_eq!(check_user_agent(&"a".repeat(512)), Ok(()));
+    assert_eq!(check_user_agent(&"a".repeat(513)), Err(UA_LONG));
+}
+
+#[test]
+fn validate_rejects_a_bad_proxy_or_agent() {
+    let ok = Settings {
+        proxy_mode: ProxyMode::Manual,
+        proxy_url: "http://p.local:8080".into(),
+        user_agent: "Agent/1".into(),
+        ..Settings::default()
+    };
+    assert_eq!(ok.validate(), Ok(()));
+    // Manual with no address yet is allowed: the page saves the mode before the address.
+    let empty = Settings {
+        proxy_mode: ProxyMode::Manual,
+        ..Settings::default()
+    };
+    assert_eq!(empty.validate(), Ok(()));
+    let bad = Settings {
+        proxy_url: "p.local:8080".into(),
+        ..ok.clone()
+    };
+    assert_eq!(bad.validate(), Err(PROXY_FORMAT.to_string()));
+    let bad_ua = Settings {
+        user_agent: "a\nb".into(),
+        ..ok
+    };
+    assert_eq!(bad_ua.validate(), Err(UA_CHARS.to_string()));
+}
+
+#[test]
+fn a_bad_proxy_or_agent_in_the_file_is_cleared_with_a_warning() {
+    let (s, w) = Settings::from_json(
+        r#"{"proxy_mode": "manual", "proxy_url": "nope", "user_agent": "a\u0007b"}"#,
+    );
+    assert_eq!(s.proxy_url, "");
+    assert_eq!(s.user_agent, "");
+    assert_eq!(w.len(), 2, "{w:?}");
+    let (s, w) = Settings::from_json(r#"{"proxy_url": " http://p:1 ", "user_agent": " A "}"#);
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(
+        (s.proxy_url.as_str(), s.user_agent.as_str()),
+        ("http://p:1", "A")
+    );
+}
+
+#[test]
+fn network_and_video_settings_reach_the_engine() {
+    use odm_engine::config::{Container, ProxyConfig, Quality};
+    let tools = std::path::PathBuf::from("T:/tools");
+    let d = Settings::default().to_engine_config_with(tools.clone());
+    assert_eq!(d.proxy, ProxyConfig::System);
+    assert_eq!(d.custom_user_agent, None);
+    assert_eq!(d.video.quality, Quality::Best);
+    assert_eq!(d.video.container, Container::Mp4);
+    assert!(!d.video.subtitles);
+
+    let s = Settings {
+        proxy_mode: ProxyMode::Manual,
+        proxy_url: "socks5://p.local:1080".into(),
+        user_agent: "Agent/1".into(),
+        video_quality: VideoQuality::Audio,
+        video_container: VideoContainer::Mkv,
+        video_subtitles: true,
+        ..Settings::default()
+    };
+    let c = s.to_engine_config_with(tools.clone());
+    assert_eq!(c.proxy, ProxyConfig::Manual("socks5://p.local:1080".into()));
+    assert_eq!(c.custom_user_agent.as_deref(), Some("Agent/1"));
+    assert_eq!(c.video.quality, Quality::Audio);
+    assert_eq!(c.video.container, Container::Mkv);
+    assert!(c.video.subtitles);
+
+    for (q, want) in [
+        (VideoQuality::P1080, Quality::P1080),
+        (VideoQuality::P720, Quality::P720),
+        (VideoQuality::P480, Quality::P480),
+    ] {
+        let c = Settings {
+            video_quality: q,
+            ..Settings::default()
+        }
+        .to_engine_config_with(tools.clone());
+        assert_eq!(c.video.quality, want);
+    }
+
+    let none = Settings {
+        proxy_mode: ProxyMode::None,
+        proxy_url: "http://ignored:1".into(),
+        ..Settings::default()
+    };
+    assert_eq!(
+        none.to_engine_config_with(tools.clone()).proxy,
+        ProxyConfig::Direct
+    );
+    // Manual with no address yet behaves like System until one is entered.
+    let unfinished = Settings {
+        proxy_mode: ProxyMode::Manual,
+        ..Settings::default()
+    };
+    assert_eq!(
+        unfinished.to_engine_config_with(tools).proxy,
+        ProxyConfig::System
+    );
+}
+
+#[test]
+fn ytdlp_updates_weekly_only_when_switched_on() {
+    use odm_appcore::tools::should_update_ytdlp;
+    use std::time::SystemTime;
+    let now = SystemTime::now();
+    let old = now - Duration::from_secs(8 * 86_400);
+    let fresh = now - Duration::from_secs(86_400);
+    assert!(should_update_ytdlp(true, old, now));
+    assert!(!should_update_ytdlp(true, fresh, now));
+    assert!(!should_update_ytdlp(false, old, now));
 }

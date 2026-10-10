@@ -63,7 +63,7 @@ export const ROWS: RowDef[] = [
   row("browser", "browser_connection", "Browser connection", "Check or repair the link between ODM and your browsers."),
 
   row("video", "video_tools", "Video tools", "FFmpeg and yt-dlp download videos from streaming sites."),
-  row("video", "video_quality", "Preferred quality", "ODM picks the closest quality the site offers.", ["video_quality"]),
+  row("video", "video_quality", "Preferred quality", "ODM picks the closest quality the site offers. Audio only saves an MP3.", ["video_quality"]),
   row("video", "video_container", "Format", "MP4 plays everywhere. MKV keeps more audio and subtitle tracks.", ["video_container"]),
   row("video", "video_subtitles", "Download subtitles when available", "Subtitles are embedded in the video file.", ["video_subtitles"]),
   row("video", "ytdlp_auto_update", "Keep yt-dlp up to date automatically", "Video sites change often. ODM checks once a week.", ["ytdlp_auto_update"]),
@@ -90,14 +90,6 @@ export const ROWS: RowDef[] = [
  * control that does nothing. Later tasks flip their entries to true. Rows not listed are ready.
  */
 export const READY: Partial<Record<string, boolean>> = {
-  // Task 4
-  start_with_windows: false,
-  video_quality: false,
-  video_container: false,
-  video_subtitles: false,
-  ytdlp_auto_update: false,
-  proxy: false,
-  user_agent: false,
   // Task 1
   update_check: false,
   update_install: false,
@@ -189,13 +181,35 @@ export function checkFolderName(name: string): string | null {
   return null;
 }
 
+export const PROXY_FORMAT = "Enter an address like http://host:8080 or socks5://host:1080.";
+export const PROXY_NO_PORT = "Add the port, like http://host:8080.";
+export const PROXY_BAD_PORT = "The port must be from 1 to 65535.";
+
+/** A host name or IPv4 address: dot-separated labels of letters, digits and inner hyphens. */
+const HOST = "[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*";
+const PROXY_RE = new RegExp(`^(?:https?|socks5h?)://${HOST}(?::(\\d*))?/?$`, "i");
+
+/**
+ * The same rule as the Rust side's check_proxy_url: `scheme://host:port` (http, https, socks5,
+ * socks5h) with an optional trailing slash, after trimming. No sign-in part, path or IPv6.
+ */
 export function checkProxyUrl(url: string): string | null {
-  const m = /^(http|https|socks5):\/\/([^\s/:@]+)(?::(\d{1,5}))?\/?$/i.exec(url.trim());
-  if (!m) return "Enter an address like http://host:8080 or socks5://host:1080.";
-  if (m[3] !== undefined) {
-    const port = Number(m[3]);
-    if (port < 1 || port > 65535) return "The port must be from 1 to 65535.";
-  }
+  const m = PROXY_RE.exec(url.trim());
+  if (!m) return PROXY_FORMAT;
+  const port = m[1];
+  if (port === undefined) return PROXY_NO_PORT;
+  if (port === "") return PROXY_FORMAT;
+  const n = Number(port);
+  return port.length <= 5 && n >= 1 && n <= 65535 ? null : PROXY_BAD_PORT;
+}
+
+export const UA_CHARS = "Use only standard keyboard characters, on one line.";
+export const UA_LONG = "Use at most 512 characters.";
+
+/** The same rule as the Rust side's check_user_agent: printable ASCII, at most 512. Empty is the default. */
+export function checkUserAgent(ua: string): string | null {
+  if (!/^[\x20-\x7e]*$/.test(ua)) return UA_CHARS;
+  if (ua.length > 512) return UA_LONG;
   return null;
 }
 

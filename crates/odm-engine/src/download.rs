@@ -15,7 +15,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::chunks::{plan_chunks, ChunkRef, ChunkTable};
-use crate::config::{EngineConfig, ExistsPolicy};
+use crate::config::{EngineConfig, ExistsPolicy, ProxyConfig};
 use crate::events::{ChunkViewState, EngineEvent, ProgressSnapshot};
 use crate::probe::{probe, ProbeResult};
 use crate::retry::{backoff_delay, io_err};
@@ -105,13 +105,33 @@ type Joined = (ChunkRef, Result<(), ChunkFailure>);
 /// Serializes "pick unique final name + rename" across all downloads in the process.
 static FINISH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// The HTTP client for downloads. The User-Agent set here is a default: a header captured
+/// from the browser is sent per request and replaces it.
 pub fn build_client(cfg: &EngineConfig) -> reqwest::Client {
-    reqwest::Client::builder()
+    // Settings check the custom agent; one that is still no valid header would make
+    // `build` fail, so ODM's own is used instead.
+    let ua = Some(cfg.http_user_agent())
+        .filter(|u| HeaderValue::from_str(u).is_ok())
+        .unwrap_or(&cfg.user_agent);
+    let b = reqwest::Client::builder()
         .connect_timeout(cfg.connect_timeout)
         .read_timeout(cfg.read_timeout)
-        .user_agent(cfg.user_agent.clone())
-        .build()
-        .expect("reqwest client")
+        .user_agent(ua);
+    let b = match &cfg.proxy {
+        // reqwest's default reads the Windows proxy settings and the proxy variables.
+        ProxyConfig::System => b,
+        ProxyConfig::Direct => b.no_proxy(),
+        ProxyConfig::Manual(url) => match reqwest::Proxy::all(url) {
+            Ok(p) => b.proxy(p),
+            Err(e) => {
+                // Settings check the address first, so this is a URL reqwest alone dislikes.
+                // Failing closed: no request leaves without the proxy the user asked for.
+                tracing::error!("the proxy address cannot be used: {e}");
+                b.proxy(reqwest::Proxy::all("http://0.0.0.0:9").expect("static proxy"))
+            }
+        },
+    };
+    b.build().expect("reqwest client")
 }
 
 pub fn part_path(rec: &DownloadRecord) -> PathBuf {
@@ -845,6 +865,17 @@ fn write_mark_of_the_web(_path: &Path, _url: &str, _page_url: Option<&str>) {}
 #[cfg(test)]
 mod tests {
     use super::header_map;
+
+    #[test]
+    fn a_bad_custom_agent_or_proxy_never_breaks_the_client() {
+        use crate::config::ProxyConfig;
+        let cfg = crate::EngineConfig {
+            custom_user_agent: Some("a\nb".into()),
+            proxy: ProxyConfig::Manual("not a url".into()),
+            ..Default::default()
+        };
+        let _ = super::build_client(&cfg);
+    }
 
     #[test]
     fn preallocate_sets_full_size() {

@@ -6,7 +6,7 @@ pub mod run;
 pub use progress::{parse_line, ByteCounter, Line};
 pub use run::run_site;
 
-use crate::config::EngineConfig;
+use crate::config::{Container, EngineConfig, ProxyConfig, Quality, VideoOptions};
 use crate::hls::{title_to_stem, with_mp4};
 use odm_core::filename;
 use odm_store::DownloadRecord;
@@ -109,6 +109,47 @@ pub fn temp_dir(rec: &DownloadRecord) -> PathBuf {
     Path::new(&rec.save_dir).join(format!(".odm-site-{}", rec.id))
 }
 
+/// The `-f` and related options for the chosen quality, container and subtitles.
+fn format_args(v: &VideoOptions) -> Vec<String> {
+    let height = |h: u32| format!("bv*[height<={h}]+ba/b[height<={h}]");
+    let format = match v.quality {
+        Quality::Best => "bv*+ba/b".to_string(),
+        Quality::P1080 => height(1080),
+        Quality::P720 => height(720),
+        Quality::P480 => height(480),
+        // An MP3 has no container choice and cannot hold subtitles.
+        Quality::Audio => {
+            return ["-f", "ba/b", "-x", "--audio-format", "mp3"]
+                .map(String::from)
+                .to_vec()
+        }
+    };
+    let container = match v.container {
+        Container::Mp4 => "mp4",
+        Container::Mkv => "mkv",
+    };
+    let mut a = vec![
+        "-f".into(),
+        format,
+        "--merge-output-format".into(),
+        container.into(),
+    ];
+    if v.subtitles {
+        a.extend(["--write-subs", "--sub-langs", "all", "--embed-subs"].map(String::from));
+    }
+    a
+}
+
+/// `--proxy` for yt-dlp: the manual proxy, or `""` (yt-dlp's documented direct connection)
+/// for None. System passes nothing, so yt-dlp reads the Windows proxy settings itself.
+pub fn proxy_args(p: &ProxyConfig) -> Vec<String> {
+    match p {
+        ProxyConfig::System => vec![],
+        ProxyConfig::Direct => vec!["--proxy".into(), String::new()],
+        ProxyConfig::Manual(url) => vec!["--proxy".into(), url.clone()],
+    }
+}
+
 /// The yt-dlp command line for a site download (everything after the executable).
 pub fn build_args(
     rec: &DownloadRecord,
@@ -117,6 +158,7 @@ pub fn build_args(
     ffmpeg: Option<&Path>,
     js_runtime: Option<&Path>,
     limit_bps: u64,
+    cfg: &EngineConfig,
 ) -> Vec<String> {
     let template = tmp.join("%(title).150B [%(id)s].%(ext)s");
     let mut a: Vec<String> = [
@@ -128,15 +170,12 @@ pub fn build_args(
         // --print implies --quiet, which would hide the progress and merge lines.
         "--progress",
         "--no-quiet",
-        "-f",
-        "bv*+ba/b",
-        "--merge-output-format",
-        "mp4",
-        "-o",
     ]
     .iter()
     .map(|s| s.to_string())
     .collect();
+    a.extend(format_args(&cfg.video));
+    a.push("-o".into());
     a.push(template.to_string_lossy().into_owned());
     a.push("--progress-template".into());
     a.push("download:ODMP %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s %(progress.eta)s".into());
@@ -157,6 +196,15 @@ pub fn build_args(
     if limit_bps > 0 {
         a.push("--limit-rate".into());
         a.push(limit_bps.to_string());
+    }
+    a.extend(proxy_args(&cfg.proxy));
+    // The browser's own User-Agent, when captured, goes as a header below and wins.
+    let captured_ua = headers
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("user-agent"));
+    if let (Some(ua), false) = (&cfg.custom_user_agent, captured_ua) {
+        a.push("--user-agent".into());
+        a.push(ua.clone());
     }
     for (name, value) in headers {
         a.push("--add-header".into());
@@ -181,6 +229,7 @@ pub fn output_name(requested: Option<&str>, page_title: Option<&str>) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{Container, ProxyConfig, Quality, VideoOptions};
     use crate::EngineConfig;
     use odm_store::DownloadRecord;
     use std::path::{Path, PathBuf};
@@ -273,12 +322,25 @@ mod tests {
     #[test]
     fn build_args_uses_deno_when_the_runtime_is_deno() {
         let tmp = Path::new("D:/out/.odm-site-id1");
-        let got = build_args(&rec(), &[], tmp, None, Some(Path::new("C:/t/deno.exe")), 0);
+        let got = build_args(
+            &rec(),
+            &[],
+            tmp,
+            None,
+            Some(Path::new("C:/t/deno.exe")),
+            0,
+            &EngineConfig::default(),
+        );
         let pos = got.iter().position(|a| a == "--js-runtimes").unwrap();
         assert_eq!(got[pos + 1], "deno:C:/t/deno.exe");
     }
 
     fn base_args(tmp: &Path) -> Vec<String> {
+        with_format(tmp, &["-f", "bv*+ba/b", "--merge-output-format", "mp4"])
+    }
+
+    /// The fixed head of the command line, with `format` where the format options go.
+    fn with_format(tmp: &Path, format: &[&str]) -> Vec<String> {
         let template = tmp.join("%(title).150B [%(id)s].%(ext)s");
         [
             "--newline",
@@ -289,13 +351,10 @@ mod tests {
             // --print implies --quiet, which would hide the progress and merge lines.
             "--progress",
             "--no-quiet",
-            "-f",
-            "bv*+ba/b",
-            "--merge-output-format",
-            "mp4",
-            "-o",
         ]
         .iter()
+        .chain(format)
+        .chain(&["-o"])
         .map(|s| s.to_string())
         .chain([
             template.to_string_lossy().into_owned(),
@@ -305,6 +364,163 @@ mod tests {
             "after_move:ODMFILE %(filepath)s".into(),
         ])
         .collect()
+    }
+
+    const URL: &str = "https://www.youtube.com/watch?v=abc";
+
+    fn args_with(cfg: &EngineConfig, headers: &[(String, String)]) -> Vec<String> {
+        build_args(&rec(), headers, Path::new(TMP), None, None, 0, cfg)
+    }
+
+    const TMP: &str = "D:/out/.odm-site-id1";
+
+    fn video(quality: Quality, container: Container, subtitles: bool) -> EngineConfig {
+        EngineConfig {
+            video: VideoOptions {
+                quality,
+                container,
+                subtitles,
+            },
+            ..EngineConfig::default()
+        }
+    }
+
+    fn want(format: &[&str], tail: &[&str]) -> Vec<String> {
+        let mut w = with_format(Path::new(TMP), format);
+        w.extend(tail.iter().map(|s| s.to_string()));
+        w.push(URL.into());
+        w
+    }
+
+    #[test]
+    fn quality_choices_pick_the_format() {
+        let cases: [(Quality, &str); 4] = [
+            (Quality::Best, "bv*+ba/b"),
+            (Quality::P1080, "bv*[height<=1080]+ba/b[height<=1080]"),
+            (Quality::P720, "bv*[height<=720]+ba/b[height<=720]"),
+            (Quality::P480, "bv*[height<=480]+ba/b[height<=480]"),
+        ];
+        for (q, f) in cases {
+            assert_eq!(
+                args_with(&video(q, Container::Mp4, false), &[]),
+                want(&["-f", f, "--merge-output-format", "mp4"], &[]),
+                "{q:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mkv_container_sets_the_merge_format() {
+        assert_eq!(
+            args_with(&video(Quality::P720, Container::Mkv, false), &[]),
+            want(
+                &[
+                    "-f",
+                    "bv*[height<=720]+ba/b[height<=720]",
+                    "--merge-output-format",
+                    "mkv"
+                ],
+                &[]
+            )
+        );
+    }
+
+    #[test]
+    fn audio_only_extracts_mp3_without_container_or_subtitles() {
+        let audio = ["-f", "ba/b", "-x", "--audio-format", "mp3"];
+        for (c, subs) in [(Container::Mp4, false), (Container::Mkv, true)] {
+            assert_eq!(
+                args_with(&video(Quality::Audio, c, subs), &[]),
+                want(&audio, &[]),
+                "{c:?} {subs}"
+            );
+        }
+    }
+
+    #[test]
+    fn subtitles_are_written_and_embedded() {
+        assert_eq!(
+            args_with(&video(Quality::Best, Container::Mkv, true), &[]),
+            want(
+                &[
+                    "-f",
+                    "bv*+ba/b",
+                    "--merge-output-format",
+                    "mkv",
+                    "--write-subs",
+                    "--sub-langs",
+                    "all",
+                    "--embed-subs"
+                ],
+                &[]
+            )
+        );
+    }
+
+    const BEST: [&str; 4] = ["-f", "bv*+ba/b", "--merge-output-format", "mp4"];
+
+    #[test]
+    fn proxy_reaches_ytdlp_only_when_manual_or_none() {
+        let with = |proxy: ProxyConfig| EngineConfig {
+            proxy,
+            ..EngineConfig::default()
+        };
+        assert_eq!(args_with(&with(ProxyConfig::System), &[]), want(&BEST, &[]));
+        assert_eq!(
+            args_with(
+                &with(ProxyConfig::Manual("http://p.local:8080".into())),
+                &[]
+            ),
+            want(&BEST, &["--proxy", "http://p.local:8080"])
+        );
+        // yt-dlp documents an empty proxy as a direct connection.
+        assert_eq!(
+            args_with(&with(ProxyConfig::Direct), &[]),
+            want(&BEST, &["--proxy", ""])
+        );
+    }
+
+    #[test]
+    fn custom_user_agent_reaches_ytdlp_unless_the_browser_sent_one() {
+        let cfg = EngineConfig {
+            custom_user_agent: Some("MyAgent/1".into()),
+            ..EngineConfig::default()
+        };
+        assert_eq!(
+            args_with(&cfg, &[]),
+            want(&BEST, &["--user-agent", "MyAgent/1"])
+        );
+        let captured = vec![("user-agent".to_string(), "Browser/9".to_string())];
+        assert_eq!(
+            args_with(&cfg, &captured),
+            want(&BEST, &["--add-header", "user-agent:Browser/9"])
+        );
+        // No custom agent: yt-dlp keeps its own browser-like default.
+        assert_eq!(args_with(&EngineConfig::default(), &[]), want(&BEST, &[]));
+    }
+
+    #[test]
+    fn proxy_and_user_agent_come_before_the_headers() {
+        let cfg = EngineConfig {
+            proxy: ProxyConfig::Manual("socks5://p.local:1080".into()),
+            custom_user_agent: Some("A".into()),
+            ..EngineConfig::default()
+        };
+        let headers = vec![("Cookie".to_string(), "a=b".to_string())];
+        assert_eq!(
+            args_with(&cfg, &headers),
+            want(
+                &BEST,
+                &[
+                    "--proxy",
+                    "socks5://p.local:1080",
+                    "--user-agent",
+                    "A",
+                    "--add-header",
+                    "Cookie:a=b"
+                ]
+            )
+        );
     }
 
     #[test]
@@ -321,6 +537,7 @@ mod tests {
             Some(Path::new("C:/ff/ffmpeg.exe")),
             Some(Path::new("C:/n/node.exe")),
             1024,
+            &EngineConfig::default(),
         );
         let mut want = base_args(tmp);
         want.extend(
@@ -346,7 +563,7 @@ mod tests {
     #[test]
     fn build_args_without_the_optional_parts() {
         let tmp = Path::new("D:/out/.odm-site-id1");
-        let got = build_args(&rec(), &[], tmp, None, None, 0);
+        let got = build_args(&rec(), &[], tmp, None, None, 0, &EngineConfig::default());
         let mut want = base_args(tmp);
         want.push("https://www.youtube.com/watch?v=abc".into());
         assert_eq!(got, want);

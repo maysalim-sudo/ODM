@@ -1,6 +1,7 @@
 //! Fault-injecting HTTP server for engine tests. Not shipped.
 pub mod files;
 pub mod hls;
+pub mod proxy;
 
 use axum::{
     body::Body,

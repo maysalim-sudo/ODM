@@ -400,6 +400,25 @@ pub async fn apply_settings(m: &ManagerHandle, s: &Settings) -> Result<(), Strin
     m.set_config(s.to_engine_config()).await.map_err(msg)
 }
 
+/// `save_settings`, plus "Start ODM with Windows": when it differs from `prev`, the Windows
+/// entry is changed first, and if that fails nothing is saved.
+pub async fn update_settings(
+    m: &ManagerHandle,
+    path: &std::path::Path,
+    prev: &Settings,
+    s: Settings,
+    autostart: &dyn crate::autostart::Autostart,
+) -> Result<(Settings, Vec<String>), String> {
+    s.validate()?;
+    if s.start_with_windows != prev.start_with_windows {
+        autostart.set_enabled(s.start_with_windows).map_err(|e| {
+            tracing::warn!("start with Windows: {e}");
+            "ODM could not change whether it starts with Windows.".to_string()
+        })?;
+    }
+    save_settings(m, path, s).await
+}
+
 /// A plain-language message for a database that could not be opened.
 pub fn store_open_message(e: &odm_store::StoreError) -> String {
     match e {
@@ -414,12 +433,14 @@ pub fn store_open_message(e: &odm_store::StoreError) -> String {
     }
 }
 
-/// Clamp, write the file, then apply to the running manager.
+/// Check, clamp, write the file, then apply to the running manager. A setting `validate`
+/// refuses (a bad proxy address or User-Agent) returns its message and writes nothing.
 pub async fn save_settings(
     m: &ManagerHandle,
     path: &std::path::Path,
     mut s: Settings,
 ) -> Result<(Settings, Vec<String>), String> {
+    s.validate()?;
     let warnings = s.clamp();
     s.save(path)
         .map_err(|e| format!("Could not save settings: {e}"))?;

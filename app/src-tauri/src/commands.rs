@@ -138,10 +138,33 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
     state.settings.lock().unwrap().clone()
 }
 
+/// "Start ODM with Windows" through `tauri-plugin-autostart`: an HKCU Run entry that starts
+/// ODM with `--background`, so it opens in the tray.
+struct PluginAutostart<'a>(&'a AppHandle);
+
+impl odm_appcore::autostart::Autostart for PluginAutostart<'_> {
+    fn set_enabled(&self, on: bool) -> Result<(), String> {
+        use tauri_plugin_autostart::ManagerExt;
+        let a = self.0.autolaunch();
+        if on { a.enable() } else { a.disable() }.map_err(|e| e.to_string())
+    }
+}
+
 #[tauri::command]
-pub async fn save_settings(state: State<'_, AppState>, settings: Settings) -> Res<Settings> {
-    let (saved, warnings) =
-        api::save_settings(&state.manager, &state.paths.settings, settings).await?;
+pub async fn save_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    settings: Settings,
+) -> Res<Settings> {
+    let prev = state.settings.lock().unwrap().clone();
+    let (saved, warnings) = api::update_settings(
+        &state.manager,
+        &state.paths.settings,
+        &prev,
+        settings,
+        &PluginAutostart(&app),
+    )
+    .await?;
     for w in warnings {
         tracing::warn!("settings: {w}");
     }
