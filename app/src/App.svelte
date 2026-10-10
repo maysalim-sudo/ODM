@@ -12,7 +12,7 @@
   import BrowserDialog from "./components/BrowserDialog.svelte";
   import WelcomeDialog from "./components/WelcomeDialog.svelte";
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
-  import SettingsDialog from "./components/SettingsDialog.svelte";
+  import SettingsPage from "./components/SettingsPage.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toolbar from "./components/Toolbar.svelte";
   import * as api from "./lib/api";
@@ -55,6 +55,11 @@
       downloads.offers.length > 0
     )
       return;
+    if (e.ctrlKey && e.key === ",") {
+      e.preventDefault();
+      settingsOpen = true;
+      return;
+    }
     const t = e.target;
     const typing =
       t instanceof HTMLInputElement ||
@@ -74,7 +79,7 @@
 
 <svelte:window {onkeydown} />
 
-<div class="app">
+<div class="app" inert={settingsOpen}>
   <Toolbar
     onadd={() => (addOpen = true)}
     onbatch={() => (batchOpen = true)}
@@ -104,7 +109,6 @@
 <BatchDialog open={batchOpen} onclose={() => (batchOpen = false)} />
 <CancelDialog open={cancelOpen} onclose={() => (cancelOpen = false)} />
 <RemoveDialog open={removeOpen} onclose={() => (removeOpen = false)} />
-<SettingsDialog open={settingsOpen} onclose={() => (settingsOpen = false)} />
 <RefreshUrlDialog open={refreshOpen} id={detailId} onclose={() => (refreshOpen = false)} />
 <OpenProgramDialog open={programOpen} id={detailId} name={detailName} onclose={() => (programOpen = false)} />
 <WelcomeDialog open={welcomeOpen} onclose={() => (welcomeOpen = false)} />
@@ -119,6 +123,7 @@
     void integration.refresh();
   }}
 />
+<SettingsPage open={settingsOpen} onclose={() => (settingsOpen = false)} onbrowser={() => (browserOpen = true)} />
 <ReuseDialog />
 <ConfirmDialog />
 

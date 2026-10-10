@@ -1,4 +1,4 @@
-import type { ChunkState, ChunkView, Download, DownloadState, IntegrationStatus, Offer, SegmentProgress, Settings, StoreLinks, ToolInfo, ToolsStatus, UiEvent } from "./types";
+import type { ChunkState, ChunkView, Download, DownloadState, IntegrationStatus, Offer, SegmentProgress, StoreLinks, ToolInfo, ToolsStatus, UiEvent } from "./types";
 
 /** A list row: the stored download plus live values from progress events. */
 export interface Row extends Download {
@@ -306,23 +306,6 @@ export function visibleColumns(width: number): { added: boolean; eta: boolean; s
 /** A finite whole number from a number input's value; `fallback` when it is empty or not a number. */
 export function toInt(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : fallback;
-}
-
-const NUMERIC_SETTINGS = [
-  "max_concurrent",
-  "max_connections",
-  "max_attempts",
-  "speed_limit_kbps",
-  "connect_timeout_s",
-  "read_timeout_s",
-  "min_capture_bytes",
-] as const;
-
-/** The settings form with every number field made a finite integer, so the backend never sees null. */
-export function coerceSettings(form: Settings, loaded: Settings): Settings {
-  const out: Settings = { ...form };
-  for (const k of NUMERIC_SETTINGS) out[k] = toInt(form[k], loaded[k]);
-  return out;
 }
 
 /** A backdrop click closes a dialog only when the press and the release both happened on the backdrop. */

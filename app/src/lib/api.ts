@@ -48,3 +48,9 @@ export function onEvent(cb: (ev: UiEvent) => void): Promise<UnlistenFn> {
 export function errorText(e: unknown): string {
   return typeof e === "string" ? e : "Something went wrong. Check the log for details.";
 }
+
+/** Picks a program (.exe), starting next to `start` when given. */
+export const pickProgram = (start: string | null) => invoke<string | null>("pick_program", { start });
+/** The settings a new install starts with. */
+export const defaultSettings = () => invoke<Settings>("default_settings");
+export const openAppFolder = (kind: "logs" | "data") => invoke<void>("open_app_folder", { kind });

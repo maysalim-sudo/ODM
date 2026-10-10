@@ -138,29 +138,38 @@ pub fn completed_download(ev: &UiEvent) -> Option<&DownloadDto> {
     }
 }
 
-/// Remembers which downloads have already been reported as completed, so a
-/// download that the bridge reports as completed more than once (a fast one is
+/// How a download ended, for its notification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Finished {
+    Completed,
+    Failed,
+}
+
+/// Remembers which downloads have already been reported as completed or failed, so a
+/// download that the bridge reports as finished more than once (a fast one is
 /// already complete when its earlier events are looked up) notifies only once.
 #[derive(Debug, Default)]
 pub struct CompletionTracker {
-    notified: std::collections::HashSet<String>,
+    notified: std::collections::HashMap<String, Finished>,
 }
 
 impl CompletionTracker {
-    /// The download in `ev` only the first time it is seen completed. An upsert in
-    /// any other state, or a removal, forgets the id so a later completion counts again.
-    pub fn newly_completed<'a>(&mut self, ev: &'a UiEvent) -> Option<&'a DownloadDto> {
+    /// The download in `ev` and how it ended, only the first time it is seen completed or
+    /// failed. An upsert in any other state, or a removal, forgets the id so a later
+    /// ending counts again.
+    pub fn newly_finished<'a>(&mut self, ev: &'a UiEvent) -> Option<(&'a DownloadDto, Finished)> {
         match ev {
-            UiEvent::Upsert { download } if download.state == DownloadState::Completed => {
-                if self.notified.insert(download.id.clone()) {
-                    Some(download.as_ref())
-                } else {
-                    None
-                }
-            }
             UiEvent::Upsert { download } => {
-                self.notified.remove(&download.id);
-                None
+                let how = match download.state {
+                    DownloadState::Completed => Finished::Completed,
+                    DownloadState::Failed => Finished::Failed,
+                    _ => {
+                        self.notified.remove(&download.id);
+                        return None;
+                    }
+                };
+                let before = self.notified.insert(download.id.clone(), how);
+                (before != Some(how)).then_some((download.as_ref(), how))
             }
             UiEvent::Removed { id } => {
                 self.notified.remove(id);
@@ -187,10 +196,13 @@ mod tracker_tests {
     fn notifies_once_per_completion() {
         let mut t = CompletionTracker::default();
         let done = up("a", DownloadState::Completed);
-        assert!(t.newly_completed(&done).is_some());
-        assert!(t.newly_completed(&done).is_none());
+        assert_eq!(
+            t.newly_finished(&done).map(|(_, f)| f),
+            Some(Finished::Completed)
+        );
+        assert!(t.newly_finished(&done).is_none());
         assert!(t
-            .newly_completed(&up("b", DownloadState::Completed))
+            .newly_finished(&up("b", DownloadState::Completed))
             .is_some());
     }
 
@@ -198,14 +210,35 @@ mod tracker_tests {
     fn removed_or_requeued_allows_another_notification() {
         let mut t = CompletionTracker::default();
         let done = up("a", DownloadState::Completed);
-        assert!(t.newly_completed(&done).is_some());
+        assert!(t.newly_finished(&done).is_some());
         assert!(t
-            .newly_completed(&UiEvent::Removed { id: "a".into() })
+            .newly_finished(&UiEvent::Removed { id: "a".into() })
             .is_none());
-        assert!(t.newly_completed(&done).is_some());
-        assert!(t.newly_completed(&up("a", DownloadState::Queued)).is_none());
-        assert!(t.newly_completed(&done).is_some());
-        assert!(t.newly_completed(&UiEvent::Resync).is_none());
+        assert!(t.newly_finished(&done).is_some());
+        assert!(t.newly_finished(&up("a", DownloadState::Queued)).is_none());
+        assert!(t.newly_finished(&done).is_some());
+        assert!(t.newly_finished(&UiEvent::Resync).is_none());
+    }
+
+    #[test]
+    fn notifies_once_per_failure_then_again_on_completion() {
+        let mut t = CompletionTracker::default();
+        let failed = up("a", DownloadState::Failed);
+        let (d, f) = t.newly_finished(&failed).unwrap();
+        assert_eq!((d.id.as_str(), f), ("a", Finished::Failed));
+        assert!(t.newly_finished(&failed).is_none());
+        // Resumed and finished: a new notification.
+        assert!(t
+            .newly_finished(&up("a", DownloadState::Downloading))
+            .is_none());
+        assert_eq!(
+            t.newly_finished(&up("a", DownloadState::Completed))
+                .map(|(_, f)| f),
+            Some(Finished::Completed)
+        );
+        assert!(t
+            .newly_finished(&up("b", DownloadState::Cancelled))
+            .is_none());
     }
 }
 

@@ -161,6 +161,48 @@ pub async fn pick_folder(app: AppHandle, start: Option<String>) -> Res<Option<St
     .map_err(|e| e.to_string())
 }
 
+/// Picks a program (`.exe`), for the FFmpeg and yt-dlp locations.
+#[tauri::command]
+pub async fn pick_program(app: AppHandle, start: Option<String>) -> Res<Option<String>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut dialog = app.dialog().file().add_filter("Programs", &["exe"]);
+        if let Some(dir) = start
+            .filter(|s| !s.trim().is_empty())
+            .and_then(|s| PathBuf::from(s).parent().map(PathBuf::from))
+        {
+            dialog = dialog.set_directory(dir);
+        }
+        dialog
+            .blocking_pick_file()
+            .and_then(|p| p.into_path().ok())
+            .map(|p| p.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The settings a new install starts with, for "Restore defaults".
+#[tauri::command]
+pub fn default_settings() -> Settings {
+    Settings::default()
+}
+
+/// Opens ODM's own folders: `"logs"` or `"data"`.
+#[tauri::command]
+pub fn open_app_folder(app: AppHandle, state: State<'_, AppState>, kind: String) -> Res<()> {
+    let dir = match kind.as_str() {
+        "logs" => &state.paths.logs,
+        "data" => &state.paths.data_dir,
+        _ => return Err("Unknown folder.".into()),
+    };
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        tracing::warn!("could not create {}: {e}", dir.display());
+    }
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn list_offers(state: State<'_, AppState>) -> Vec<OfferDto> {
     state.offers.list()

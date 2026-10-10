@@ -7,6 +7,8 @@ use std::time::Duration;
 pub struct EngineConfig {
     pub download_dir: PathBuf,
     pub category_folders: HashMap<String, String>,
+    /// Save each type into its folder from `category_folders`; off saves everything in `download_dir`.
+    pub sort_by_type: bool,
     pub max_concurrent: usize,
     pub max_connections: u32,
     pub max_attempts: u32,
@@ -36,11 +38,12 @@ impl Default for EngineConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         Self {
-            download_dir: home.join("Downloads"),
+            download_dir: home.join("Downloads").join("ODM"),
             category_folders: Category::ALL
                 .iter()
                 .map(|c| (c.as_str().to_string(), c.default_folder().to_string()))
                 .collect(),
+            sort_by_type: true,
             max_concurrent: 3,
             max_connections: 8,
             max_attempts: 5,
@@ -77,6 +80,9 @@ impl EngineConfig {
     }
 
     pub fn save_dir_for(&self, category: &str) -> PathBuf {
+        if !self.sort_by_type {
+            return self.download_dir.clone();
+        }
         match self.category_folders.get(category).map(String::as_str) {
             Some(f) if !f.is_empty() => self.download_dir.join(f),
             _ => self.download_dir.clone(),
@@ -96,6 +102,17 @@ mod tests {
         assert!(c.save_dir_for("video").ends_with("Videos"));
         assert_eq!(c.save_dir_for("general"), c.download_dir);
         assert_eq!(c.save_dir_for("unknown"), c.download_dir);
+    }
+
+    #[test]
+    fn sort_by_type_off_saves_into_the_download_folder() {
+        let c = super::EngineConfig {
+            sort_by_type: false,
+            ..Default::default()
+        };
+        assert_eq!(c.save_dir_for("video"), c.download_dir);
+        assert_eq!(c.save_dir_for("general"), c.download_dir);
+        assert!(super::EngineConfig::default().sort_by_type);
     }
 
     #[test]

@@ -1,0 +1,269 @@
+import { describe, expect, it } from "vitest";
+import {
+  READY,
+  ROWS,
+  SECTIONS,
+  checkFolderName,
+  checkHost,
+  checkType,
+  checkInt,
+  checkProxyUrl,
+  checkSpeed,
+  fromKbps,
+  isShown,
+  matchesQuery,
+  resetAll,
+  restoreSection,
+  sectionHasRestore,
+  splitTags,
+  springEase,
+  toKbps,
+  visibleRows,
+} from "./settingsPage";
+import type { Settings } from "./types";
+
+const DEFAULTS: Settings = {
+  download_dir: "C:\\Users\\me\\Downloads\\ODM",
+  category_folders: { video: "Videos", general: "" },
+  max_concurrent: 3,
+  max_connections: 8,
+  max_attempts: 5,
+  speed_limit_kbps: 0,
+  connect_timeout_s: 30,
+  read_timeout_s: 60,
+  ffmpeg_path: "",
+  ytdlp_path: "",
+  capture_enabled: true,
+  min_capture_bytes: 1048576,
+  skip_hosts: [],
+  close_to_tray: true,
+  start_minimized: false,
+  confirm_browser_downloads: true,
+  onboarding_done: false,
+  start_with_windows: false,
+  notify_complete: true,
+  notify_failed: true,
+  prevent_sleep: true,
+  sort_by_type: true,
+  on_exists: "rename",
+  on_complete: "nothing",
+  start_mode: "now",
+  history_days: 0,
+  limit_schedule: { enabled: false, days: [true, true, true, true, true, true, true], from: "09:00", to: "18:00" },
+  queue_schedule: { enabled: false, days: [true, true, true, true, true, true, true], from: "01:00", to: "07:00" },
+  after_queue: "nothing",
+  skip_types: [],
+  video_quality: "best",
+  video_container: "mp4",
+  video_subtitles: false,
+  ytdlp_auto_update: true,
+  proxy_mode: "system",
+  proxy_url: "",
+  user_agent: "",
+  update_check: true,
+  update_install: "ask",
+};
+
+describe("sections", () => {
+  it("come in the most-used-first order", () => {
+    expect(SECTIONS.map((s) => s.title)).toEqual([
+      "General",
+      "Downloads",
+      "Speed",
+      "Browser",
+      "Video",
+      "Network",
+      "Updates",
+      "Advanced",
+    ]);
+  });
+  it("every row belongs to a section and has a one-line description in plain words", () => {
+    const ids = new Set(SECTIONS.map((s) => s.id));
+    for (const r of ROWS) {
+      expect(ids.has(r.section), r.id).toBe(true);
+      expect(r.label[0], r.id).toBe(r.label[0].toUpperCase());
+      expect(r.label + r.description, r.id).not.toContain("!");
+      expect(r.description.includes("\n"), r.id).toBe(false);
+    }
+    expect(new Set(ROWS.map((r) => r.id)).size).toBe(ROWS.length);
+  });
+});
+
+describe("READY", () => {
+  it("hides rows whose engine work has not landed", () => {
+    expect(isShown("on_exists", "")).toBe(READY.on_exists === true);
+    expect(READY.on_exists).toBe(false);
+    expect(isShown("download_dir", "")).toBe(true);
+    expect(isShown("sort_by_type", "")).toBe(true);
+    expect(isShown("notify_failed", "")).toBe(true);
+  });
+  it("only names rows that exist", () => {
+    const ids = new Set(ROWS.map((r) => r.id));
+    for (const id of Object.keys(READY)) expect(ids.has(id as never), id).toBe(true);
+  });
+});
+
+describe("search", () => {
+  const row = ROWS.find((r) => r.id === "max_connections")!;
+  it("matches label and description, ignoring case and word order", () => {
+    expect(matchesQuery(row, "")).toBe(true);
+    expect(matchesQuery(row, "CONNECTIONS")).toBe(true);
+    expect(matchesQuery(row, "download connections")).toBe(true);
+    expect(matchesQuery(row, "proxy")).toBe(false);
+  });
+  it("never shows a hidden row, even when it matches", () => {
+    expect(visibleRows("general", "")).not.toContain("start_with_windows");
+    expect(visibleRows(null, "windows").every((id) => READY[id] !== false)).toBe(true);
+  });
+  it("searches every section when a query is given", () => {
+    const found = visibleRows(null, "timeout");
+    expect(found).toContain("connect_timeout_s");
+    expect(visibleRows("general", "")).toContain("close_to_tray");
+  });
+});
+
+describe("restore defaults", () => {
+  const changed: Settings = {
+    ...DEFAULTS,
+    close_to_tray: false,
+    notify_failed: false,
+    max_connections: 16,
+    download_dir: "D:\\dl",
+    sort_by_type: false,
+    onboarding_done: true,
+  };
+  it("resets only the fields of that section", () => {
+    const out = restoreSection(changed, DEFAULTS, "general");
+    expect(out.close_to_tray).toBe(true);
+    expect(out.notify_failed).toBe(true);
+    expect(out.max_connections).toBe(16);
+    expect(out.download_dir).toBe("D:\\dl");
+    const dl = restoreSection(changed, DEFAULTS, "downloads");
+    expect(dl.download_dir).toBe(DEFAULTS.download_dir);
+    expect(dl.sort_by_type).toBe(true);
+    expect(dl.close_to_tray).toBe(false);
+  });
+  it("copies nested values instead of sharing them", () => {
+    const out = restoreSection(changed, DEFAULTS, "downloads");
+    expect(out.category_folders).toEqual(DEFAULTS.category_folders);
+    expect(out.category_folders).not.toBe(DEFAULTS.category_folders);
+  });
+  it("is offered only where a section has visible settings", () => {
+    expect(sectionHasRestore("general")).toBe(true);
+    expect(sectionHasRestore("updates")).toBe(false);
+  });
+  it("reset all keeps the finished welcome screen", () => {
+    const out = resetAll(changed, DEFAULTS);
+    expect(out).toEqual({ ...DEFAULTS, onboarding_done: true });
+  });
+});
+
+describe("inline checks", () => {
+  it("whole numbers in range", () => {
+    expect(checkInt(3, 1, 10)).toBeNull();
+    expect(checkInt(1, 1, 10)).toBeNull();
+    expect(checkInt(10, 1, 10)).toBeNull();
+    expect(checkInt(0, 1, 10)).toBe("Enter a whole number from 1 to 10.");
+    expect(checkInt(11, 1, 10)).toBe("Enter a whole number from 1 to 10.");
+    expect(checkInt(2.5, 1, 10)).toBe("Enter a whole number from 1 to 10.");
+    expect(checkInt(null, 1, 10)).toBe("Enter a whole number from 1 to 10.");
+    expect(checkInt(Number.NaN, 1, 10)).toBe("Enter a whole number from 1 to 10.");
+  });
+  it("folder names", () => {
+    expect(checkFolderName("Videos")).toBeNull();
+    expect(checkFolderName("")).toBeNull();
+    for (const bad of ["a\\b", "a/b", "C:", "..", ".", " lead", "trail "]) expect(checkFolderName(bad), bad).not.toBeNull();
+  });
+  it("proxy URLs", () => {
+    expect(checkProxyUrl("http://127.0.0.1:8080")).toBeNull();
+    expect(checkProxyUrl("socks5://proxy.local:1080")).toBeNull();
+    expect(checkProxyUrl("proxy:8080")).not.toBeNull();
+    expect(checkProxyUrl("ftp://x:1")).not.toBeNull();
+    expect(checkProxyUrl("http://host:99999")).not.toBeNull();
+    expect(checkProxyUrl("")).not.toBeNull();
+  });
+  it("speed limit", () => {
+    expect(checkSpeed(500, "kb")).toBeNull();
+    expect(checkSpeed(0.5, "mb")).toBeNull();
+    expect(checkSpeed(0, "kb")).not.toBeNull();
+    expect(checkSpeed(null, "mb")).not.toBeNull();
+    expect(checkSpeed(0.4, "kb")).not.toBeNull();
+  });
+});
+
+describe("speed units", () => {
+  it("converts to KB/s", () => {
+    expect(toKbps(500, "kb")).toBe(500);
+    expect(toKbps(2, "mb")).toBe(2048);
+    expect(toKbps(1.5, "mb")).toBe(1536);
+  });
+  it("shows whole MB/s in MB/s, everything else in KB/s", () => {
+    expect(fromKbps(2048)).toEqual({ value: 2, unit: "mb" });
+    expect(fromKbps(1536)).toEqual({ value: 1.5, unit: "mb" });
+    expect(fromKbps(500)).toEqual({ value: 500, unit: "kb" });
+    expect(fromKbps(1000)).toEqual({ value: 1000, unit: "kb" });
+  });
+});
+
+describe("splitTags", () => {
+  it("splits on commas, spaces and new lines and drops empties and repeats", () => {
+    expect(splitTags("pdf, jpg  .PNG\npdf,,")).toEqual(["pdf", "jpg", ".PNG"]);
+    expect(splitTags("  ")).toEqual([]);
+  });
+});
+
+describe("springEase", () => {
+  it("starts at 0, ends at 1 and never overshoots", () => {
+    expect(springEase(0)).toBe(0);
+    expect(springEase(1)).toBe(1);
+    let prev = 0;
+    for (let i = 1; i <= 100; i++) {
+      const v = springEase(i / 100);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      expect(v).toBeLessThanOrEqual(1);
+      prev = v;
+    }
+  });
+  it("is mostly there by the middle, like a critically damped spring", () => {
+    expect(springEase(0.5)).toBeGreaterThan(0.8);
+  });
+});
+
+describe("tag checks", () => {
+  it("hosts follow the Rust normalisation", () => {
+    expect(checkHost("example.com")).toBeNull();
+    expect(checkHost("https://www.Example.com/path")).toBeNull();
+    expect(checkHost("bad host!")).not.toBeNull();
+    expect(checkHost("")).not.toBeNull();
+  });
+  it("file types are plain extensions", () => {
+    expect(checkType("pdf")).toBeNull();
+    expect(checkType(".JPG")).toBeNull();
+    expect(checkType("tar.gz")).not.toBeNull();
+    expect(checkType("a b")).not.toBeNull();
+  });
+});
+
+describe("page source", () => {
+  it("slides with the spring, fades for reduced motion, and moves only transform and opacity", async () => {
+    const page = (await import("../components/SettingsPage.svelte?raw")).default;
+    expect(page).toMatch(/easing: springEase/);
+    expect(page).toMatch(/prefers-reduced-motion: reduce/);
+    for (const css of page.matchAll(/css: \(t: number\) =>([^\n]*)/g)) {
+      const props = [...css[1].matchAll(/([a-z-]+):\s/g)].map((m) => m[1]);
+      expect(props.every((p) => p === "opacity" || p === "transform"), css[1]).toBe(true);
+    }
+  });
+  it("the switch keeps the extension popup's colours", async () => {
+    const sw = (await import("../components/Switch.svelte?raw")).default;
+    expect(sw).toMatch(/\.track\s*\{[^}]*background:\s*var\(--surface-2\)/);
+    expect(sw).toMatch(/input:checked \+ \.track\s*\{[^}]*background:\s*var\(--accent\)/);
+    expect(sw).toMatch(/input:focus-visible \+ \.track\s*\{[^}]*outline:\s*2px solid var\(--accent-light\)/);
+  });
+  it("the old settings dialog is gone and the app opens the page", async () => {
+    const app = (await import("../App.svelte?raw")).default;
+    expect(app).not.toContain("SettingsDialog");
+    expect(app).toContain("<SettingsPage");
+    expect(app).toMatch(/e\.ctrlKey && e\.key === ","/);
+  });
+});

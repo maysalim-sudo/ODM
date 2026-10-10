@@ -1,3 +1,7 @@
+use odm_appcore::settings::{
+    parse_hhmm, AfterQueue, OnComplete, OnExists, ProxyMode, Schedule, StartMode, UpdateInstall,
+    VideoContainer, VideoQuality,
+};
 use odm_appcore::{AppPaths, Settings};
 use std::time::Duration;
 
@@ -13,10 +17,10 @@ fn defaults_match_the_spec() {
         (30, 60, 0)
     );
     assert_eq!(s.min_capture_bytes, 1 << 20);
-    assert!(s.capture_enabled && s.close_to_tray && s.notifications && !s.start_minimized);
+    assert!(s.capture_enabled && s.close_to_tray && s.notify_complete && !s.start_minimized);
     assert_eq!(s.category_folders["video"], "Videos");
     assert_eq!(s.category_folders["general"], "");
-    assert!(s.download_dir.ends_with("Downloads"));
+    assert!(std::path::Path::new(&s.download_dir).ends_with("Downloads/ODM"));
 }
 
 #[test]
@@ -295,4 +299,196 @@ fn onboarding_done_defaults_false_and_round_trips() {
     let (old, w) = Settings::from_json(r#"{"max_concurrent": 2}"#);
     assert!(w.is_empty());
     assert!(!old.onboarding_done);
+}
+
+#[test]
+fn default_download_dir_is_downloads_odm() {
+    let engine = odm_engine::EngineConfig::default().download_dir;
+    assert!(engine.ends_with("Downloads/ODM"), "{engine:?}");
+    assert_eq!(
+        std::path::PathBuf::from(Settings::default().download_dir),
+        engine
+    );
+}
+
+/// A settings file written before the Settings page: none of the new keys, the old
+/// `notifications` switch, and the user's own folder.
+const OLD_FILE: &str = r#"{
+  "download_dir": "D:\\Stuff\\Downloads",
+  "category_folders": {"audio": "Music", "compressed": "Compressed", "document": "Documents",
+    "general": "", "image": "Images", "program": "Programs", "video": "Videos"},
+  "max_concurrent": 4, "max_connections": 8, "max_attempts": 5, "speed_limit_kbps": 0,
+  "connect_timeout_s": 30, "read_timeout_s": 60, "ffmpeg_path": "", "ytdlp_path": "",
+  "capture_enabled": true, "min_capture_bytes": 1048576, "skip_hosts": [],
+  "close_to_tray": true, "start_minimized": false, "notifications": true,
+  "confirm_browser_downloads": true, "onboarding_done": true
+}"#;
+
+#[test]
+fn old_settings_file_keeps_folder_and_gets_new_defaults() {
+    let (s, warnings) = Settings::from_json(OLD_FILE);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(s.download_dir, "D:\\Stuff\\Downloads");
+    assert_eq!(
+        s,
+        Settings {
+            download_dir: "D:\\Stuff\\Downloads".into(),
+            max_concurrent: 4,
+            onboarding_done: true,
+            ..Settings::default()
+        }
+    );
+}
+
+#[test]
+fn new_fields_have_the_documented_defaults() {
+    let s = Settings::default();
+    assert!(!s.start_with_windows);
+    assert!(s.notify_complete && s.notify_failed && s.prevent_sleep && s.sort_by_type);
+    assert_eq!(s.on_exists, OnExists::Rename);
+    assert_eq!(s.on_complete, OnComplete::Nothing);
+    assert_eq!(s.start_mode, StartMode::Now);
+    assert_eq!(s.history_days, 0);
+    assert!(!s.limit_schedule.enabled && !s.queue_schedule.enabled);
+    assert_eq!(s.limit_schedule.days, [true; 7]);
+    assert_eq!(s.after_queue, AfterQueue::Nothing);
+    assert!(s.skip_types.is_empty());
+    assert_eq!(s.video_quality, VideoQuality::Best);
+    assert_eq!(s.video_container, VideoContainer::Mp4);
+    assert!(!s.video_subtitles && s.ytdlp_auto_update);
+    assert_eq!(s.proxy_mode, ProxyMode::System);
+    assert!(s.proxy_url.is_empty() && s.user_agent.is_empty());
+    assert!(s.update_check);
+    assert_eq!(s.update_install, UpdateInstall::Ask);
+}
+
+#[test]
+fn choice_fields_use_snake_case_and_fall_back_when_unknown() {
+    let (s, w) = Settings::from_json(
+        r#"{"on_exists": "ask", "on_complete": "open_folder", "start_mode": "paused",
+            "after_queue": "shutdown", "video_quality": "720p", "video_container": "mkv",
+            "proxy_mode": "manual", "update_install": "auto"}"#,
+    );
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(s.on_exists, OnExists::Ask);
+    assert_eq!(s.on_complete, OnComplete::OpenFolder);
+    assert_eq!(s.start_mode, StartMode::Paused);
+    assert_eq!(s.after_queue, AfterQueue::Shutdown);
+    assert_eq!(s.video_quality, VideoQuality::P720);
+    assert_eq!(s.video_container, VideoContainer::Mkv);
+    assert_eq!(s.proxy_mode, ProxyMode::Manual);
+    assert_eq!(s.update_install, UpdateInstall::Auto);
+    let json = serde_json::to_value(&s).unwrap();
+    assert_eq!(json["on_complete"], "open_folder");
+    assert_eq!(json["video_quality"], "720p");
+    for q in ["best", "1080p", "480p", "audio"] {
+        let (s, w) = Settings::from_json(&format!(r#"{{"video_quality": "{q}"}}"#));
+        assert!(w.is_empty(), "{q}: {w:?}");
+        assert_eq!(serde_json::to_value(s.video_quality).unwrap(), q);
+    }
+    let (s, w) = Settings::from_json(r#"{"on_exists": "explode", "max_attempts": 9}"#);
+    assert_eq!(s.on_exists, OnExists::Rename);
+    assert_eq!(s.max_attempts, 9);
+    assert_eq!(w.len(), 1);
+    assert!(w[0].contains("on_exists"), "{w:?}");
+}
+
+#[test]
+fn legacy_notifications_switch_maps_to_both_new_ones() {
+    let (s, w) = Settings::from_json(r#"{"notifications": false}"#);
+    assert!(w.is_empty(), "{w:?}");
+    assert!(!s.notify_complete && !s.notify_failed);
+    // The new keys win when both are present.
+    let (s, w) = Settings::from_json(r#"{"notifications": false, "notify_failed": true}"#);
+    assert!(w.is_empty(), "{w:?}");
+    assert!(!s.notify_complete && s.notify_failed);
+    let (s, w) = Settings::from_json(r#"{"notifications": "yes"}"#);
+    assert!(s.notify_complete && s.notify_failed);
+    assert_eq!(w.len(), 1, "{w:?}");
+    // It is not written back.
+    let json = serde_json::to_value(Settings::default()).unwrap();
+    assert!(json.get("notifications").is_none());
+}
+
+#[test]
+fn schedules_parse_and_bad_times_fall_back() {
+    let (s, w) = Settings::from_json(
+        r#"{"limit_schedule": {"enabled": true, "days": [true,true,true,true,true,false,false],
+            "from": "22:00", "to": "06:30"}}"#,
+    );
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(
+        s.limit_schedule,
+        Schedule {
+            enabled: true,
+            days: [true, true, true, true, true, false, false],
+            from: "22:00".into(),
+            to: "06:30".into(),
+        }
+    );
+    // A partial object keeps the defaults for the rest.
+    let (s, w) = Settings::from_json(r#"{"queue_schedule": {"enabled": true}}"#);
+    assert!(w.is_empty(), "{w:?}");
+    assert!(s.queue_schedule.enabled);
+    assert_eq!(
+        s.queue_schedule.from,
+        Settings::default().queue_schedule.from
+    );
+    // A wrong number of days is an invalid value.
+    let (s, w) = Settings::from_json(r#"{"queue_schedule": {"days": [true]}}"#);
+    assert_eq!(s.queue_schedule, Settings::default().queue_schedule);
+    assert_eq!(w.len(), 1, "{w:?}");
+    // A time that is not HH:MM resets that time only.
+    let (s, w) = Settings::from_json(
+        r#"{"limit_schedule": {"enabled": true, "from": "25:00", "to": "7:5"}}"#,
+    );
+    assert!(s.limit_schedule.enabled);
+    assert_eq!(
+        s.limit_schedule.from,
+        Settings::default().limit_schedule.from
+    );
+    assert_eq!(s.limit_schedule.to, Settings::default().limit_schedule.to);
+    assert_eq!(w.len(), 2, "{w:?}");
+}
+
+#[test]
+fn parse_hhmm_reads_minutes_after_midnight() {
+    assert_eq!(parse_hhmm("00:00"), Some(0));
+    assert_eq!(parse_hhmm("06:30"), Some(390));
+    assert_eq!(parse_hhmm("23:59"), Some(1439));
+    for bad in ["24:00", "7:05", "07:60", "0700", "", "aa:bb", "07:05 "] {
+        assert_eq!(parse_hhmm(bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn skip_types_and_history_days_are_normalized() {
+    let mut s = Settings {
+        skip_types: vec![
+            ".PDF".into(),
+            " jpg ".into(),
+            "pdf".into(),
+            "bad type!".into(),
+            "".into(),
+        ],
+        history_days: 100_000,
+        ..Settings::default()
+    };
+    let w = s.clamp();
+    assert_eq!(s.skip_types, ["pdf", "jpg"]);
+    assert_eq!(s.history_days, 3650);
+    assert_eq!(w.len(), 2, "{w:?}"); // the bad type and the clamp
+}
+
+#[test]
+fn sort_by_type_reaches_the_engine_config() {
+    assert!(Settings::default().to_engine_config().sort_by_type);
+    let off = Settings {
+        sort_by_type: false,
+        download_dir: "D:/dl".into(),
+        ..Settings::default()
+    };
+    let c = off.to_engine_config();
+    assert!(!c.sort_by_type);
+    assert_eq!(c.save_dir_for("video"), std::path::PathBuf::from("D:/dl"));
 }

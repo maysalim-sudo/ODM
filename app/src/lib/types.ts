@@ -106,10 +106,53 @@ export interface Settings {
   skip_hosts: string[];
   close_to_tray: boolean;
   start_minimized: boolean;
-  notifications: boolean;
   confirm_browser_downloads: boolean;
   /** The first-run welcome screen has been completed. */
   onboarding_done: boolean;
+  start_with_windows: boolean;
+  notify_complete: boolean;
+  notify_failed: boolean;
+  prevent_sleep: boolean;
+  /** Off: every type is saved straight into download_dir. */
+  sort_by_type: boolean;
+  on_exists: OnExists;
+  on_complete: OnComplete;
+  start_mode: StartMode;
+  /** Remove finished downloads from the list after this many days; 0 = never. */
+  history_days: number;
+  limit_schedule: Schedule;
+  queue_schedule: Schedule;
+  after_queue: AfterQueue;
+  /** File extensions left to the browser, lower case without the dot. */
+  skip_types: string[];
+  video_quality: VideoQuality;
+  video_container: VideoContainer;
+  video_subtitles: boolean;
+  ytdlp_auto_update: boolean;
+  proxy_mode: ProxyMode;
+  /** Used when proxy_mode is "manual": http://host:port or socks5://host:port. */
+  proxy_url: string;
+  /** Empty = ODM's default User-Agent. */
+  user_agent: string;
+  update_check: boolean;
+  update_install: UpdateInstall;
+}
+
+export type OnExists = "rename" | "overwrite" | "ask";
+export type OnComplete = "nothing" | "open_folder" | "open_file";
+export type StartMode = "now" | "paused";
+export type AfterQueue = "nothing" | "sleep" | "shutdown" | "quit";
+export type VideoQuality = "best" | "1080p" | "720p" | "480p" | "audio";
+export type VideoContainer = "mp4" | "mkv";
+export type ProxyMode = "system" | "none" | "manual";
+export type UpdateInstall = "ask" | "auto";
+
+/** A weekly window. days: Monday (0) to Sunday (6). from/to: local "HH:MM"; to < from crosses midnight. */
+export interface Schedule {
+  enabled: boolean;
+  days: boolean[];
+  from: string;
+  to: string;
 }
 
 export interface AddArgs {

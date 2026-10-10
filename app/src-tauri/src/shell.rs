@@ -1,4 +1,4 @@
-use odm_appcore::dto::UiEvent;
+use odm_appcore::dto::{Finished, UiEvent};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Manager, Window, WindowEvent};
@@ -153,16 +153,23 @@ pub fn on_ui_event(app: &AppHandle, ev: &UiEvent) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
-    let Some(download) = state.completions.lock().unwrap().newly_completed(ev) else {
+    let Some((download, how)) = state.completions.lock().unwrap().newly_finished(ev) else {
         return;
     };
-    if !state.settings.lock().unwrap().notifications {
+    let (wanted, title) = {
+        let s = state.settings.lock().unwrap();
+        match how {
+            Finished::Completed => (s.notify_complete, "Download complete"),
+            Finished::Failed => (s.notify_failed, "Download failed"),
+        }
+    };
+    if !wanted {
         return;
     }
     if let Err(e) = app
         .notification()
         .builder()
-        .title("Download complete")
+        .title(title)
         .body(&download.filename)
         .show()
     {

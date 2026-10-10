@@ -3,7 +3,6 @@ import {
   CATEGORIES,
   CATEGORY_LABELS,
   ReloadGate,
-  coerceSettings,
   nextFilename,
   shouldCloseOnBackdrop,
   toInt,
@@ -318,37 +317,6 @@ describe("toInt", () => {
     expect(toInt(undefined, 3)).toBe(3);
     expect(toInt("12" as unknown, 3)).toBe(3);
     expect(toInt(Number.POSITIVE_INFINITY, 3)).toBe(3);
-  });
-});
-
-describe("coerceSettings", () => {
-  const base = {
-    download_dir: "C:\\dl",
-    category_folders: { video: "Video" },
-    max_concurrent: 3,
-    max_connections: 8,
-    max_attempts: 5,
-    speed_limit_kbps: 0,
-    connect_timeout_s: 20,
-    read_timeout_s: 60,
-    ffmpeg_path: "",
-    ytdlp_path: "",
-    capture_enabled: true,
-    min_capture_bytes: 1048576,
-    skip_hosts: [],
-    close_to_tray: true,
-    start_minimized: false,
-    notifications: true,
-    confirm_browser_downloads: true,
-    onboarding_done: false,
-  };
-  it("replaces emptied number fields with the previously loaded value", () => {
-    const form = { ...base, max_connections: null, speed_limit_kbps: Number.NaN, max_concurrent: 4.4 };
-    const out = coerceSettings(form as unknown as typeof base, { ...base, speed_limit_kbps: 500 });
-    expect(out.max_connections).toBe(8);
-    expect(out.speed_limit_kbps).toBe(500);
-    expect(out.max_concurrent).toBe(4);
-    expect(out.download_dir).toBe("C:\\dl");
   });
 });
 
