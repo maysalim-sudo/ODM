@@ -20,6 +20,7 @@
   import * as api from "./lib/api";
   import { downloads } from "./lib/downloads.svelte";
   import { integration } from "./lib/integration.svelte";
+  import { SECTIONS, type SectionId } from "./lib/settingsPage";
 
   let detailId = $state<string | null>(null);
   let addOpen = $state(false);
@@ -31,6 +32,7 @@
   let programOpen = $state(false);
   let browserOpen = $state(false);
   let welcomeOpen = $state(false);
+  let settingsSection = $state<SectionId | undefined>(undefined);
   const detailName = $derived(detailId ? (downloads.rows.get(detailId)?.filename ?? "") : "");
 
   onMount(() => {
@@ -40,7 +42,21 @@
       .getSettings()
       .then((s) => (welcomeOpen = !s.onboarding_done))
       .catch(() => {});
-    return integration.startPolling();
+    // The tray can ask for the Settings page at a section.
+    let off: (() => void) | undefined;
+    let gone = false;
+    void api
+      .onOpenSettings((id) => {
+        settingsSection = SECTIONS.find((s) => s.id === id)?.id;
+        settingsOpen = true;
+      })
+      .then((un) => (gone ? un() : (off = un)));
+    const stop = integration.startPolling();
+    return () => {
+      gone = true;
+      off?.();
+      stop();
+    };
   });
 
   function onkeydown(e: KeyboardEvent) {
@@ -87,7 +103,10 @@
   <Toolbar
     onadd={() => (addOpen = true)}
     onbatch={() => (batchOpen = true)}
-    onsettings={() => (settingsOpen = true)}
+    onsettings={() => {
+      settingsSection = undefined;
+      settingsOpen = true;
+    }}
     oncancel={() => (cancelOpen = true)}
     onremove={() => (removeOpen = true)}
   />
@@ -127,7 +146,7 @@
     void integration.refresh();
   }}
 />
-<SettingsPage open={settingsOpen} onclose={() => (settingsOpen = false)} onbrowser={() => (browserOpen = true)} />
+<SettingsPage open={settingsOpen} section={settingsSection} onclose={() => (settingsOpen = false)} onbrowser={() => (browserOpen = true)} />
 <ReuseDialog />
 <ConfirmDialog />
 <ExistsDialog />

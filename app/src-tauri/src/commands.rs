@@ -156,13 +156,24 @@ pub async fn save_settings(
     state: State<'_, AppState>,
     settings: Settings,
 ) -> Res<Settings> {
+    apply_settings(&app, &state, settings).await
+}
+
+/// Saves settings and applies them; the Settings page and the tray both come through here.
+/// Afterwards the window hears about the result (`odm://settings`) and the tray's speed menu
+/// shows the limit now in force.
+pub async fn apply_settings(
+    app: &AppHandle,
+    state: &AppState,
+    settings: Settings,
+) -> Res<Settings> {
     let prev = state.settings.lock().unwrap().clone();
     let (saved, warnings) = api::update_settings(
         &state.manager,
         &state.paths.settings,
         &prev,
         settings,
-        &PluginAutostart(&app),
+        &PluginAutostart(app),
     )
     .await?;
     for w in warnings {
@@ -172,6 +183,10 @@ pub async fn save_settings(
     // "Prevent sleep" applies at once, not at the next download change.
     let active = state.manager.active_count().await.unwrap_or(0);
     state.power.set_activity(active, saved.prevent_sleep);
+    crate::shell::sync_speed_menu(app, saved.speed_limit_kbps);
+    if let Err(e) = app.emit(crate::SETTINGS_EVENT, &saved) {
+        tracing::warn!("could not send the settings to the window: {e}");
+    }
     Ok(saved)
 }
 

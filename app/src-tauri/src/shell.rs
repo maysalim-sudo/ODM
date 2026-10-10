@@ -1,15 +1,16 @@
 use odm_appcore::completion::{completion_action, CompletionAction};
 use odm_appcore::dto::{DownloadDto, Finished, UiEvent};
 use odm_appcore::power::{PowerActions, SystemPower};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{App, AppHandle, Manager, Window, WindowEvent};
+use tauri::{App, AppHandle, Emitter, Manager, Window, WindowEvent, Wry};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
 use std::sync::atomic::Ordering;
 
+use crate::speed_menu;
 use crate::AppState;
 
 pub fn show_main(app: &AppHandle) {
@@ -20,7 +21,65 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
+/// The checkable items of the tray's "Speed limit" submenu: the presets, then Custom.
+struct SpeedItems(Vec<(&'static str, CheckMenuItem<Wry>)>);
+
+/// Checks the item for the limit now in force.
+pub fn sync_speed_menu(app: &AppHandle, kbps: u64) {
+    let Some(items) = app.try_state::<SpeedItems>() else {
+        return;
+    };
+    let on = speed_menu::checked_id(kbps);
+    for (id, item) in &items.0 {
+        let _ = item.set_checked(*id == on);
+    }
+}
+
+fn speed_submenu(app: &App, kbps: u64) -> tauri::Result<Submenu<Wry>> {
+    let on = speed_menu::checked_id(kbps);
+    let mut items = Vec::new();
+    for (id, label, _) in speed_menu::PRESETS {
+        items.push((
+            id,
+            CheckMenuItem::with_id(app, id, label, true, id == on, None::<&str>)?,
+        ));
+    }
+    let custom = speed_menu::CUSTOM_ID;
+    items.push((
+        custom,
+        CheckMenuItem::with_id(app, custom, "Custom…", true, custom == on, None::<&str>)?,
+    ));
+    let refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = items
+        .iter()
+        .map(|(_, i)| i as &dyn tauri::menu::IsMenuItem<Wry>)
+        .collect();
+    let sub = Submenu::with_items(app, "Speed limit", true, &refs)?;
+    app.manage(SpeedItems(items));
+    Ok(sub)
+}
+
+/// A preset from the tray: saves the limit the way the Settings page does.
+fn set_speed_limit(app: &AppHandle, kbps: u64) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let mut next = state.settings.lock().unwrap().clone();
+        next.speed_limit_kbps = kbps;
+        if let Err(e) = crate::commands::apply_settings(&app, &state, next).await {
+            tracing::warn!("tray speed limit failed: {e}");
+            sync_speed_menu(&app, state.settings.lock().unwrap().speed_limit_kbps);
+        }
+    });
+}
+
 pub fn setup(app: &mut App, background: bool) -> tauri::Result<()> {
+    let kbps = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .unwrap()
+        .speed_limit_kbps;
+    let speed = speed_submenu(app, kbps)?;
     let show = MenuItem::with_id(app, "show", "Show ODM", true, None::<&str>)?;
     let pause = MenuItem::with_id(app, "pause_all", "Pause all", true, None::<&str>)?;
     let resume = MenuItem::with_id(app, "resume_all", "Resume all", true, None::<&str>)?;
@@ -31,6 +90,8 @@ pub fn setup(app: &mut App, background: bool) -> tauri::Result<()> {
             &show,
             &pause,
             &resume,
+            &PredefinedMenuItem::separator(app)?,
+            &speed,
             &PredefinedMenuItem::separator(app)?,
             &quit,
         ],
@@ -58,7 +119,19 @@ pub fn setup(app: &mut App, background: bool) -> tauri::Result<()> {
                 });
             }
             "quit" => request_quit(app),
-            _ => {}
+            speed_menu::CUSTOM_ID => {
+                // Custom is typed in the Settings page, at its Speed section.
+                show_main(app);
+                let _ = app.emit(crate::OPEN_SETTINGS_EVENT, "speed");
+                if let Some(state) = app.try_state::<AppState>() {
+                    sync_speed_menu(app, state.settings.lock().unwrap().speed_limit_kbps);
+                }
+            }
+            id => {
+                if let Some(kbps) = speed_menu::preset_kbps(id) {
+                    set_speed_limit(app, kbps);
+                }
+            }
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {

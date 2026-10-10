@@ -74,3 +74,12 @@ export const answerExists = (id: string, choice: ExistsChoice) => invoke<void>("
 export const setDownloadLimit = (id: string, kbps: number | null) => invoke<void>("set_download_limit", { id, kbps });
 /** Cancels the shutdown that "When the queue is done" started. */
 export const cancelShutdown = () => invoke<void>("cancel_shutdown");
+
+/** The saved settings, sent after every save from the Settings page, the speed chip or the tray. */
+export function onSettings(cb: (s: Settings) => void): Promise<UnlistenFn> {
+  return listen<Settings>("odm://settings", (e) => cb(e.payload));
+}
+/** The tray asks for the Settings page, at a section (for example "speed"). */
+export function onOpenSettings(cb: (section: string) => void): Promise<UnlistenFn> {
+  return listen<string>("odm://open-settings", (e) => cb(e.payload));
+}

@@ -1,5 +1,6 @@
 mod commands;
 mod shell;
+mod speed_menu;
 
 use odm_appcore::api::{store_open_message, user_message};
 use odm_appcore::confirm::Pending;
@@ -21,6 +22,10 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tokio_util::sync::CancellationToken;
 
 pub const EVENT: &str = "odm://event";
+/// Sent with the saved settings after every save, so the chip and the Settings page stay in step.
+pub const SETTINGS_EVENT: &str = "odm://settings";
+/// Asks the window to open the Settings page; the payload is the section id.
+pub const OPEN_SETTINGS_EVENT: &str = "odm://open-settings";
 /// Progress reaches the UI at most 4 times per second.
 const UI_PROGRESS_INTERVAL: Duration = Duration::from_millis(250);
 

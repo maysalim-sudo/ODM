@@ -39,6 +39,9 @@ import {
   storeLinkFor,
   extensionsPageFor,
   browserConnected,
+  speedPresets,
+  formatLimit,
+  totalSpeed,
 } from "./model";
 import type { Download, IntegrationStatus, StoreLinks, ToolsStatus } from "./types";
 
@@ -673,4 +676,51 @@ describe("exists prompts", () => {
       expect(r.resync).toBe(false);
     }
   });
+});
+
+describe("formatLimit", () => {
+  it("says Unlimited for 0", () => expect(formatLimit(0)).toBe("Unlimited"));
+  it("uses KB/s below 1 MB/s", () => {
+    expect(formatLimit(512)).toBe("512 KB/s");
+    expect(formatLimit(1)).toBe("1 KB/s");
+  });
+  it("uses MB/s from 1 MB/s, with a tenth when it fits exactly", () => {
+    expect(formatLimit(1024)).toBe("1 MB/s");
+    expect(formatLimit(2048)).toBe("2 MB/s");
+    expect(formatLimit(1536)).toBe("1.5 MB/s");
+  });
+  it("keeps KB/s when MB/s would round", () => expect(formatLimit(1500)).toBe("1500 KB/s"));
+});
+
+describe("speedPresets", () => {
+  const labels = (kbps: number) => speedPresets(kbps).map((p) => p.label);
+  it("lists the presets in order, then Custom", () => {
+    expect(labels(0)).toEqual(["Unlimited", "512 KB/s", "1 MB/s", "2 MB/s", "5 MB/s", "Custom…"]);
+  });
+  it("checks Unlimited when there is no limit", () => {
+    expect(speedPresets(0).filter((p) => p.checked).map((p) => p.label)).toEqual(["Unlimited"]);
+  });
+  it("checks the matching preset", () => {
+    expect(speedPresets(2048).filter((p) => p.checked).map((p) => p.label)).toEqual(["2 MB/s"]);
+  });
+  it("checks Custom, with the value, for any other limit", () => {
+    const on = speedPresets(1500).filter((p) => p.checked);
+    expect(on.map((p) => p.label)).toEqual(["Custom…"]);
+    expect(on[0].detail).toBe("1500 KB/s");
+  });
+  it("gives presets their KB/s and Custom none", () => {
+    expect(speedPresets(0).map((p) => p.kbps)).toEqual([0, 512, 1024, 2048, 5120, null]);
+  });
+});
+
+describe("totalSpeed", () => {
+  it("adds the speeds of the rows", () => {
+    const rows = new Map([
+      ["a", toRow(dl("a", { state: "downloading" }), undefined)],
+    ]);
+    rows.get("a")!.speed_bps = 100;
+    rows.set("b", { ...rows.get("a")!, id: "b", speed_bps: 50 });
+    expect(totalSpeed(rows)).toBe(150);
+  });
+  it("is 0 with no rows", () => expect(totalSpeed(new Map())).toBe(0));
 });

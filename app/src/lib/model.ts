@@ -1,3 +1,4 @@
+import { fromKbps } from "./settingsPage";
 import type { ChunkState, ChunkView, Download, DownloadState, ExistsPrompt, IntegrationStatus, Offer, SegmentProgress, StoreLinks, ToolInfo, ToolsStatus, UiEvent } from "./types";
 
 /** A list row: the stored download plus live values from progress events. */
@@ -444,4 +445,50 @@ export function storeLinkFor(browser: string, links: StoreLinks): string | null 
 /** A browser extension has talked to ODM. ODM's own "Test connection" PING doesn't count. */
 export function browserConnected(st: IntegrationStatus | null): boolean {
   return st !== null && st.last_contact_ms !== null && st.last_command !== "PING";
+}
+
+/** The quick limits, in KB/s; 0 means no limit. */
+const PRESET_KBPS = [0, 512, 1024, 2048, 5120] as const;
+
+/** "Unlimited", "512 KB/s", "1.5 MB/s": a speed limit in the unit the Settings page would pick. */
+export function formatLimit(kbps: number): string {
+  if (kbps <= 0) return "Unlimited";
+  const { value, unit } = fromKbps(kbps);
+  return `${value} ${unit === "mb" ? "MB" : "KB"}/s`;
+}
+
+export interface SpeedPreset {
+  id: string;
+  label: string;
+  /** The limit this item sets; null for Custom, which asks for a value. */
+  kbps: number | null;
+  checked: boolean;
+  /** For a checked Custom: the limit in force. */
+  detail?: string;
+}
+
+/** The items of the speed menu for the limit now in force: one is checked, Custom when none match. */
+export function speedPresets(current: number): SpeedPreset[] {
+  const known = PRESET_KBPS.includes(current as (typeof PRESET_KBPS)[number]);
+  const items: SpeedPreset[] = PRESET_KBPS.map((k) => ({
+    id: `kbps-${k}`,
+    label: formatLimit(k),
+    kbps: k,
+    checked: k === current,
+  }));
+  items.push({
+    id: "custom",
+    label: "Custom…",
+    kbps: null,
+    checked: !known,
+    ...(known ? {} : { detail: formatLimit(current) }),
+  });
+  return items;
+}
+
+/** Bytes per second across all rows, for the speed chip. */
+export function totalSpeed(rows: Map<string, Row>): number {
+  let sum = 0;
+  for (const r of rows.values()) sum += r.speed_bps;
+  return sum;
 }

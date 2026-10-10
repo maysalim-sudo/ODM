@@ -36,11 +36,14 @@
 
   let {
     open,
+    section,
     onclose,
     onbrowser,
     oncheckupdates,
   }: {
     open: boolean;
+    /** The section to show when the page opens; the last one stays when not given. */
+    section?: SectionId;
     onclose: () => void;
     /** Opens the browser connection panel. */
     onbrowser: () => void;
@@ -92,6 +95,7 @@
     loadError = null;
     saveError = null;
     query = "";
+    if (section) active = section;
     void integration.refresh();
     Promise.all([api.getSettings(), api.defaultSettings()])
       .then(([loaded, defs]) => {
@@ -103,7 +107,17 @@
       .then((v) => (version = v))
       .catch(() => (version = ""));
     void tick().then(() => searchEl?.focus());
+    // A change from the speed chip or the tray shows here too, unless a save of ours is under way.
+    let off: (() => void) | undefined;
+    let gone = false;
+    void api
+      .onSettings((next) => {
+        if (pending === 0) adopt(next);
+      })
+      .then((un) => (gone ? un() : (off = un)));
     return () => {
+      gone = true;
+      off?.();
       clearTimeout(toastTimer);
       toast = null;
       returnFocus?.focus();
@@ -124,11 +138,13 @@
   // Saves run one after another; a reply only lands if nothing newer was changed meanwhile.
   let chain: Promise<void> = Promise.resolve();
   let edits = 0;
+  let pending = 0;
 
   function commit(next: Settings): void {
     s = next;
     const snap = $state.snapshot(next) as Settings;
     const mine = ++edits;
+    pending++;
     chain = chain.then(async () => {
       try {
         const saved = await api.saveSettings(snap);
@@ -140,6 +156,8 @@
           const back = await api.getSettings().catch(() => null);
           if (back && mine === edits) adopt(back);
         }
+      } finally {
+        pending--;
       }
     });
   }

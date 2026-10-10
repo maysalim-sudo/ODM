@@ -1,6 +1,7 @@
 <script lang="ts">
   import * as api from "../lib/api";
   import { downloads } from "../lib/downloads.svelte";
+  import SpeedChip from "./SpeedChip.svelte";
   import { canCancel, canPause, canResume } from "../lib/model";
 
   let {
@@ -34,6 +35,7 @@
   <button disabled={!rows.some(canCancel)} onclick={oncancel}>Cancel</button>
   <button disabled={rows.length === 0} onclick={onremove}>Remove</button>
   <span class="spacer"></span>
+  <SpeedChip />
   <button onclick={onsettings}>Settings</button>
 </div>
 
