@@ -14,6 +14,7 @@ import type {
   Suggestion,
   ToolsStatus,
   UiEvent,
+  UpdateStatus,
 } from "./types";
 
 export const listDownloads = () => invoke<Download[]>("list_downloads");
@@ -83,3 +84,12 @@ export function onSettings(cb: (s: Settings) => void): Promise<UnlistenFn> {
 export function onOpenSettings(cb: (section: string) => void): Promise<UnlistenFn> {
   return listen<string>("odm://open-settings", (e) => cb(e.payload));
 }
+
+/** What the updater knows: the version found, whether it is downloaded, when ODM last checked. */
+export const updateStatus = () => invoke<UpdateStatus>("update_status");
+/** "Check now"; rejects with a sentence when the check fails or the build has no updates. */
+export const updateCheck = () => invoke<UpdateStatus>("update_check");
+/** "Later": hides the banner until a newer version is out. */
+export const updateDismiss = (version: string) => invoke<void>("update_dismiss", { version });
+/** Downloads the update if needed, pauses the downloads and runs the installer, which restarts ODM. */
+export const updateInstall = () => invoke<void>("update_install");

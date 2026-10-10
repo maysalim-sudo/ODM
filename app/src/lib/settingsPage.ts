@@ -76,6 +76,7 @@ export const ROWS: RowDef[] = [
   row("updates", "update_check", "Check for updates automatically", "ODM tells you when a new version is ready.", ["update_check"]),
   row("updates", "update_install", "When an update is ready", "Installing when you quit saves a step.", ["update_install"]),
   row("updates", "check_now", "Check for updates now", "Looks for a new version right away."),
+  row("updates", "whats_new", "What's new", "The changes in the new version."),
   row("updates", "app_version", "Version", "The version of ODM you are running."),
 
   row("advanced", "user_agent", "Custom User-Agent", "Leave empty to use ODM's own. Browser downloads keep the browser's.", ["user_agent"]),
@@ -89,12 +90,7 @@ export const ROWS: RowDef[] = [
  * Rows whose engine work has not landed yet stay hidden, so the page never shows a
  * control that does nothing. Later tasks flip their entries to true. Rows not listed are ready.
  */
-export const READY: Partial<Record<string, boolean>> = {
-  // Task 1
-  update_check: false,
-  update_install: false,
-  check_now: false,
-};
+export const READY: Partial<Record<string, boolean>> = {};
 
 const BY_ID = new Map(ROWS.map((r) => [r.id, r]));
 

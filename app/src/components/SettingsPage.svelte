@@ -26,6 +26,8 @@
     type SpeedUnit,
   } from "../lib/settingsPage";
   import type { Settings } from "../lib/types";
+  import { checkLine } from "../lib/updates";
+  import { updates } from "../lib/updates.svelte";
   import NumberField from "./NumberField.svelte";
   import ScheduleEditor from "./ScheduleEditor.svelte";
   import Segmented from "./Segmented.svelte";
@@ -47,7 +49,7 @@
     onclose: () => void;
     /** Opens the browser connection panel. */
     onbrowser: () => void;
-    /** "Check for updates now" (Task 1). */
+    /** "Check for updates now". */
     oncheckupdates?: () => void;
   } = $props();
 
@@ -82,6 +84,7 @@
   );
 
   const st = $derived(integration.status);
+  const uv = $derived(updates.view);
   const browserLine = $derived(
     st === null
       ? "Checking…"
@@ -106,6 +109,7 @@
     getVersion()
       .then((v) => (version = v))
       .catch(() => (version = ""));
+    updates.refresh().catch(() => {});
     void tick().then(() => searchEl?.focus());
     // A change from the speed chip or the tray shows here too, unless a save of ours is under way.
     let off: (() => void) | undefined;
@@ -721,14 +725,14 @@
                     </div>
                   {/if}
                 {:else if sec.id === "updates"}
-                  {#if any("update_check", "update_install", "check_now", "app_version")}
+                  {#if any("update_check", "update_install", "check_now", "whats_new", "app_version")}
                     <div class="card">
-                      {#if show("update_check")}
+                      {#if show("update_check") && uv.supported}
                         <SettingRow id="update_check">
                           <Switch label="Check for updates automatically" describedby="set-update_check-desc" checked={s.update_check} onchange={(v) => set("update_check", v)} />
                         </SettingRow>
                       {/if}
-                      {#if show("update_install")}
+                      {#if show("update_install") && uv.supported}
                         <SettingRow id="update_install">
                           <Segmented
                             label="When an update is ready"
@@ -743,7 +747,19 @@
                       {/if}
                       {#if show("check_now")}
                         <SettingRow id="check_now">
-                          <button onclick={() => oncheckupdates?.()}>Check now</button>
+                          <span class="status" role="status">{checkLine(uv, integration.now)}</span>
+                          {#if uv.supported}
+                            <button disabled={uv.checking} onclick={() => oncheckupdates?.()}>Check now</button>
+                          {/if}
+                        </SettingRow>
+                      {/if}
+                      {#if show("whats_new") && uv.supported && uv.available}
+                        <SettingRow id="whats_new">
+                          <span class="status">ODM {uv.available.version}</span>
+                          {#snippet below()}
+                            <!-- Plain text only: the notes come from the network. -->
+                            <p class="notes">{uv.available?.notes || "No notes for this version."}</p>
+                          {/snippet}
                         </SettingRow>
                       {/if}
                       {#if show("app_version")}
@@ -951,6 +967,18 @@
   }
   .status {
     color: var(--muted);
+  }
+  .notes {
+    margin: 0;
+    max-height: 240px;
+    overflow: auto;
+    padding: 8px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
   }
   .folders {
     display: grid;

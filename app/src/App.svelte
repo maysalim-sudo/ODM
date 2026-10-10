@@ -17,10 +17,12 @@
   import SettingsPage from "./components/SettingsPage.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toolbar from "./components/Toolbar.svelte";
+  import UpdateBanner from "./components/UpdateBanner.svelte";
   import * as api from "./lib/api";
   import { downloads } from "./lib/downloads.svelte";
   import { integration } from "./lib/integration.svelte";
   import { SECTIONS, type SectionId } from "./lib/settingsPage";
+  import { updates } from "./lib/updates.svelte";
 
   let detailId = $state<string | null>(null);
   let addOpen = $state(false);
@@ -37,6 +39,7 @@
 
   onMount(() => {
     void downloads.init();
+    void updates.init();
     // First start: the guided setup. A settings read that fails just skips it.
     api
       .getSettings()
@@ -118,7 +121,15 @@
   {/if}
   <div class="body">
     <Sidebar onbrowser={() => (browserOpen = true)} />
-    <DownloadTable onopen={(id) => (detailId = id)} />
+    <div class="main">
+      <UpdateBanner
+        onnotes={() => {
+          settingsSection = "updates";
+          settingsOpen = true;
+        }}
+      />
+      <DownloadTable onopen={(id) => (detailId = id)} />
+    </div>
     <DetailPanel
       id={detailId}
       onclose={() => (detailId = null)}
@@ -146,7 +157,13 @@
     void integration.refresh();
   }}
 />
-<SettingsPage open={settingsOpen} section={settingsSection} onclose={() => (settingsOpen = false)} onbrowser={() => (browserOpen = true)} />
+<SettingsPage
+  open={settingsOpen}
+  section={settingsSection}
+  onclose={() => (settingsOpen = false)}
+  onbrowser={() => (browserOpen = true)}
+  oncheckupdates={() => void updates.checkNow()}
+/>
 <ReuseDialog />
 <ConfirmDialog />
 <ExistsDialog />
@@ -162,6 +179,12 @@
     flex: 1;
     display: flex;
     min-height: 0;
+  }
+  .main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
   .error {
     display: flex;

@@ -221,6 +221,8 @@ pub fn request_quit(app: &AppHandle) {
             }
         }
         manager.shutdown().await;
+        // "Install when I quit ODM": the installer runs now; this returns if there is none.
+        crate::updates::install_on_quit(&app).await;
         app.exit(0);
     });
 }

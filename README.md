@@ -4,7 +4,7 @@ A personal download manager for Windows. It downloads files over several connect
 
 It takes over downloads from Chrome, Edge, Brave, Vivaldi, Opera, Firefox and Floorp. It also finds the videos a page plays and downloads them: plain video files, HLS streams, and, through yt-dlp, videos on YouTube, Facebook, Instagram, X, TikTok, Vimeo and more.
 
-ODM is a personal project, shared as is. It is unsigned and has no auto-update.
+ODM is a personal project, shared as is. The installer is not code-signed. ODM updates itself from the GitHub releases, and every update is signed and checked before it is installed.
 
 ## Quick start (no building)
 
@@ -36,6 +36,35 @@ This builds the helper, the extension and the app, then prints the paths. Run th
 - ODM registers the browser helper (`odm-host.exe`, installed next to `ODM.exe`) the first time it starts.
 - Uninstalling removes that registration.
 - Load the extension from `extension\dist\chromium` or `extension\dist\firefox` as described under "Browser integration".
+
+This plain build has no update key, so it never checks for updates (Settings → Updates says "Updates are not available in this build."). Release builds are made with `--publish-ready`, below.
+
+## Releasing
+
+Releases are signed for the updater: an installed ODM only installs an update whose signature matches the public key compiled into it.
+
+**Once: make the signing key.** In `app\`, run:
+
+    pnpm tauri signer generate -w %USERPROFILE%\.tauri\odm-updater.key
+
+Choose a password. This writes the private key to `%USERPROFILE%\.tauri\odm-updater.key` and the public key next to it, as `odm-updater.key.pub`. Neither goes into the repo: `release.mjs` reads the public key from the `.pub` file and compiles it in at build time.
+
+> **Back up the key file and its password** (for example in a password manager, plus an offline copy). If you lose either, you can't sign updates any more, and every installed copy of ODM stops updating: users would have to download and install the next version by hand.
+
+**Each release:**
+
+1. Raise `version` in `app\src-tauri\tauri.conf.json` (and in `Cargo.toml` and `app\package.json`).
+2. In `CHANGELOG.md`, turn "Unreleased" into a section for that version, like `## [0.2.0] - 2026-10-20`. Its text becomes the "What's new" of the update.
+3. Build, in `cmd`:
+
+       set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\odm-updater.key
+       set TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<your password>
+       node scripts\release.mjs --publish-ready
+
+   It refuses to start without both variables or without the `.pub` file, runs every check and test first, and stops at the first failure. Then it builds the signed installer and writes `target\release-assets\`: `latest.json`, `ODM_<version>_x64-setup.exe`, its `.sig`, and `ODM-setup.exe` (the same installer under the stable name the website links to).
+4. Create the GitHub release `v<version>` and upload those four files. Installed copies read `https://github.com/salimmay/ODM/releases/latest/download/latest.json`, so the update reaches them once the release is published (not as a draft or a pre-release).
+
+To test an update locally, set `ODM_UPDATE_ENDPOINT` to another `latest.json` before starting ODM. It accepts an https address, or plain http on this PC (`localhost`, `127.0.0.1`); the signature is still required.
 
 ## Run the desktop app
 
@@ -91,11 +120,11 @@ Some servers refuse extra connections (HTTP 429). ODM then keeps downloading wit
 
 ## Where ODM keeps its files
 
-`%APPDATA%\ODM\` holds the database (`odm.db`), `settings.json` and `logs\`. Set the `ODM_DATA_DIR` environment variable to use another folder, for example to try a build without touching your real data.
+`%APPDATA%\ODM\` holds the database (`odm.db`), `settings.json`, `updates.json` (when ODM last checked for updates) and `logs\`. Set the `ODM_DATA_DIR` environment variable to use another folder, for example to try a build without touching your real data.
 
 ## Privacy
 
-ODM collects nothing and sends nothing to any server. See [store/PRIVACY.md](store/PRIVACY.md).
+ODM collects nothing and sends nothing about you to any server. It checks ODM's GitHub releases for updates, which you can turn off in Settings → Updates. See [store/PRIVACY.md](store/PRIVACY.md).
 
 ## License
 

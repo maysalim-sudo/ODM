@@ -1,6 +1,7 @@
 mod commands;
 mod shell;
 mod speed_menu;
+pub mod updates;
 
 use odm_appcore::api::{store_open_message, user_message};
 use odm_appcore::confirm::Pending;
@@ -80,6 +81,13 @@ pub fn run() {
     tracing::info!(data_dir = %paths.data_dir.display(), "ODM starting");
     // The browser host starts ODM with --background so no window pops up.
     let background = std::env::args().any(|a| a == "--background");
+    let mut context = tauri::generate_context!();
+    let endpoint = updates::endpoint_override(std::env::var(updates::ENDPOINT_ENV).ok().as_deref());
+    let pubkey = updates::prepare_config(&mut context.config_mut().plugins.0, endpoint.as_ref());
+    let updates_supported = updates::has_pubkey(&pubkey);
+    if !updates_supported {
+        tracing::info!("this build has no update key; update checks are off");
+    }
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -97,6 +105,8 @@ pub fn run() {
                 .arg("--background")
                 .build(),
         )
+        // Registered in every build; without a public key ODM never calls it.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let manager = match start_engine(&paths, &settings) {
                 Ok(m) => m,
@@ -135,6 +145,15 @@ pub fn run() {
                 tools_busy: AtomicBool::new(false),
                 power: power.clone(),
             });
+            let memory = app.state::<AppState>().paths.data_dir.join("updates.json");
+            app.manage(updates::Updates::new(
+                updates_supported,
+                endpoint.map(|e| e.url),
+                memory,
+            ));
+            if updates_supported {
+                tauri::async_runtime::spawn(updates::run(app.handle().clone()));
+            }
             // Keep the log flushing for as long as the app runs.
             app.manage(Mutex::new(log_guard));
 
@@ -256,8 +275,12 @@ pub fn run() {
             commands::answer_exists,
             commands::set_download_limit,
             commands::cancel_shutdown,
+            updates::update_status,
+            updates::update_check,
+            updates::update_dismiss,
+            updates::update_install,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building ODM");
 
     app.run(|app, event| {

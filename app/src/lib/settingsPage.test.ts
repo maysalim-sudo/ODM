@@ -97,9 +97,8 @@ describe("sections", () => {
 });
 
 describe("READY", () => {
-  it("hides rows whose engine work has not landed", () => {
-    expect(isShown("update_check", "")).toBe(false);
-    expect(READY.update_check).toBe(false);
+  it("shows every row now that all engine work has landed", () => {
+    expect(Object.values(READY).every((r) => r !== false)).toBe(true);
     expect(isShown("download_dir", "")).toBe(true);
     expect(isShown("sort_by_type", "")).toBe(true);
     expect(isShown("notify_failed", "")).toBe(true);
@@ -116,6 +115,11 @@ describe("READY", () => {
       "after_queue",
       "skip_types",
     ]) {
+      expect(isShown(id, ""), id).toBe(true);
+    }
+  });
+  it("shows the update rows", () => {
+    for (const id of ["update_check", "update_install", "check_now", "whats_new", "app_version"]) {
       expect(isShown(id, ""), id).toBe(true);
     }
   });
@@ -139,7 +143,7 @@ describe("search", () => {
     expect(matchesQuery(row, "proxy")).toBe(false);
   });
   it("never shows a hidden row, even when it matches", () => {
-    expect(visibleRows("updates", "")).not.toContain("update_check");
+    expect(visibleRows("updates", "")).toContain("update_check");
     expect(visibleRows(null, "windows").every((id) => READY[id] !== false)).toBe(true);
   });
   it("searches every section when a query is given", () => {
@@ -178,7 +182,8 @@ describe("restore defaults", () => {
   });
   it("is offered only where a section has visible settings", () => {
     expect(sectionHasRestore("general")).toBe(true);
-    expect(sectionHasRestore("updates")).toBe(false);
+    expect(sectionHasRestore("updates")).toBe(true);
+    expect(sectionHasRestore("advanced")).toBe(true);
   });
   it("reset all keeps the finished welcome screen", () => {
     const out = resetAll(changed, DEFAULTS);

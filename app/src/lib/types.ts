@@ -83,7 +83,29 @@ export type UiEvent =
   | { type: "exists_prompt"; id: string; name: string }
   | { type: "shutdown_pending"; seconds: number }
   | { type: "shutdown_cancelled" }
-  | { type: "shutdown_failed"; message: string };
+  | { type: "shutdown_failed"; message: string }
+  | { type: "update_available"; version: string; notes: string; date: string }
+  | { type: "update_progress"; percent: number | null }
+  | { type: "update_ready"; version: string }
+  | { type: "update_failed"; message: string };
+
+/** A newer ODM. `notes` is plain text; `date` is RFC 3339 or empty. */
+export interface UpdateInfo {
+  version: string;
+  notes: string;
+  date: string;
+}
+
+/** What the updater knows; `supported` is false in a build without the update key. */
+export interface UpdateStatus {
+  supported: boolean;
+  current: string;
+  last_checked_ms: number | null;
+  available: UpdateInfo | null;
+  dismissed: boolean;
+  downloading: boolean;
+  ready: boolean;
+}
 
 /** A finished download whose file name is taken, waiting for Replace, Keep both or Cancel. */
 export interface ExistsPrompt {

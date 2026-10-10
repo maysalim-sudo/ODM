@@ -28,3 +28,10 @@ tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+semver = "1"
+
+[dev-dependencies]
+tauri = { version = "2", features = ["tray-icon", "test"] }
+base64 = "0.22"
+tempfile.workspace = true

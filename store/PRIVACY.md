@@ -1,6 +1,6 @@
 # ODM privacy policy
 
-Last updated: 2026-10-09
+Last updated: 2026-10-10
 
 ODM (Open Downloader Manager) is a Windows download manager with a browser extension. This policy covers both the ODM app and the ODM browser extension.
 
@@ -31,6 +31,10 @@ You can delete these at any time by removing the folder or uninstalling ODM.
 ## Downloads you start
 
 ODM connects to the servers hosting the files you choose to download, as any download manager does. Those servers see your IP address and the request, as they would with any browser download.
+
+## Update checks
+
+ODM checks for a new version 10 seconds after it starts and then every 6 hours, by fetching a small file (`latest.json`) from ODM's GitHub releases. When you choose to update, it downloads the installer from the same place. GitHub sees these requests like any other download; ODM sends nothing about you or your downloads with them. You can turn the automatic checks off in Settings → Updates.
 
 ## Optional video tools
 

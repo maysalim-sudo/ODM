@@ -107,10 +107,14 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
     case "confirm_download":
     case "tools_progress":
     case "exists_prompt":
+    case "update_available":
+    case "update_progress":
+    case "update_ready":
+    case "update_failed":
     case "shutdown_pending":
     case "shutdown_cancelled":
     case "shutdown_failed":
-      // Offers and confirmations are not rows; the store handles them before this function.
+      // Offers, confirmations and updates are not rows; their stores handle them.
       return { rows, resync: false };
   }
 }

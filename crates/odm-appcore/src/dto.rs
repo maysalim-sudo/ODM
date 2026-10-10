@@ -147,6 +147,24 @@ pub enum UiEvent {
     ShutdownFailed {
         message: String,
     },
+    /// A newer ODM is published. `notes` is plain text; `date` is RFC 3339, empty if unknown.
+    UpdateAvailable {
+        version: String,
+        notes: String,
+        date: String,
+    },
+    /// The update download: `percent` is null while the size is unknown.
+    UpdateProgress {
+        percent: Option<u8>,
+    },
+    /// The update is downloaded and verified; with "Install when I quit ODM" it waits for the quit.
+    UpdateReady {
+        version: String,
+    },
+    /// Checking, downloading or installing the update failed; `message` is for the user.
+    UpdateFailed {
+        message: String,
+    },
 }
 
 /// The download in `ev`, if this event says it just completed.
