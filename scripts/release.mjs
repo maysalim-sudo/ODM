@@ -6,7 +6,7 @@
 // public half at <path>.pub) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildLatestJson, staleReleaseFiles } from "./latest-json.mjs";
 
@@ -119,7 +119,8 @@ if (key) {
     TAURI_SIGNING_PRIVATE_KEY: readFileSync(key.keyPath, "utf8").trim(),
     TAURI_SIGNING_PRIVATE_KEY_PASSWORD: key.password,
   };
-  run("app: pnpm tauri build (signed)", "pnpm", ["tauri", "build", "--config", overlay], app, env);
+  // Relative to app/: the shell splits an absolute path at the spaces in "Data From Desktop".
+  run("app: pnpm tauri build (signed)", "pnpm", ["tauri", "build", "--config", relative(app, overlay)], app, env);
 } else {
   run("app: pnpm tauri build", "pnpm", ["tauri", "build"], app);
 }
