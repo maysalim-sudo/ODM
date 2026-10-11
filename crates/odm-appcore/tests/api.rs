@@ -14,6 +14,8 @@ fn cfg(dir: &Path) -> EngineConfig {
         download_dir: dir.to_path_buf(),
         progress_interval: Duration::from_millis(50),
         persist_interval: Duration::from_millis(200),
+        // Hermetic behind a system proxy: the test servers are on this PC.
+        proxy: odm_engine::config::ProxyConfig::Direct,
         ..Default::default()
     }
 }
@@ -611,10 +613,19 @@ fn behaviour_event_json_shapes_are_pinned() {
     })
     .unwrap();
     assert_eq!(json, r#"{"type":"exists_prompt","id":"a","name":"f.zip"}"#);
-    let json = serde_json::to_string(&UiEvent::ShutdownPending { seconds: 60 }).unwrap();
-    assert_eq!(json, r#"{"type":"shutdown_pending","seconds":60}"#);
-    let json = serde_json::to_string(&UiEvent::ShutdownCancelled).unwrap();
-    assert_eq!(json, r#"{"type":"shutdown_cancelled"}"#);
+    let json = serde_json::to_string(&UiEvent::AfterQueuePending {
+        action: odm_appcore::settings::AfterQueue::Sleep,
+        seconds: 60,
+    })
+    .unwrap();
+    assert_eq!(
+        json,
+        r#"{"type":"after_queue_pending","action":"sleep","seconds":60}"#
+    );
+    let json = serde_json::to_string(&UiEvent::AfterQueueCancelled).unwrap();
+    assert_eq!(json, r#"{"type":"after_queue_cancelled"}"#);
+    let json = serde_json::to_string(&UiEvent::AfterQueueDone).unwrap();
+    assert_eq!(json, r#"{"type":"after_queue_done"}"#);
     let json = serde_json::to_string(&UiEvent::ShutdownFailed {
         message: "ODM couldn't shut down the PC.".into(),
     })
@@ -764,4 +775,83 @@ async fn a_failed_autostart_change_saves_nothing() {
         .await
         .is_err());
     assert!(ok.calls.lock().unwrap().is_empty());
+}
+
+/// "Start new downloads: Paused" adds paused, unless the dialog's "Start now" was pressed.
+#[test]
+fn start_now_overrides_the_paused_start_mode() {
+    use odm_appcore::settings::StartMode;
+    let paused = Settings {
+        start_mode: StartMode::Paused,
+        ..Settings::default()
+    };
+    let plain = api::with_start_mode(&paused, AddArgs::default());
+    assert!(plain.start_paused && !plain.start_now);
+    let now = api::with_start_mode(
+        &paused,
+        AddArgs {
+            start_now: true,
+            ..AddArgs::default()
+        },
+    );
+    assert!(!now.start_paused && now.start_now);
+    let auto = api::with_start_mode(&Settings::default(), AddArgs::default());
+    assert!(!auto.start_paused);
+}
+
+/// "Start now" runs at once while the queue schedule is closed; a plain add waits.
+#[tokio::test(flavor = "multi_thread")]
+async fn start_now_bypasses_a_closed_queue_window() {
+    use odm_engine::schedule::{LocalNow, Window};
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(64 << 10, Faults::default()).await;
+    // Always Monday 03:00, outside the 13:00–14:00 queue window.
+    struct Closed;
+    impl odm_engine::schedule::Clock for Closed {
+        fn now(&self) -> LocalNow {
+            LocalNow {
+                unix_ms: odm_store::now_ms(),
+                weekday: 0,
+                minute: 3 * 60,
+            }
+        }
+    }
+    let m = ManagerHandle::start_with_clock(
+        EngineConfig {
+            queue_window: Some(Window {
+                days: [true; 7],
+                from: 13 * 60,
+                to: 14 * 60,
+            }),
+            ..cfg(d.path())
+        },
+        Store::open_in_memory().unwrap(),
+        std::sync::Arc::new(Closed),
+    )
+    .await
+    .unwrap();
+    let waits = api::add(
+        &m,
+        AddArgs {
+            url: s.url("/file"),
+            filename: Some("waits.bin".into()),
+            ..AddArgs::default()
+        },
+    )
+    .await
+    .unwrap();
+    let now = api::add(
+        &m,
+        AddArgs {
+            url: s.url("/file"),
+            filename: Some("now.bin".into()),
+            start_now: true,
+            ..AddArgs::default()
+        },
+    )
+    .await
+    .unwrap();
+    wait_completed(&m, &now).await;
+    let (r, _) = m.get(&waits).await.unwrap().unwrap();
+    assert_eq!(r.state, DownloadState::Queued);
 }

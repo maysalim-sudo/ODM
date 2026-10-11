@@ -109,9 +109,36 @@ pub fn unique_name(name: &str, exists: impl Fn(&str) -> bool) -> String {
 }
 
 /// File types that run code when opened. The UI keeps the same list in `app/src/lib/model.ts`.
-pub const RISKY_EXTENSIONS: [&str; 21] = [
-    "exe", "msi", "bat", "cmd", "com", "scr", "ps1", "vbs", "vbe", "js", "jse", "wsf", "wsh",
-    "hta", "lnk", "reg", "cpl", "msc", "jar", "appx", "msix",
+pub const RISKY_EXTENSIONS: [&str; 29] = [
+    "exe",
+    "msi",
+    "bat",
+    "cmd",
+    "com",
+    "scr",
+    "ps1",
+    "vbs",
+    "vbe",
+    "js",
+    "jse",
+    "wsf",
+    "wsh",
+    "hta",
+    "lnk",
+    "reg",
+    "cpl",
+    "msc",
+    "jar",
+    "appx",
+    "msix",
+    "pif",
+    "chm",
+    "msp",
+    "scf",
+    "url",
+    "application",
+    "appinstaller",
+    "settingcontent-ms",
 ];
 
 /// True for a file that runs code when opened, judged by its extension only.
@@ -226,6 +253,18 @@ mod risky_tests {
         assert!(!is_risky("a.tar.gz"));
         assert!(!is_risky("noext"));
         assert!(!is_risky("movie.mp4"));
+        for name in [
+            "a.pif",
+            "help.chm",
+            "patch.msp",
+            "x.scf",
+            "link.url",
+            "app.application",
+            "app.appinstaller",
+            "x.settingcontent-ms",
+        ] {
+            assert!(is_risky(name), "{name}");
+        }
     }
 
     /// The UI keeps its own copy (app/src/lib/model.ts); both must name the same types.

@@ -24,6 +24,8 @@ import {
   sectionHasRestore,
   splitTags,
   springEase,
+  switchSchedule,
+  toggleDay,
   toKbps,
   visibleRows,
 } from "./settingsPage";
@@ -375,19 +377,49 @@ describe("page source", () => {
     expect(app).toContain("<SettingsPage");
     expect(app).toMatch(/e\.ctrlKey && e\.key === ","/);
   });
-  it("the file-exists prompt and the shutdown notice use the shared Modal, with the plain choices", async () => {
+  it("the New download dialog offers Start now when the download would wait", async () => {
+    const add = (await import("../components/AddDialog.svelte?raw")).default;
+    expect(add).toContain(">Start now</button>");
+    expect(add).toContain('"Add paused"');
+    expect(add).toContain('"Add to queue"');
+    expect(add).toContain("start_now: true");
+    expect(add).toMatch(/waits = \$derived\(addsPaused \|\| queueSchedule\.wait !== null\)/);
+    const table = (await import("../components/DownloadTable.svelte?raw")).default;
+    expect(table).toContain("statusLabel(row.state, row.pause_reason, queueSchedule.wait)");
+    const toolbar = (await import("../components/Toolbar.svelte?raw")).default;
+    expect(toolbar).toContain("canResume(r, queueSchedule.wait !== null)");
+  });
+  it("the file-exists prompt and the after-queue countdown use the shared Modal, with the plain choices", async () => {
     const exists = (await import("../components/ExistsDialog.svelte?raw")).default;
     expect(exists).toContain("<Modal");
     expect(exists).toContain("already exists");
     for (const choice of ["Replace", "Keep both", "Cancel download"]) expect(exists).toContain(`>${choice}<`);
-    const shutdown = (await import("../components/ShutdownDialog.svelte?raw")).default;
-    expect(shutdown).toContain("<Modal");
-    expect(shutdown).toContain("ODM will shut down the PC in ${left} s.");
-    expect(shutdown).toContain(">Cancel shutdown<");
+    const dialog = (await import("../components/AfterQueueDialog.svelte?raw")).default;
+    expect(dialog).toContain("<Modal");
+    expect(dialog).toContain("afterQueueText(");
+    expect(dialog).toContain(">Cancel<");
+    expect(dialog).toContain("api.cancelAfterQueue()");
     const store = (await import("./downloads.svelte.ts?raw")).default;
     expect(store).toMatch(/shutdown_failed[\s\S]*this\.error = ev\.message/);
+    expect(store).toMatch(/after_queue_pending[\s\S]*after_queue_cancelled[\s\S]*after_queue_done/);
     const app = (await import("../App.svelte?raw")).default;
     expect(app).toContain("<ExistsDialog />");
-    expect(app).toContain("<ShutdownDialog />");
+    expect(app).toContain("<AfterQueueDialog />");
+  });
+});
+
+describe("schedule days", () => {
+  const sched = (days: boolean[], enabled = true) => ({ enabled, days, from: "01:00", to: "06:00" });
+  const one = [true, false, false, false, false, false, false];
+  it("never unticks the last day", () => {
+    expect(toggleDay(sched(one), 0)).toBeNull();
+    expect(toggleDay(sched(one), 1)?.days).toEqual([true, true, false, false, false, false, false]);
+    expect(toggleDay(sched([true, true, false, false, false, false, false]), 0)?.days).toEqual([false, true, false, false, false, false, false]);
+  });
+  it("turning a schedule on with no day ticks every day, so saving never turns it off", () => {
+    const none = [false, false, false, false, false, false, false];
+    expect(switchSchedule(sched(none, false), true)).toEqual(sched([true, true, true, true, true, true, true]));
+    expect(switchSchedule(sched(one, false), true)).toEqual(sched(one));
+    expect(switchSchedule(sched(one), false)).toEqual(sched(one, false));
   });
 });

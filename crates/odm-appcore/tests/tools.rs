@@ -1,5 +1,6 @@
 //! `tools::install` against a local file server. Nothing here touches the real network.
 use odm_appcore::tools::{self, ToolSources, CHECKSUM_FAILED, DOWNLOAD_FAILED};
+use odm_engine::config::ProxyConfig;
 use odm_testserver::files::FileServer;
 use sha2::{Digest, Sha256};
 use std::io::Write;
@@ -197,4 +198,34 @@ async fn a_second_install_replaces_the_tools() {
         read(dir.path(), "yt-dlp.exe").as_deref(),
         Some("fake yt-dlp")
     );
+}
+
+/// "Get video tools" goes through the proxy set in Settings: the sources name a host only
+/// the test proxy knows.
+#[tokio::test]
+async fn installs_through_a_manual_proxy() {
+    let (server, sources) = Fixture::new().serve(&[]).await;
+    let proxy = odm_testserver::proxy::TestProxy::start(&server.base).await;
+    let fake = "http://tools.odm.test";
+    let via = |u: &str| u.replace(&server.base, fake);
+    let sources = ToolSources {
+        ytdlp_url: via(&sources.ytdlp_url),
+        ytdlp_sums_url: via(&sources.ytdlp_sums_url),
+        ffmpeg_url: via(&sources.ffmpeg_url),
+        ffmpeg_sums_url: via(&sources.ffmpeg_sums_url),
+        deno_url: via(&sources.deno_url),
+        deno_sums_url: via(&sources.deno_sums_url),
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let client = tools::http_client(&ProxyConfig::Manual(proxy.url()));
+    tools::install(dir.path(), &client, &sources, &|_, _, _| {})
+        .await
+        .unwrap();
+    assert_eq!(
+        read(dir.path(), "yt-dlp.exe").as_deref(),
+        Some("fake yt-dlp")
+    );
+    let seen = proxy.seen();
+    assert_eq!(seen.len(), 6, "{seen:?}");
+    assert!(seen.iter().all(|s| s.target.starts_with(fake)), "{seen:?}");
 }

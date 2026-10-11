@@ -1,6 +1,7 @@
 use odm_appcore::completion::{completion_action, CompletionAction};
 use odm_appcore::dto::{DownloadDto, Finished, UiEvent};
-use odm_appcore::power::{PowerActions, SystemPower};
+use odm_appcore::power::{self, PowerActions, SystemPower};
+use odm_appcore::settings::AfterQueue;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Emitter, Manager, Window, WindowEvent, Wry};
@@ -295,7 +296,7 @@ impl PowerActions for ShellPower {
     fn shutdown(&self) -> Result<(), String> {
         let r = self.system.shutdown();
         let text = match &r {
-            Ok(()) => "ODM will shut down the PC in 60 s.",
+            Ok(()) => power::pending_text(AfterQueue::Shutdown),
             Err(_) => "ODM couldn't shut down the PC.",
         };
         notify(&self.app, "The queue is done", text);
@@ -307,5 +308,9 @@ impl PowerActions for ShellPower {
     }
     fn quit(&self) {
         request_quit(&self.app);
+    }
+    fn announce(&self, action: AfterQueue) {
+        notify(&self.app, "The queue is done", power::pending_text(action));
+        show_on_main_thread(&self.app);
     }
 }

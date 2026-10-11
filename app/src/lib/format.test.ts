@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatEta, formatSpeed, joinPath, percent, stateLabel, statusLabel } from "./format";
+import { formatBytes, formatEta, formatSpeed, joinPath, percent, queueWaitLabel, stateLabel, statusLabel } from "./format";
+import type { Schedule } from "./types";
 
 describe("formatBytes", () => {
   it("picks a readable unit", () => {
@@ -65,5 +66,49 @@ describe("statusLabel", () => {
     expect(statusLabel("paused", "exists")).toBe("Waiting for your choice");
     expect(statusLabel("downloading", "schedule")).toBe("Downloading");
     expect(statusLabel("paused", "something new")).toBe("Paused");
+  });
+});
+
+describe("queueWaitLabel", () => {
+  // 2026-10-12 is a Monday.
+  const at = (day: number, h: number, m = 0) => new Date(2026, 9, 12 + day, h, m);
+  const sched = (from: string, to: string, days = [true, true, true, true, true, true, true]): Schedule => ({
+    enabled: true,
+    days,
+    from,
+    to,
+  });
+
+  it("is null when the queue may run", () => {
+    expect(queueWaitLabel({ ...sched("01:00", "06:00"), enabled: false }, at(0, 12))).toBeNull();
+    expect(queueWaitLabel(sched("01:00", "06:00"), at(0, 3))).toBeNull();
+    expect(queueWaitLabel(sched("22:00", "06:00"), at(1, 2)), "the night window from Monday").toBeNull();
+    expect(queueWaitLabel({ ...sched("01:00", "06:00"), days: [false, false, false, false, false, false, false] }, at(0, 12))).toBeNull();
+  });
+
+  it("gives today's start time", () => {
+    expect(queueWaitLabel(sched("22:00", "06:00"), at(0, 12))).toBe("Waiting for the schedule (starts 22:00)");
+    expect(queueWaitLabel(sched("13:30", "14:00"), at(0, 13, 29))).toBe("Waiting for the schedule (starts 13:30)");
+  });
+
+  it("names the day when the start is not today", () => {
+    expect(queueWaitLabel(sched("01:00", "06:00"), at(0, 12))).toBe("Waiting for the schedule (starts Tue 01:00)");
+    const weekend = [false, false, false, false, false, true, true];
+    expect(queueWaitLabel(sched("01:00", "06:00", weekend), at(0, 12))).toBe("Waiting for the schedule (starts Sat 01:00)");
+    const mondays = [true, false, false, false, false, false, false];
+    expect(queueWaitLabel(sched("01:00", "06:00", mondays), at(0, 12))).toBe("Waiting for the schedule (starts Mon 01:00)");
+  });
+
+  it("treats the same from and to as the whole day", () => {
+    const sundays = [false, false, false, false, false, false, true];
+    expect(queueWaitLabel(sched("00:00", "00:00", sundays), at(0, 12))).toBe("Waiting for the schedule (starts Sun 00:00)");
+  });
+
+  it("is shown for queued rows only", () => {
+    const wait = "Waiting for the schedule (starts 22:00)";
+    expect(statusLabel("queued", null, wait)).toBe(wait);
+    expect(statusLabel("queued", null, null)).toBe("Queued");
+    expect(statusLabel("paused", null, wait)).toBe("Paused");
+    expect(statusLabel("downloading", null, wait)).toBe("Downloading");
   });
 });

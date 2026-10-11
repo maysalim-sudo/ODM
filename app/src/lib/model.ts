@@ -1,5 +1,5 @@
 import { fromKbps } from "./settingsPage";
-import type { ChunkState, ChunkView, Download, DownloadState, ExistsPrompt, IntegrationStatus, Offer, SegmentProgress, StoreLinks, ToolInfo, ToolsStatus, UiEvent } from "./types";
+import type { AfterQueue, ChunkState, ChunkView, Download, DownloadState, ExistsPrompt, IntegrationStatus, Offer, SegmentProgress, StoreLinks, ToolInfo, ToolsStatus, UiEvent } from "./types";
 
 /** A list row: the stored download plus live values from progress events. */
 export interface Row extends Download {
@@ -111,8 +111,9 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
     case "update_progress":
     case "update_ready":
     case "update_failed":
-    case "shutdown_pending":
-    case "shutdown_cancelled":
+    case "after_queue_pending":
+    case "after_queue_cancelled":
+    case "after_queue_done":
     case "shutdown_failed":
       // Offers, confirmations and updates are not rows; their stores handle them.
       return { rows, resync: false };
@@ -176,12 +177,30 @@ export function visible(rows: Map<string, Row>, filter: Filter, key: SortKey, di
     });
 }
 
+const AFTER_QUEUE_SOON: Record<Exclude<AfterQueue, "nothing">, string> = {
+  sleep: "put the PC to sleep",
+  shutdown: "shut down the PC",
+  quit: "quit",
+};
+
+const AFTER_QUEUE_NOW: Record<Exclude<AfterQueue, "nothing">, string> = {
+  sleep: "ODM is putting the PC to sleep.",
+  shutdown: "ODM is shutting down the PC.",
+  quit: "ODM is quitting.",
+};
+
+/** The after-queue countdown dialog's line, `left` seconds before the action. */
+export function afterQueueText(action: Exclude<AfterQueue, "nothing">, left: number): string {
+  return left > 0 ? `ODM will ${AFTER_QUEUE_SOON[action]} in ${left} s.` : AFTER_QUEUE_NOW[action];
+}
+
 export function canPause(row: Row): boolean {
   return isActive(row.state) || row.state === "queued";
 }
 
-export function canResume(row: Row): boolean {
-  return row.state === "paused" || row.state === "failed";
+/** `queueClosed`: the queue schedule keeps queued rows waiting, and Resume starts one now. */
+export function canResume(row: Row, queueClosed = false): boolean {
+  return row.state === "paused" || row.state === "failed" || (queueClosed && row.state === "queued");
 }
 
 export function canCancel(row: Row): boolean {
@@ -193,7 +212,7 @@ export function canRefresh(row: Row): boolean {
 }
 
 const RISKY_EXTENSIONS = new Set(
-  "exe msi bat cmd com scr ps1 vbs vbe js jse wsf wsh hta lnk reg cpl msc jar appx msix".split(" "),
+  "exe msi bat cmd com scr ps1 vbs vbe js jse wsf wsh hta lnk reg cpl msc jar appx msix pif chm msp scf url application appinstaller settingcontent-ms".split(" "),
 );
 
 /** True for file types that run code when opened, judged by extension only. */

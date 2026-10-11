@@ -20,6 +20,37 @@ ODM is a personal project, shared as is. The installer is not code-signed. ODM u
 
 Only download what you have the right to. Respect each site's terms.
 
+## Settings
+
+Open **Settings** from the toolbar, the tray, or with **Ctrl+,**. Changes apply at once. **Restore defaults** resets one section, and the search box finds any option.
+
+- **General:** start ODM with Windows (it starts in the tray), start minimized, keep running in the tray when the window is closed, notifications for finished and failed downloads, and prevent sleep while downloading.
+- **Downloads:**
+  - The download folder. New installs save to `%USERPROFILE%\Downloads\ODM`; if you already use ODM, your folder stays as it is.
+  - Sort into folders by type.
+  - When a file already exists: keep both (rename), replace it, or ask.
+  - When a download finishes: do nothing, open its folder, or open the file.
+  - Start new downloads at once or paused. With paused, the New download window also has **Start now**.
+  - How many downloads run at once.
+  - Remove finished downloads from the list after a number of days. Only the list entry goes; the file stays.
+- **Speed:**
+  - A total speed limit, optionally only at certain times (days and hours).
+  - Connections per download.
+  - **Run the queue at certain times:** queued downloads start at the start time and pause at the stop time. Outside those hours the list shows "Waiting for the schedule (starts 01:00)". To start one anyway, select it and press **Resume**, or choose **Start now** in the New download window. **Resume all** follows the schedule.
+  - **When the queue is done:** do nothing, sleep, shut down, or quit ODM. ODM shows a notification and counts down 60 seconds first; press **Cancel** to stop it. A download that starts during the countdown also cancels it.
+  - The speed chip in the status bar and the tray's speed menu set a quick limit.
+- **Browser:** take over downloads from the browser, ask where to save each one, a minimum file size, file types and sites to leave to the browser, and the browser connection check.
+- **Video:** get the video tools (FFmpeg, yt-dlp), the preferred quality (or audio only, as MP3), the format (MP4 or MKV), subtitles, and keeping yt-dlp up to date.
+- **Network:** the proxy (the Windows proxy settings, no proxy, or your own address, used for downloads, video tools and updates), timeouts and retries.
+- **Updates:** check automatically, and when an update is ready: ask me, or install when I quit ODM.
+- **Advanced:** a custom User-Agent (browser downloads keep the browser's), the paths to FFmpeg and yt-dlp, ODM's folders, and **Reset all settings**.
+
+## Updates
+
+ODM checks its GitHub releases 10 seconds after it starts and then every 6 hours, unless you turn that off in Settings → Updates. When a new version is out, a banner says so. **What's new** shows the changes, **Update** downloads and installs it and restarts ODM, and **Later** hides the banner until the next version. With "Install when I quit ODM", the update downloads in the background and installs when you quit (or press **Install now**).
+
+Every update is signed. ODM checks the signature against the key built into it and refuses an update that does not match. Builds you make yourself without the key never check for updates.
+
 ## Building from source: requirements
 
 - Windows 10 or 11 with the WebView2 runtime (included in Windows 11)

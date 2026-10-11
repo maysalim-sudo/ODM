@@ -5,10 +5,10 @@
 // TAURI_SIGNING_PRIVATE_KEY_PATH (the key from `tauri signer generate -w <path>`, with its
 // public half at <path>.pub) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildLatestJson } from "./latest-json.mjs";
+import { buildLatestJson, staleReleaseFiles } from "./latest-json.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const shell = process.platform === "win32";
@@ -97,6 +97,16 @@ if (publishReady) {
 
 const assets = join(root, "target", "release-assets");
 mkdirSync(assets, { recursive: true });
+const nsisDir = join(root, "target", "release", "bundle", "nsis");
+const setupName = `ODM_${version}_x64-setup.exe`;
+console.log("\n==> remove updater files left by an earlier build");
+for (const f of staleReleaseFiles({ assets, nsisDir, setupName })) {
+  try {
+    rmSync(f, { force: true });
+  } catch (e) {
+    fail("remove stale files", `${f}: ${e}`);
+  }
+}
 if (key) {
   // The public key is compiled in only here; the committed config has none.
   const overlay = join(assets, "updater-config.json");
@@ -114,7 +124,6 @@ if (key) {
   run("app: pnpm tauri build", "pnpm", ["tauri", "build"], app);
 }
 
-const nsisDir = join(root, "target", "release", "bundle", "nsis");
 let installers = [];
 try {
   installers = readdirSync(nsisDir).filter((f) => f.endsWith(".exe"));
@@ -123,7 +132,6 @@ try {
 }
 if (installers.length === 0) fail("find the installer", `nothing in ${nsisDir}`);
 
-const setupName = `ODM_${version}_x64-setup.exe`;
 const setup = join(nsisDir, setupName);
 if (!existsSync(setup)) fail("find the installer", `no ${setupName} in ${nsisDir}`);
 // The website links to ODM-setup.exe, which always is the latest version.

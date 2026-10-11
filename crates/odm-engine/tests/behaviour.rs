@@ -52,6 +52,8 @@ fn cfg(dir: &Path) -> EngineConfig {
         progress_interval: Duration::from_millis(50),
         persist_interval: Duration::from_millis(200),
         timer_interval: Duration::from_millis(50),
+        // Hermetic behind a system proxy: the test servers are on this PC.
+        proxy: odm_engine::config::ProxyConfig::Direct,
         ..EngineConfig::default()
     }
 }
@@ -599,4 +601,87 @@ async fn removing_the_waiting_download_ends_the_queue() {
     wait_state(m.store(), &a, DownloadState::Completed).await;
     m.remove(&b, false).await.unwrap();
     wait_queue_done(&mut rx).await;
+}
+
+/// A manager whose queue window (Monday to Sunday, 13:00–14:00) is closed: it is 03:00.
+async fn closed_queue(dir: &Path) -> ManagerHandle {
+    ManagerHandle::start_with_clock(
+        EngineConfig {
+            queue_window: Some(Window {
+                days: [true; 7],
+                from: 13 * 60,
+                to: 14 * 60,
+            }),
+            ..cfg(dir)
+        },
+        Store::open_in_memory().unwrap(),
+        FakeClock::new(monday(3, 0)),
+    )
+    .await
+    .unwrap()
+}
+
+async fn still_queued(store: &Store, id: &str, ms: u64) {
+    tokio::time::sleep(Duration::from_millis(ms)).await;
+    let r = store.get_download(id).await.unwrap().unwrap();
+    assert_eq!(
+        r.state,
+        DownloadState::Queued,
+        "{id} should wait for the schedule"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn outside_the_queue_window_an_explicit_resume_starts_one_download() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(64 * KB, Faults::default()).await;
+    let m = closed_queue(d.path()).await;
+    let a = m
+        .add(named(s.url("/file"), d.path(), "a.bin"))
+        .await
+        .unwrap();
+    let b = m
+        .add(named(s.url("/file"), d.path(), "b.bin"))
+        .await
+        .unwrap();
+    still_queued(m.store(), &a, 300).await;
+    still_queued(m.store(), &b, 0).await;
+    // Resume on one queued row: it runs now; the other keeps waiting.
+    m.resume(&a).await.unwrap();
+    wait_state(m.store(), &a, DownloadState::Completed).await;
+    still_queued(m.store(), &b, 200).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resume_all_follows_the_queue_window() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(64 * KB, Faults::default()).await;
+    let m = closed_queue(d.path()).await;
+    let mut req = named(s.url("/file"), d.path(), "a.bin");
+    req.start_paused = true;
+    let a = m.add(req).await.unwrap();
+    let b = m
+        .add(named(s.url("/file"), d.path(), "b.bin"))
+        .await
+        .unwrap();
+    m.resume_all().await.unwrap();
+    wait_state(m.store(), &a, DownloadState::Queued).await;
+    still_queued(m.store(), &a, 300).await;
+    still_queued(m.store(), &b, 0).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn start_now_runs_outside_the_queue_window() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(64 * KB, Faults::default()).await;
+    let m = closed_queue(d.path()).await;
+    let mut req = named(s.url("/file"), d.path(), "a.bin");
+    req.start_now = true;
+    let a = m.add(req).await.unwrap();
+    let b = m
+        .add(named(s.url("/file"), d.path(), "b.bin"))
+        .await
+        .unwrap();
+    wait_state(m.store(), &a, DownloadState::Completed).await;
+    still_queued(m.store(), &b, 200).await;
 }

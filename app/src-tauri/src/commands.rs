@@ -33,8 +33,8 @@ fn starts_paused(state: &AppState) -> bool {
 }
 
 #[tauri::command]
-pub async fn add_download(state: State<'_, AppState>, mut args: AddArgs) -> Res<String> {
-    args.start_paused |= starts_paused(&state);
+pub async fn add_download(state: State<'_, AppState>, args: AddArgs) -> Res<String> {
+    let args = api::with_start_mode(&state.settings.lock().unwrap(), args);
     api::add(&state.manager, args).await
 }
 
@@ -68,12 +68,12 @@ pub async fn set_download_limit(
     api::set_download_limit(&state.manager, &id, kbps).await
 }
 
-/// Cancels the shutdown that "When the queue is done" started.
+/// Cancels the countdown "When the queue is done" started (sleep, shut down or quit).
 #[tauri::command]
-pub async fn cancel_shutdown(app: AppHandle, state: State<'_, AppState>) -> Res<()> {
+pub async fn cancel_after_queue(app: AppHandle, state: State<'_, AppState>) -> Res<()> {
     // `shutdown /a` runs a program; keep it off the async workers.
     let power = state.power.clone();
-    let ev = tauri::async_runtime::spawn_blocking(move || power.cancel_shutdown())
+    let ev = tauri::async_runtime::spawn_blocking(move || power.cancel_pending())
         .await
         .map_err(|e| e.to_string())?;
     if let Some(ev) = ev {
@@ -167,6 +167,8 @@ pub async fn apply_settings(
     state: &AppState,
     settings: Settings,
 ) -> Res<Settings> {
+    // One save at a time: each reads the settings the previous one stored.
+    let _one_at_a_time = state.settings_save.lock().await;
     let prev = state.settings.lock().unwrap().clone();
     let (saved, warnings) = api::update_settings(
         &state.manager,
@@ -417,6 +419,7 @@ pub async fn tools_install(app: AppHandle, state: State<'_, AppState>) -> Res<To
     }
     let dir = state.paths.tools_dir.clone();
     let cfg = state.settings.lock().unwrap().to_engine_config();
+    let proxy = cfg.proxy.clone();
     let progress_app = app.clone();
     let installed = tauri::async_runtime::spawn(async move {
         let on_progress = move |stage: &str, done: u64, total: u64| {
@@ -431,7 +434,7 @@ pub async fn tools_install(app: AppHandle, state: State<'_, AppState>) -> Res<To
         };
         let result = tools::install(
             &dir,
-            &tools::http_client(),
+            &tools::http_client(&proxy),
             &ToolSources::default(),
             &on_progress,
         )

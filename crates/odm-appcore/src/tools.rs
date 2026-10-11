@@ -211,12 +211,14 @@ async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String, Strin
     resp.text().await.map_err(|_| DOWNLOAD_FAILED.to_string())
 }
 
-/// An HTTP client for the tool downloads: no overall timeout (FFmpeg is about 150 MB).
-pub fn http_client() -> reqwest::Client {
-    reqwest::Client::builder()
+/// An HTTP client for the tool downloads, through the proxy from Settings (the same rule as
+/// the downloads). No overall timeout: FFmpeg is about 150 MB.
+pub fn http_client(proxy: &odm_engine::config::ProxyConfig) -> reqwest::Client {
+    let b = reqwest::Client::builder()
         .user_agent(format!("ODM/{}", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(30))
-        .read_timeout(Duration::from_secs(60))
+        .read_timeout(Duration::from_secs(60));
+    odm_engine::download::with_proxy(b, proxy)
         .build()
         .unwrap_or_default()
 }

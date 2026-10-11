@@ -29,6 +29,8 @@ async fn self_test_goes_through_the_real_host_and_pipe() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = EngineConfig {
         download_dir: dir.path().to_path_buf(),
+        // Hermetic behind a system proxy: the test servers are on this PC.
+        proxy: odm_engine::config::ProxyConfig::Direct,
         ..Default::default()
     };
     let manager = ManagerHandle::start(cfg, Store::open_in_memory().unwrap())

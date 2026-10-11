@@ -1,6 +1,6 @@
 import * as api from "./api";
 import { ReloadGate, addOffer, addPrompt, applyEvent, counts, keepVisible, nextConfirm, visible, type Filter, type Row, type SortDir, type SortKey } from "./model";
-import type { ConfirmArgs, ExistsChoice, ExistsPrompt, Offer, UiEvent } from "./types";
+import type { AfterQueue, ConfirmArgs, ExistsChoice, ExistsPrompt, Offer, UiEvent } from "./types";
 
 class DownloadsStore {
   rows = $state<Map<string, Row>>(new Map());
@@ -20,8 +20,8 @@ class DownloadsStore {
   /** Finished downloads whose file name is taken, waiting for Replace, Keep both or Cancel. */
   prompts = $state<ExistsPrompt[]>([]);
 
-  /** When "When the queue is done: Shut down" will shut the PC down (epoch ms), or null. */
-  shutdownAt = $state<number | null>(null);
+  /** The "When the queue is done" countdown: what happens and when (epoch ms), or null. */
+  afterQueue = $state<{ action: Exclude<AfterQueue, "nothing">; at: number } | null>(null);
 
   visible = $derived(visible(this.rows, this.filter, this.sortKey, this.sortDir));
   counts = $derived(counts(this.rows));
@@ -129,16 +129,16 @@ class DownloadsStore {
       this.prompts = addPrompt(this.prompts, { id: ev.id, name: ev.name });
       return;
     }
-    if (ev.type === "shutdown_pending") {
-      this.shutdownAt = Date.now() + ev.seconds * 1000;
+    if (ev.type === "after_queue_pending") {
+      this.afterQueue = { action: ev.action, at: Date.now() + ev.seconds * 1000 };
       return;
     }
-    if (ev.type === "shutdown_cancelled") {
-      this.shutdownAt = null;
+    if (ev.type === "after_queue_cancelled" || ev.type === "after_queue_done") {
+      this.afterQueue = null;
       return;
     }
     if (ev.type === "shutdown_failed") {
-      this.shutdownAt = null;
+      this.afterQueue = null;
       this.error = ev.message;
       return;
     }

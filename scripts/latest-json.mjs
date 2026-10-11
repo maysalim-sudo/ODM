@@ -1,7 +1,23 @@
 // Builds latest.json, the manifest the ODM updater reads from the latest GitHub release.
 // Pure functions only, so they can be tested; release.mjs does the file reading and writing.
 
+import { join } from "node:path";
+
 const RELEASES = "https://github.com/salimmay/ODM/releases/download";
+
+/**
+ * Updater files an earlier build may have left: a plain build must not leave an old
+ * latest.json or signature in release-assets (they would not match its installer), and a
+ * signed build must find its own fresh .sig next to the installer, not an old one.
+ */
+export function staleReleaseFiles({ assets, nsisDir, setupName }) {
+  return [
+    join(assets, "latest.json"),
+    join(assets, setupName),
+    join(assets, `${setupName}.sig`),
+    join(nsisDir, `${setupName}.sig`),
+  ];
+}
 
 /** The versioned installer the manifest points at, attached to the `v<version>` release. */
 export function installerUrl(version) {

@@ -219,6 +219,48 @@ pub struct UpdateStatus {
     pub ready: bool,
 }
 
+/// Left in the data folder by "Update": the ODM the installer restarts shows its window even
+/// when it was started with `--background` (the installer passes the old arguments on).
+pub const SHOW_AFTER_UPDATE: &str = "show-after-update";
+
+/// Whether ODM starts hidden in the tray: started with `--background`, unless an update just
+/// restarted it.
+pub fn starts_hidden<S: AsRef<str>>(args: impl IntoIterator<Item = S>, after_update: bool) -> bool {
+    !after_update && args.into_iter().any(|a| a.as_ref() == "--background")
+}
+
+/// Reads and removes the "show after update" marker.
+pub fn take_show_marker(data_dir: &Path) -> bool {
+    std::fs::remove_file(data_dir.join(SHOW_AFTER_UPDATE)).is_ok()
+}
+
+fn leave_show_marker(data_dir: &Path) {
+    if let Err(e) = std::fs::write(data_dir.join(SHOW_AFTER_UPDATE), b"") {
+        tracing::warn!("could not leave the show-after-update marker: {e}");
+    }
+}
+
+/// What a check's result does to the update found earlier (`found`) and the one already
+/// downloaded (`ready`). `same` tells whether two updates are the same version.
+pub fn adopt_check<T>(
+    found: &mut Option<T>,
+    ready: &mut Option<(T, Vec<u8>)>,
+    latest: Option<T>,
+    same: impl Fn(&T, &T) -> bool,
+) {
+    let Some(latest) = latest else {
+        // No update any more (a pulled release): nothing may install at quit either.
+        *found = None;
+        *ready = None;
+        return;
+    };
+    if !found.as_ref().is_some_and(|f| same(f, &latest)) {
+        // A newer release replaces one downloaded earlier.
+        *ready = None;
+        *found = Some(latest);
+    }
+}
+
 /// Update state shared by the commands, the timer and the quit flow.
 pub struct Updates {
     supported: bool,
@@ -354,23 +396,17 @@ pub async fn check(app: &AppHandle, manual: bool) -> Result<UpdateStatus, String
         }
     };
     up.remember(|m| m.last_checked_ms = Some(odm_appcore::ipc::now_ms()));
-    let Some(update) = found else {
-        *up.found.lock().unwrap() = None;
+    let info = found.as_ref().map(info_of);
+    adopt_check(
+        &mut up.found.lock().unwrap(),
+        &mut up.ready.lock().unwrap(),
+        found,
+        |a, b| a.version == b.version,
+    );
+    let Some(info) = info else {
         return Ok(up.status(current_version(app)));
     };
-    let info = info_of(&update);
     tracing::info!("ODM {} is available", info.version);
-    let same = up
-        .found
-        .lock()
-        .unwrap()
-        .as_ref()
-        .is_some_and(|f| f.version == update.version);
-    if !same {
-        // A newer release replaces one downloaded earlier.
-        *up.ready.lock().unwrap() = None;
-        *up.found.lock().unwrap() = Some(update);
-    }
     if manual {
         // Asking again brings back a banner that "Later" hid.
         up.remember(|m| m.dismissed = None);
@@ -484,6 +520,8 @@ pub async fn install_now(app: &AppHandle) -> Result<(), String> {
         return Err("There is no update to install.".into());
     };
     stop_for_install(app).await;
+    // The restarted ODM (and `app.restart()` below) must come back with its window.
+    leave_show_marker(&app.state::<AppState>().paths.data_dir);
     let r = tauri::async_runtime::spawn_blocking(move || update.install(bytes)).await;
     // `install` exits ODM once the installer runs; reaching this line means it did not.
     match r {
@@ -558,6 +596,39 @@ mod tests {
     use serde_json::json;
 
     const TEST_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVGMEYzMTBCNTk5RjM4RDEKUldUUk9KOVpDekVQWDFKblZYc0dNeWZ5Ylg4ZVlYREtCZ2dFTEZlQjZMWG1zcHl0WVdUdHpUQzIK";
+
+    #[test]
+    fn an_update_restart_is_never_hidden() {
+        assert!(starts_hidden(["ODM.exe", "--background"], false));
+        assert!(!starts_hidden(["ODM.exe", "--background"], true));
+        assert!(!starts_hidden(["ODM.exe"], false));
+        assert!(!starts_hidden(["ODM.exe", "--backgroundx"], false));
+    }
+
+    #[test]
+    fn the_show_marker_is_read_once() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!take_show_marker(dir.path()));
+        leave_show_marker(dir.path());
+        assert!(take_show_marker(dir.path()));
+        assert!(!take_show_marker(dir.path()), "removed by the first read");
+    }
+
+    #[test]
+    fn a_pulled_release_is_not_installed() {
+        let mut found = Some("0.2.0");
+        let mut ready = Some(("0.2.0", vec![1u8]));
+        // The same version again keeps the download.
+        adopt_check(&mut found, &mut ready, Some("0.2.0"), |a, b| a == b);
+        assert_eq!((found, ready.is_some()), (Some("0.2.0"), true));
+        // A newer one replaces it.
+        adopt_check(&mut found, &mut ready, Some("0.2.1"), |a, b| a == b);
+        assert_eq!((found, ready.is_some()), (Some("0.2.1"), false));
+        ready = Some(("0.2.1", vec![1]));
+        // No update any more (the release was pulled): nothing waits for the quit.
+        adopt_check(&mut found, &mut ready, None, |a, b| a == b);
+        assert_eq!((found, ready.is_some()), (None, false));
+    }
 
     #[test]
     fn versions_compare_as_semver() {

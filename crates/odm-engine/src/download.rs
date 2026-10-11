@@ -117,7 +117,13 @@ pub fn build_client(cfg: &EngineConfig) -> reqwest::Client {
         .connect_timeout(cfg.connect_timeout)
         .read_timeout(cfg.read_timeout)
         .user_agent(ua);
-    let b = match &cfg.proxy {
+    with_proxy(b, &cfg.proxy).build().expect("reqwest client")
+}
+
+/// Applies the proxy setting to a client: every ODM request (downloads, "Get video tools")
+/// goes the same way.
+pub fn with_proxy(b: reqwest::ClientBuilder, proxy: &ProxyConfig) -> reqwest::ClientBuilder {
+    match proxy {
         // reqwest's default reads the Windows proxy settings and the proxy variables.
         ProxyConfig::System => b,
         ProxyConfig::Direct => b.no_proxy(),
@@ -126,12 +132,13 @@ pub fn build_client(cfg: &EngineConfig) -> reqwest::Client {
             Err(e) => {
                 // Settings check the address first, so this is a URL reqwest alone dislikes.
                 // Failing closed: no request leaves without the proxy the user asked for.
+                // 0.0.0.0 is not a usable destination on Windows, so a connection to it is
+                // refused at once (no timeout wait) and the download fails with a network error.
                 tracing::error!("the proxy address cannot be used: {e}");
                 b.proxy(reqwest::Proxy::all("http://0.0.0.0:9").expect("static proxy"))
             }
         },
-    };
-    b.build().expect("reqwest client")
+    }
 }
 
 pub fn part_path(rec: &DownloadRecord) -> PathBuf {

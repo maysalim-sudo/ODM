@@ -65,11 +65,25 @@ pub struct AddArgs {
     pub page: bool,
     /// This download's own speed limit in KB/s; None or 0 = none. Plain files only.
     pub speed_limit_kbps: Option<u64>,
+    /// "Start now" in the New download dialog: start it whatever "Start new downloads"
+    /// says, and even while the queue schedule is closed.
+    pub start_now: bool,
 }
 
 /// Whether new downloads are added paused ("Start new downloads: Paused").
 pub fn starts_paused(s: &Settings) -> bool {
     s.start_mode == StartMode::Paused
+}
+
+/// Applies "Start new downloads" to a download from the New download dialog: Paused adds it
+/// paused unless the user pressed "Start now".
+pub fn with_start_mode(s: &Settings, mut a: AddArgs) -> AddArgs {
+    if a.start_now {
+        a.start_paused = false;
+    } else {
+        a.start_paused |= starts_paused(s);
+    }
+    a
 }
 
 pub async fn add(m: &ManagerHandle, a: AddArgs) -> Result<String, String> {
@@ -79,6 +93,7 @@ pub async fn add(m: &ManagerHandle, a: AddArgs) -> Result<String, String> {
             filename: given(a.filename),
             save_dir: given(a.save_dir).map(PathBuf::from),
             start_paused: a.start_paused,
+            start_now: a.start_now,
             ..Default::default()
         };
         return m.add_site(req).await.map_err(msg);
@@ -90,6 +105,7 @@ pub async fn add(m: &ManagerHandle, a: AddArgs) -> Result<String, String> {
             filename: given(a.filename),
             save_dir: given(a.save_dir).map(PathBuf::from),
             start_paused: a.start_paused,
+            start_now: a.start_now,
             ..Default::default()
         };
         return m.add_stream(req).await.map_err(msg);
@@ -101,6 +117,7 @@ pub async fn add(m: &ManagerHandle, a: AddArgs) -> Result<String, String> {
     req.checksum = given(a.checksum);
     req.max_connections = a.connections;
     req.start_paused = a.start_paused;
+    req.start_now = a.start_now;
     req.speed_limit = a
         .speed_limit_kbps
         .filter(|&k| k > 0)

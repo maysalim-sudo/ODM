@@ -23,6 +23,8 @@ fn fx() -> Fx {
         progress_interval: Duration::from_millis(50),
         persist_interval: Duration::from_millis(200),
         max_attempts: 5,
+        // Hermetic behind a system proxy: the test servers are on this PC.
+        proxy: odm_engine::config::ProxyConfig::Direct,
         ..Default::default()
     };
     let (events, _) = tokio::sync::broadcast::channel(1024);

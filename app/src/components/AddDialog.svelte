@@ -2,6 +2,7 @@
   import * as api from "../lib/api";
   import { formatBytes } from "../lib/format";
   import { CATEGORIES, nextFilename, toInt } from "../lib/model";
+  import { queueSchedule } from "../lib/queueSchedule.svelte";
   import { checkSpeed } from "../lib/settingsPage";
   import type { Suggestion } from "../lib/types";
   import Modal from "./Modal.svelte";
@@ -79,8 +80,15 @@
   const plainFile = $derived(!suggestion?.is_page && !suggestion?.is_stream);
   const limitError = $derived(limitKbps == null || !plainFile ? null : checkSpeed(limitKbps, "kb"));
 
+  /** Without "Start now", the download waits: paused, or for the queue schedule. */
+  const waits = $derived(addsPaused || queueSchedule.wait !== null);
+
   async function submit(e: SubmitEvent) {
     e.preventDefault();
+    await add(false);
+  }
+
+  async function add(startNow: boolean) {
     if (!validUrl || busy || limitError) return;
     busy = true;
     error = null;
@@ -94,6 +102,7 @@
         ...(suggestion?.is_stream ? { stream: true, variant_url: variantUrl || null } : {}),
         ...(suggestion?.is_page ? { page: true } : {}),
         ...(plainFile && limitKbps != null ? { speed_limit_kbps: Math.round(limitKbps) } : {}),
+        ...(startNow ? { start_now: true } : {}),
       });
       onclose();
     } catch (err) {
@@ -181,8 +190,11 @@
 
     <div class="actions">
       <button type="button" onclick={onclose}>Cancel</button>
+      {#if waits}
+        <button type="button" disabled={!validUrl || busy || limitError !== null} onclick={() => add(true)}>Start now</button>
+      {/if}
       <button type="submit" class="primary" disabled={!validUrl || busy || limitError !== null}>
-        {addsPaused ? "Add paused" : "Start download"}
+        {addsPaused ? "Add paused" : waits ? "Add to queue" : "Start download"}
       </button>
     </div>
   </form>

@@ -22,6 +22,7 @@
     toKbps,
     undoRestore,
     visibleRows,
+    switchSchedule,
     type SectionId,
     type SpeedUnit,
   } from "../lib/settingsPage";
@@ -506,7 +507,7 @@
                             label="Limit only at certain times"
                             describedby="set-limit_schedule-desc"
                             checked={s.limit_schedule.enabled}
-                            onchange={(v) => s && set("limit_schedule", { ...s.limit_schedule, enabled: v })}
+                            onchange={(v) => s && set("limit_schedule", switchSchedule(s.limit_schedule, v))}
                           />
                           {#snippet below()}
                             {#if s?.limit_schedule.enabled}
@@ -532,7 +533,7 @@
                             label="Run the queue at certain times"
                             describedby="set-queue_schedule-desc"
                             checked={s.queue_schedule.enabled}
-                            onchange={(v) => s && set("queue_schedule", { ...s.queue_schedule, enabled: v })}
+                            onchange={(v) => s && set("queue_schedule", switchSchedule(s.queue_schedule, v))}
                           />
                           {#snippet below()}
                             {#if s?.queue_schedule.enabled}

@@ -73,8 +73,8 @@ export const openAppFolder = (kind: "logs" | "data") => invoke<void>("open_app_f
 export const answerExists = (id: string, choice: ExistsChoice) => invoke<void>("answer_exists", { id, choice });
 /** A download's own speed limit in KB/s; null removes it. */
 export const setDownloadLimit = (id: string, kbps: number | null) => invoke<void>("set_download_limit", { id, kbps });
-/** Cancels the shutdown that "When the queue is done" started. */
-export const cancelShutdown = () => invoke<void>("cancel_shutdown");
+/** Cancels the "When the queue is done" countdown (sleep, shut down or quit). */
+export const cancelAfterQueue = () => invoke<void>("cancel_after_queue");
 
 /** The saved settings, sent after every save from the Settings page, the speed chip or the tray. */
 export function onSettings(cb: (s: Settings) => void): Promise<UnlistenFn> {

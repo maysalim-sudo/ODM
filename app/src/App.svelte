@@ -13,7 +13,7 @@
   import WelcomeDialog from "./components/WelcomeDialog.svelte";
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
   import ExistsDialog from "./components/ExistsDialog.svelte";
-  import ShutdownDialog from "./components/ShutdownDialog.svelte";
+  import AfterQueueDialog from "./components/AfterQueueDialog.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toolbar from "./components/Toolbar.svelte";
@@ -21,6 +21,7 @@
   import * as api from "./lib/api";
   import { downloads } from "./lib/downloads.svelte";
   import { integration } from "./lib/integration.svelte";
+  import { queueSchedule } from "./lib/queueSchedule.svelte";
   import { SECTIONS, type SectionId } from "./lib/settingsPage";
   import { updates } from "./lib/updates.svelte";
 
@@ -47,7 +48,9 @@
       .catch(() => {});
     // The tray can ask for the Settings page at a section.
     let off: (() => void) | undefined;
+    let offQueue: (() => void) | undefined;
     let gone = false;
+    void queueSchedule.init().then((un) => (gone ? un() : (offQueue = un)));
     void api
       .onOpenSettings((id) => {
         settingsSection = SECTIONS.find((s) => s.id === id)?.id;
@@ -58,6 +61,7 @@
     return () => {
       gone = true;
       off?.();
+      offQueue?.();
       stop();
     };
   });
@@ -75,7 +79,7 @@
       welcomeOpen ||
       downloads.offers.length > 0 ||
       downloads.prompts.length > 0 ||
-      downloads.shutdownAt !== null
+      downloads.afterQueue !== null
     )
       return;
     if (e.ctrlKey && e.key === ",") {
@@ -167,7 +171,7 @@
 <ReuseDialog />
 <ConfirmDialog />
 <ExistsDialog />
-<ShutdownDialog />
+<AfterQueueDialog />
 
 <style>
   .app {

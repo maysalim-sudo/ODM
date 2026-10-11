@@ -157,6 +157,8 @@ async fn a_real_download_produces_upserts_and_batches() {
     let cfg = EngineConfig {
         download_dir: d.path().to_path_buf(),
         progress_interval: Duration::from_millis(20),
+        // Hermetic behind a system proxy: the test servers are on this PC.
+        proxy: odm_engine::config::ProxyConfig::Direct,
         ..Default::default()
     };
     let m = ManagerHandle::start(cfg, Store::open_in_memory().unwrap())

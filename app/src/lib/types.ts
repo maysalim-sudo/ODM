@@ -81,8 +81,9 @@ export type UiEvent =
   | { type: "confirm_download"; id: string }
   | { type: "tools_progress"; stage: string; done: number; total: number }
   | { type: "exists_prompt"; id: string; name: string }
-  | { type: "shutdown_pending"; seconds: number }
-  | { type: "shutdown_cancelled" }
+  | { type: "after_queue_pending"; action: Exclude<AfterQueue, "nothing">; seconds: number }
+  | { type: "after_queue_cancelled" }
+  | { type: "after_queue_done" }
   | { type: "shutdown_failed"; message: string }
   | { type: "update_available"; version: string; notes: string; date: string }
   | { type: "update_progress"; percent: number | null }
@@ -201,6 +202,8 @@ export interface AddArgs {
   category?: string | null;
   checksum?: string | null;
   start_paused?: boolean;
+  /** "Start now": start whatever "Start new downloads" says, even while the queue schedule is closed. */
+  start_now?: boolean;
   /** HLS: the chosen quality of a master playlist. */
   variant_url?: string | null;
   /** HLS: add `url` as a video stream. */

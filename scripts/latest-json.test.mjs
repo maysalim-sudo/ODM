@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildLatestJson, installerUrl, rfc3339, topSection } from "./latest-json.mjs";
+import { join } from "node:path";
+import { buildLatestJson, installerUrl, rfc3339, staleReleaseFiles, topSection } from "./latest-json.mjs";
 
 const CHANGELOG = `# Changelog
 
@@ -87,5 +88,17 @@ describe("buildLatestJson", () => {
     expect(() => buildLatestJson({ version: "0.2.0", changelog: CHANGELOG, signature: "  ", date: new Date() })).toThrow(
       "The installer's signature is empty.",
     );
+  });
+});
+
+describe("staleReleaseFiles", () => {
+  it("names the updater files an earlier build left behind", () => {
+    const files = staleReleaseFiles({ assets: "A", nsisDir: "N", setupName: "ODM_0.2.0_x64-setup.exe" });
+    expect(files).toEqual([
+      join("A", "latest.json"),
+      join("A", "ODM_0.2.0_x64-setup.exe"),
+      join("A", "ODM_0.2.0_x64-setup.exe.sig"),
+      join("N", "ODM_0.2.0_x64-setup.exe.sig"),
+    ]);
   });
 });

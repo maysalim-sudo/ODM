@@ -1,4 +1,4 @@
-import type { Settings } from "./types";
+import type { Schedule, Settings } from "./types";
 
 /** The Settings page: its sections, rows, search, restore and inline checks. */
 
@@ -268,3 +268,18 @@ export function springEase(t: number): number {
 export const PAGE_MS = 350;
 
 export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+/** The schedule with day `i` ticked or unticked; null when that would leave no day ticked. */
+export function toggleDay(s: Schedule, i: number): Schedule | null {
+  const days = s.days.map((d, j) => (j === i ? !d : d));
+  return days.some(Boolean) ? { ...s, days } : null;
+}
+
+/**
+ * The schedule switched on or off. Switching on one with no day ticks every day: a schedule
+ * with no days could never run, and saving would turn it off again.
+ */
+export function switchSchedule(s: Schedule, on: boolean): Schedule {
+  const days = on && !s.days.some(Boolean) ? s.days.map(() => true) : s.days;
+  return { ...s, enabled: on, days };
+}

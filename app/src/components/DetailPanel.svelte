@@ -1,6 +1,7 @@
 <script lang="ts">
   import * as api from "../lib/api";
   import { downloads } from "../lib/downloads.svelte";
+  import { queueSchedule } from "../lib/queueSchedule.svelte";
   import { formatBytes, formatEta, formatSpeed, joinPath, statusLabel } from "../lib/format";
   import { canRefresh, canResume, isRiskyFile, needsVideoTools, progressPct } from "../lib/model";
   import { checkSpeed } from "../lib/settingsPage";
@@ -122,7 +123,7 @@
 
     <dl>
       <dt>Status</dt>
-      <dd class:bad={row.state === "failed"}>{statusLabel(row.state, row.pause_reason)}</dd>
+      <dd class:bad={row.state === "failed"}>{statusLabel(row.state, row.pause_reason, queueSchedule.wait)}</dd>
       {#if row.error_message}
         <dt>Problem</dt>
         <dd class="bad wrap">{row.error_message}</dd>

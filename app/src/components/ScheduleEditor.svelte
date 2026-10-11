@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { WEEKDAYS } from "../lib/settingsPage";
+  import { WEEKDAYS, toggleDay as withDay } from "../lib/settingsPage";
   import type { Schedule } from "../lib/types";
 
   /** Days of the week as chips, then the two times. The on/off switch lives in the row. */
@@ -20,14 +20,15 @@
   // A schedule with no day would never run; the engine treats it as off.
   const noDays = $derived(!schedule.days.some(Boolean));
 
+  // Unticking the last day is refused here, so a saved schedule always has a day.
   function toggleDay(i: number): void {
-    const days = schedule.days.map((d, j) => (j === i ? !d : d));
-    if (!days.some(Boolean)) {
+    const next = withDay(schedule, i);
+    if (!next) {
       error = NO_DAYS;
       return;
     }
     error = null;
-    onchange({ ...schedule, days });
+    onchange(next);
   }
 
   function setTime(which: "from" | "to", v: string): void {

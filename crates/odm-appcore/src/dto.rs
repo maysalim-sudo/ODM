@@ -1,5 +1,6 @@
 use crate::messages::user_message;
 use crate::offers::OfferDto;
+use crate::settings::AfterQueue;
 use odm_core::{DownloadState, ErrorKind, OdmError};
 use odm_engine::{ChunkView, ChunkViewState, ProgressSnapshot};
 use odm_store::{ChunkRecord, DownloadRecord};
@@ -137,12 +138,16 @@ pub enum UiEvent {
         id: String,
         name: String,
     },
-    /// The queue is done and the PC shuts down in `seconds` unless the user cancels.
-    ShutdownPending {
+    /// The queue is done: `action` (sleep, shutdown or quit) happens in `seconds` unless the
+    /// user cancels or a download starts.
+    AfterQueuePending {
+        action: AfterQueue,
         seconds: u32,
     },
-    /// The pending shutdown was cancelled.
-    ShutdownCancelled,
+    /// The countdown was cancelled (by the user, or because a download started).
+    AfterQueueCancelled,
+    /// The countdown ran out and the action ran (the PC slept and woke, or ODM is quitting).
+    AfterQueueDone,
     /// "When the queue is done: Shut down" could not shut the PC down.
     ShutdownFailed {
         message: String,

@@ -37,6 +37,8 @@ pub struct AddRequest {
     pub page_title: Option<String>,
     pub priority: i64,
     pub start_paused: bool,
+    /// Start even while the queue schedule is closed ("Start now" in the New download dialog).
+    pub start_now: bool,
     /// The size the browser already reported; the probe overwrites it.
     pub size_hint: Option<u64>,
     /// This download's own speed limit in bytes per second; None or 0 = none.
@@ -63,6 +65,8 @@ pub struct StreamRequest {
     pub page_title: Option<String>,
     pub headers: Vec<(String, String)>,
     pub start_paused: bool,
+    /// Start even while the queue schedule is closed.
+    pub start_now: bool,
 }
 
 /// A video on a site page (YouTube, Facebook…), downloaded by yt-dlp.
@@ -74,6 +78,8 @@ pub struct SiteRequest {
     pub save_dir: Option<PathBuf>,
     pub headers: Vec<(String, String)>,
     pub start_paused: bool,
+    /// Start even while the queue schedule is closed.
+    pub start_now: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -144,6 +150,9 @@ struct Manager {
     waiting: HashMap<String, Staged>,
     /// Whether the queue schedule lets downloads run (always, without one).
     queue_open: bool,
+    /// Downloads the user started explicitly (Resume on that row, "Start now"): they run
+    /// while the queue schedule is closed. In memory only; cleared when they stop.
+    bypass: HashSet<String>,
     /// When the history pass last ran (clock time).
     last_prune: Option<i64>,
     /// A download completed since the queue last reported itself done.
@@ -225,6 +234,7 @@ impl ManagerHandle {
             waiting: HashMap::new(),
             // The first tick opens it (resuming what the schedule paused) unless it is closed.
             queue_open: false,
+            bypass: HashSet::new(),
             last_prune: None,
             ran: false,
         };
@@ -423,7 +433,7 @@ impl Manager {
                     let _ = reply.send(r);
                 }
                 Cmd::Pause(id) => self.pause(&id).await,
-                Cmd::Resume(id) => self.resume(&id).await,
+                Cmd::Resume(id) => self.resume(&id, true).await,
                 Cmd::Cancel(id, delete) => self.cancel(&id, delete).await,
                 Cmd::RefreshUrl(id, url, headers, reply) => {
                     let r = self.refresh_url(&id, url, headers).await;
@@ -456,7 +466,8 @@ impl Manager {
                         .into_iter()
                         .chain(self.active.keys().cloned().collect::<Vec<_>>())
                     {
-                        self.resume(&id).await;
+                        // Resume all follows the queue schedule.
+                        self.resume(&id, false).await;
                     }
                 }
                 Cmd::SetSpeedLimit(bps) => {
@@ -600,6 +611,9 @@ impl Manager {
             .map_err(store_err)?;
         let _ = self.env.events.send(EngineEvent::Added { id: id.clone() });
         if !req.start_paused {
+            if req.start_now {
+                self.bypass.insert(id.clone());
+            }
             self.schedule().await;
         }
         Ok(id)
@@ -652,6 +666,9 @@ impl Manager {
             .map_err(store_err)?;
         let _ = self.env.events.send(EngineEvent::Added { id: id.clone() });
         if !req.start_paused {
+            if req.start_now {
+                self.bypass.insert(id.clone());
+            }
             self.schedule().await;
         }
         Ok(id)
@@ -686,6 +703,9 @@ impl Manager {
             .map_err(store_err)?;
         let _ = self.env.events.send(EngineEvent::Added { id: id.clone() });
         if !req.start_paused {
+            if req.start_now {
+                self.bypass.insert(id.clone());
+            }
             self.schedule().await;
         }
         Ok(id)
@@ -776,6 +796,7 @@ impl Manager {
 
     async fn pause(&mut self, id: &str) {
         self.resume_after.remove(id);
+        self.bypass.remove(id);
         if !self.request_stop(id, Stop::Pause)
             && self.state_of(id).await == Some(DownloadState::Queued)
         {
@@ -783,7 +804,9 @@ impl Manager {
         }
     }
 
-    async fn resume(&mut self, id: &str) {
+    /// `explicit`: the user resumed this download itself, so it runs even while the queue
+    /// schedule is closed. Resume all is not explicit.
+    async fn resume(&mut self, id: &str, explicit: bool) {
         if let Some(staged) = self.waiting.get(id) {
             // The file is ready; only the answer is missing. Ask again.
             let _ = self.env.events.send(EngineEvent::ExistsPrompt {
@@ -795,15 +818,26 @@ impl Manager {
         if let Some(a) = self.active.get(id) {
             if a.stop == Some(Stop::Pause) {
                 self.resume_after.insert(id.to_string());
+                if explicit {
+                    self.bypass.insert(id.to_string());
+                }
             }
             return;
         }
-        if matches!(
-            self.state_of(id).await,
-            Some(DownloadState::Paused | DownloadState::Failed)
-        ) {
-            transition(&self.env, id, DownloadState::Queued, None).await;
-            self.schedule().await;
+        match self.state_of(id).await {
+            Some(DownloadState::Paused | DownloadState::Failed) => {
+                if explicit {
+                    self.bypass.insert(id.to_string());
+                }
+                transition(&self.env, id, DownloadState::Queued, None).await;
+                self.schedule().await;
+            }
+            // Waiting for the queue schedule: Resume on the row starts it now.
+            Some(DownloadState::Queued) if explicit => {
+                self.bypass.insert(id.to_string());
+                self.schedule().await;
+            }
+            _ => {}
         }
     }
 
@@ -811,6 +845,7 @@ impl Manager {
     /// `_delete_file` only matters for a completed file, which cancel never touches.
     async fn cancel(&mut self, id: &str, _delete_file: bool) {
         self.resume_after.remove(id);
+        self.bypass.remove(id);
         self.drop_staged(id);
         if self.request_stop(id, Stop::Cancel) {
             return;
@@ -827,6 +862,7 @@ impl Manager {
 
     async fn remove(&mut self, id: &str, delete: bool) {
         self.resume_after.remove(id);
+        self.bypass.remove(id);
         self.drop_staged(id);
         if !self.request_stop(id, Stop::Remove { delete }) {
             self.delete_record(id, delete).await;
@@ -861,6 +897,9 @@ impl Manager {
 
     async fn finished(&mut self, id: String, outcome: Outcome) {
         let stop = self.active.remove(&id).and_then(|a| a.stop);
+        if !self.resume_after.contains(&id) {
+            self.bypass.remove(&id);
+        }
         // Paused, by the user or by the schedule's stop time: the work is not done.
         let paused = match (&stop, &outcome) {
             (_, Outcome::Completed { .. } | Outcome::Exists { .. }) => false,
@@ -1091,7 +1130,13 @@ impl Manager {
                 }
                 self.schedule().await;
             } else {
-                let ids: Vec<String> = self.active.keys().cloned().collect();
+                // What the user started explicitly keeps running.
+                let ids: Vec<String> = self
+                    .active
+                    .keys()
+                    .filter(|id| !self.bypass.contains(*id))
+                    .cloned()
+                    .collect();
                 for id in ids {
                     self.resume_after.remove(&id);
                     self.request_stop(&id, Stop::SchedulePause);
@@ -1133,7 +1178,7 @@ impl Manager {
     }
 
     async fn schedule(&mut self) {
-        if self.shutdown_reply.is_some() || !self.queue_open {
+        if self.shutdown_reply.is_some() || (!self.queue_open && self.bypass.is_empty()) {
             return;
         }
         let free = self.max_concurrent.saturating_sub(self.active.len());
@@ -1147,10 +1192,12 @@ impl Manager {
                 return;
             }
         };
+        // While the queue schedule is closed, only what the user started explicitly runs.
         let ids: Vec<String> = queued
             .into_iter()
             .map(|r| r.id)
             .filter(|id| !self.active.contains_key(id))
+            .filter(|id| self.queue_open || self.bypass.contains(id))
             .take(free)
             .collect();
         for id in ids {

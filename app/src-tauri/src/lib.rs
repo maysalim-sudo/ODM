@@ -52,6 +52,9 @@ pub struct AppState {
     pub tools_busy: AtomicBool,
     /// Prevent sleep and the "When the queue is done" action.
     pub power: Arc<Power<shell::ShellPower>>,
+    /// Held while settings are saved and applied, so saves from the Settings page, the
+    /// speed chip and the tray run one after another.
+    pub settings_save: tokio::sync::Mutex<()>,
 }
 
 fn start_engine(paths: &AppPaths, settings: &Settings) -> Result<ManagerHandle, String> {
@@ -79,8 +82,10 @@ pub fn run() {
         tracing::warn!("settings: {w}");
     }
     tracing::info!(data_dir = %paths.data_dir.display(), "ODM starting");
-    // The browser host starts ODM with --background so no window pops up.
-    let background = std::env::args().any(|a| a == "--background");
+    // The browser host and "Start ODM with Windows" start ODM with --background so no window
+    // pops up; after "Update" it comes back with its window.
+    let after_update = updates::take_show_marker(&paths.data_dir);
+    let background = updates::starts_hidden(std::env::args(), after_update);
     let mut context = tauri::generate_context!();
     let endpoint = updates::endpoint_override(std::env::var(updates::ENDPOINT_ENV).ok().as_deref());
     let pubkey = updates::prepare_config(&mut context.config_mut().plugins.0, endpoint.as_ref());
@@ -144,6 +149,7 @@ pub fn run() {
                 pipe_running: AtomicBool::new(false),
                 tools_busy: AtomicBool::new(false),
                 power: power.clone(),
+                settings_save: tokio::sync::Mutex::new(()),
             });
             let memory = app.state::<AppState>().paths.data_dir.join("updates.json");
             app.manage(updates::Updates::new(
@@ -274,7 +280,7 @@ pub fn run() {
             commands::tools_install,
             commands::answer_exists,
             commands::set_download_limit,
-            commands::cancel_shutdown,
+            commands::cancel_after_queue,
             updates::update_status,
             updates::update_check,
             updates::update_dismiss,

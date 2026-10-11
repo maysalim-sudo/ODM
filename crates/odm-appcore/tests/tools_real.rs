@@ -14,7 +14,7 @@ async fn installs_the_real_tools_from_github() {
     let tools_dir = dir.path().join("tools");
     tools::install(
         &tools_dir,
-        &tools::http_client(),
+        &tools::http_client(&odm_engine::config::ProxyConfig::System),
         &ToolSources::default(),
         &|_, _, _| {},
     )

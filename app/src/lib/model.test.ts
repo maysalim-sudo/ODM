@@ -10,6 +10,7 @@ import {
   canCancel,
   canPause,
   canResume,
+  afterQueueText,
   canRefresh,
   isRiskyFile,
   integrationProblem,
@@ -242,6 +243,8 @@ describe("actions allowed per state", () => {
     expect(canPause(row("paused")) || canPause(row("completed"))).toBe(false);
     expect(canResume(row("paused")) && canResume(row("failed"))).toBe(true);
     expect(canResume(row("downloading"))).toBe(false);
+    expect(canResume(row("queued")), "queued rows run when the queue may").toBe(false);
+    expect(canResume(row("queued"), true), "Resume starts a row waiting for the schedule").toBe(true);
     expect(canCancel(row("paused")) && canCancel(row("downloading"))).toBe(true);
     expect(canCancel(row("completed")) || canCancel(row("cancelled"))).toBe(false);
   });
@@ -370,6 +373,8 @@ describe("isRiskyFile", () => {
     expect(isRiskyFile("a.tar.gz")).toBe(false);
     expect(isRiskyFile("noext")).toBe(false);
     expect(isRiskyFile("movie.mp4")).toBe(false);
+    for (const name of ["a.pif", "help.chm", "patch.msp", "x.scf", "link.url", "app.application", "app.appinstaller", "x.settingcontent-ms"])
+      expect(isRiskyFile(name), name).toBe(true);
   });
 });
 
@@ -667,14 +672,29 @@ describe("exists prompts", () => {
     const rows = replaceAll([dl("a")]);
     for (const ev of [
       { type: "exists_prompt", id: "a", name: "a.bin" },
-      { type: "shutdown_pending", seconds: 60 },
-      { type: "shutdown_cancelled" },
+      { type: "after_queue_pending", action: "sleep", seconds: 60 },
+      { type: "after_queue_cancelled" },
+      { type: "after_queue_done" },
       { type: "shutdown_failed", message: "ODM couldn't shut down the PC." },
     ] as const) {
       const r = applyEvent(rows, ev);
       expect(r.rows).toBe(rows);
       expect(r.resync).toBe(false);
     }
+  });
+});
+
+describe("afterQueueText", () => {
+  it("names the action and counts down", () => {
+    expect(afterQueueText("sleep", 60)).toBe("ODM will put the PC to sleep in 60 s.");
+    expect(afterQueueText("shutdown", 60)).toBe("ODM will shut down the PC in 60 s.");
+    expect(afterQueueText("quit", 60)).toBe("ODM will quit in 60 s.");
+    expect(afterQueueText("sleep", 12)).toBe("ODM will put the PC to sleep in 12 s.");
+  });
+  it("says what is happening once the time is up", () => {
+    expect(afterQueueText("sleep", 0)).toBe("ODM is putting the PC to sleep.");
+    expect(afterQueueText("shutdown", 0)).toBe("ODM is shutting down the PC.");
+    expect(afterQueueText("quit", 0)).toBe("ODM is quitting.");
   });
 });
 

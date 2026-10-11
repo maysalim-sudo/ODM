@@ -1,4 +1,4 @@
-import type { DownloadState } from "./types";
+import type { DownloadState, Schedule } from "./types";
 
 const UNITS = ["B", "KB", "MB", "GB", "TB"];
 
@@ -68,10 +68,55 @@ const PAUSE_REASONS: Record<string, string> = {
   exists: "Waiting for your choice",
 };
 
-/** The status of a row, saying why a paused download is paused. */
-export function statusLabel(state: DownloadState, pauseReason: string | null): string {
+/**
+ * The status of a row, saying why a paused download is paused. `queueWait` is
+ * `queueWaitLabel(...)`: set while the queue schedule keeps queued rows waiting.
+ */
+export function statusLabel(state: DownloadState, pauseReason: string | null, queueWait: string | null = null): string {
   if (state === "paused" && pauseReason) return PAUSE_REASONS[pauseReason] ?? LABELS.paused;
+  if (state === "queued" && queueWait) return queueWait;
   return LABELS[state];
+}
+
+const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAY_MIN = 24 * 60;
+
+function minutesOf(hhmm: string): number | null {
+  const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  return h < 24 && min < 60 ? h * 60 + min : null;
+}
+
+/**
+ * "Waiting for the schedule (starts HH:MM)" while the queue schedule is closed at `now`,
+ * with the weekday when the next start is not today; null when queued downloads may run.
+ * Follows the engine: a window that crosses midnight belongs to the day it starts on, and
+ * the same from and to means the whole day.
+ */
+export function queueWaitLabel(s: Schedule, now: Date): string | null {
+  const from = minutesOf(s.from);
+  const to = minutesOf(s.to);
+  if (!s.enabled || !s.days.some(Boolean) || from === null || to === null) return null;
+  const today = (now.getDay() + 6) % 7;
+  const minute = now.getHours() * 60 + now.getMinutes();
+  const ticked = (d: number) => s.days[((d % 7) + 7) % 7];
+  const open =
+    from === to
+      ? ticked(today)
+      : from < to
+        ? ticked(today) && minute >= from && minute < to
+        : (ticked(today) && minute >= from) || (ticked(today - 1) && minute < to);
+  if (open) return null;
+  const start = from === to ? 0 : from;
+  for (let offset = 0; offset <= 7; offset++) {
+    if (!ticked(today + offset) || offset * DAY_MIN + start <= minute) continue;
+    const time = `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}`;
+    const when = offset === 0 ? time : `${DAY_NAMES[(today + offset) % 7]} ${time}`;
+    return `Waiting for the schedule (starts ${when})`;
+  }
+  return null;
 }
 
 /** Join a folder and a file name with the separator the folder already uses. */

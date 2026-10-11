@@ -13,6 +13,8 @@ fn cfg(dir: &Path) -> EngineConfig {
     EngineConfig {
         download_dir: dir.to_path_buf(),
         persist_interval: Duration::from_millis(200),
+        // Hermetic behind a system proxy: the test servers are on this PC.
+        proxy: odm_engine::config::ProxyConfig::Direct,
         ..Default::default()
     }
 }
