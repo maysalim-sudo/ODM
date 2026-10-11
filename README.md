@@ -8,15 +8,14 @@ ODM is a personal project, shared as is. The installer is not code-signed. ODM u
 
 ## Quick start (no building)
 
-1. **Install the app.** Download `ODM_x.y.z_x64-setup.exe` from the [Releases](../../releases) page and run it. It installs for your user only and needs no admin rights. Because it is unsigned, Windows SmartScreen may warn you: choose **More info → Run anyway**.
-2. **Start ODM once.** It registers its browser helper on first start.
-3. **Add the extension.**
-   - Chrome, Edge, Vivaldi and other Chromium browsers: unzip `odm-extension-chromium.zip` from the same release, open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and pick the unzipped folder. Keep that folder where it is.
+1. **Install the app.** Download [`ODM-setup.exe`](../../releases/latest/download/ODM-setup.exe) from the latest release and run it. It installs for your user only and needs no admin rights. Because it is unsigned, Windows SmartScreen may warn you: choose **More info → Run anyway**.
+2. **Start ODM.** It registers its browser helper, and a welcome screen walks you through the rest.
+3. **Add the extension.** Pick your browser on the welcome screen. It opens the extension folder and your browser's extensions page, and shows "Connected" once the extension talks to ODM.
+   - Chrome, Edge, Vivaldi and other Chromium browsers: on the extensions page, turn on **Developer mode**, choose **Load unpacked** and pick the folder ODM opened.
    - Firefox and Floorp: see "Browser integration" below.
-4. **Optional tools,** found automatically on `PATH`, or set in Settings:
-   - [FFmpeg](https://ffmpeg.org/) for HLS streams and for site videos (`winget install Gyan.FFmpeg`).
-   - [yt-dlp](https://github.com/yt-dlp/yt-dlp) for YouTube, Facebook and other sites (`winget install yt-dlp.yt-dlp`).
-   - [Node.js](https://nodejs.org/), which yt-dlp needs to read YouTube.
+4. **Get the video tools** (optional). Press **Get video tools** on the welcome screen or in Settings → Video. ODM downloads [FFmpeg](https://ffmpeg.org/), [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [Deno](https://deno.com/) (yt-dlp needs it for YouTube) into its own folder and checks each file against its published checksum. Copies you already have on `PATH` work too.
+
+After that ODM keeps itself up to date (see "Updates").
 
 Only download what you have the right to. Respect each site's terms.
 
