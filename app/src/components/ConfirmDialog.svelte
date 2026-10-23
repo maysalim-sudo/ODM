@@ -9,6 +9,9 @@
   import TorrentFiles from "./TorrentFiles.svelte";
 
   const row = $derived(downloads.confirmRow);
+  // Effects follow the id, never the row object: that object is rebuilt whenever any
+  // download changes, and reading it would reset the form (and the file ticks) mid-choice.
+  const confirmId = $derived(downloads.confirmRow?.id);
   // The reuse offer keeps priority when both are waiting.
   const open = $derived(row !== undefined && downloads.offers.length === 0);
 
@@ -23,10 +26,10 @@
   let files = $state<TorrentFile[]>([]);
   let picked = $state<Set<number>>(new Set());
   const hasMeta = $derived(!!row?.has_meta);
-  const fileVersion = $derived(row ? (downloads.fileLists[row.id] ?? 0) : 0);
+  const fileVersion = $derived(confirmId ? (downloads.fileLists[confirmId] ?? 0) : 0);
 
   $effect(() => {
-    const id = row?.id;
+    const id = confirmId;
     void fileVersion;
     if (!id || !isTorrent || !hasMeta) {
       files = [];
@@ -60,7 +63,7 @@
 
   // Each download starts with its own name and folder.
   $effect(() => {
-    const id = downloads.confirmRow?.id;
+    const id = confirmId;
     untrack(() => {
       const r = downloads.confirmRow;
       filename = r?.filename ?? "";
