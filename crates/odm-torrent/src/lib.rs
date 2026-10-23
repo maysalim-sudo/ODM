@@ -3,6 +3,8 @@
 pub mod parse;
 pub mod port;
 pub mod rqbit;
+#[cfg(any(test, feature = "fake"))]
+pub mod fake;
 mod types;
 
 pub use parse::{magnet_info_hash, parse};
