@@ -64,6 +64,8 @@ impl DownloadState {
                 | (Merging, Completed | Failed | Cancelled)
                 | (Paused, Queued | Cancelled)
                 | (Failed, Queued | Cancelled)
+                // A finished torrent re-queued after the user ticks more files.
+                | (Completed, Queued)
         )
     }
 }
@@ -117,5 +119,12 @@ mod tests {
         assert!(!Paused.is_terminal());
         assert!(Probing.is_active() && Downloading.is_active() && Merging.is_active());
         assert!(!Queued.is_active());
+    }
+
+    #[test]
+    fn completed_can_requeue() {
+        // A finished torrent goes back to the queue when the user ticks more files.
+        assert!(Completed.can_transition(Queued));
+        assert!(!Completed.can_transition(Downloading));
     }
 }

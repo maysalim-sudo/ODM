@@ -10,5 +10,7 @@ rusqlite.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
 
+serde_json.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true

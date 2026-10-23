@@ -4,7 +4,10 @@ mod migrations;
 mod models;
 mod repo;
 
-pub use models::{now_ms, ChunkRecord, DownloadRecord, HlsMeta, ProbeMeta, SegmentRecord};
+pub use models::{
+    now_ms, ChunkRecord, DownloadRecord, HlsMeta, ProbeMeta, SegmentRecord, TorrentFileRecord,
+    TorrentMetaRecord,
+};
 
 use odm_core::DownloadState;
 use rusqlite::Connection;
@@ -219,5 +222,61 @@ impl Store {
     pub async fn set_speed_limit(&self, id: &str, bps: Option<u64>) -> Result<(), StoreError> {
         let id = id.to_string();
         self.call(move |c| repo::set_speed_limit(c, &id, bps)).await
+    }
+    pub async fn find_by_info_hash(
+        &self,
+        hash: &str,
+    ) -> Result<Option<DownloadRecord>, StoreError> {
+        let hash = hash.to_string();
+        self.call(move |c| repo::find_by_info_hash(c, &hash)).await
+    }
+    pub async fn put_torrent_meta(&self, m: TorrentMetaRecord) -> Result<(), StoreError> {
+        self.call(move |c| repo::put_torrent_meta(c, &m)).await
+    }
+    pub async fn get_torrent_meta(
+        &self,
+        id: &str,
+    ) -> Result<Option<TorrentMetaRecord>, StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::get_torrent_meta(c, &id)).await
+    }
+    pub async fn merge_trackers(
+        &self,
+        id: &str,
+        add: Vec<String>,
+    ) -> Result<Vec<String>, StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::merge_trackers(c, &id, &add)).await
+    }
+    pub async fn replace_torrent_files(
+        &self,
+        id: &str,
+        files: Vec<TorrentFileRecord>,
+    ) -> Result<(), StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::replace_torrent_files(c, &id, &files))
+            .await
+    }
+    pub async fn get_torrent_files(&self, id: &str) -> Result<Vec<TorrentFileRecord>, StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::get_torrent_files(c, &id)).await
+    }
+    pub async fn set_torrent_selection(
+        &self,
+        id: &str,
+        selected: Vec<usize>,
+    ) -> Result<u64, StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::set_torrent_selection(c, &id, &selected))
+            .await
+    }
+    pub async fn save_torrent_progress(
+        &self,
+        id: &str,
+        done: Vec<(usize, u64)>,
+    ) -> Result<(), StoreError> {
+        let id = id.to_string();
+        self.call(move |c| repo::save_torrent_progress(c, &id, &done))
+            .await
     }
 }

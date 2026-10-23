@@ -1,12 +1,15 @@
 use odm_core::DownloadState;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
-use crate::models::{now_ms, ChunkRecord, DownloadRecord, HlsMeta, ProbeMeta, SegmentRecord};
+use crate::models::{
+    now_ms, ChunkRecord, DownloadRecord, HlsMeta, ProbeMeta, SegmentRecord, TorrentFileRecord,
+    TorrentMetaRecord,
+};
 
 const COLS: &str =
     "id,url,final_url,filename,save_dir,size,mime,category,state,error_kind,error_msg,\
 priority,max_connections,speed_limit,etag,last_modified,checksum,kind,page_url,page_title,\
-filename_locked,created_at,started_at,finished_at,auto_place,pause_reason";
+filename_locked,created_at,started_at,finished_at,auto_place,pause_reason,info_hash";
 
 fn to_record(r: &Row) -> rusqlite::Result<DownloadRecord> {
     let state: String = r.get(8)?;
@@ -37,6 +40,7 @@ fn to_record(r: &Row) -> rusqlite::Result<DownloadRecord> {
         finished_at: r.get(23)?,
         auto_place: r.get::<_, i64>(24)? != 0,
         pause_reason: r.get(25)?,
+        info_hash: r.get(26)?,
     })
 }
 
@@ -44,14 +48,14 @@ pub fn insert_download(c: &Connection, d: &DownloadRecord) -> rusqlite::Result<(
     c.execute(
         &format!(
             "INSERT INTO downloads ({COLS}) VALUES \
-             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)"
+             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)"
         ),
         params![
             d.id, d.url, d.final_url, d.filename, d.save_dir, d.size.map(|v| v as i64), d.mime,
             d.category, d.state.as_str(), d.error_kind, d.error_msg, d.priority,
             d.max_connections as i64, d.speed_limit.map(|v| v as i64), d.etag, d.last_modified,
             d.checksum, d.kind, d.page_url, d.page_title, d.filename_locked as i64, d.created_at,
-            d.started_at, d.finished_at, d.auto_place as i64, d.pause_reason
+            d.started_at, d.finished_at, d.auto_place as i64, d.pause_reason, d.info_hash
         ],
     )?;
     Ok(())
@@ -213,7 +217,7 @@ pub fn reset_interrupted(c: &Connection) -> rusqlite::Result<usize> {
     )
 }
 
-const BYTES: &str = "COALESCE((SELECT SUM(written) FROM chunks WHERE download_id = downloads.id), 0) + COALESCE((SELECT SUM(bytes) FROM hls_segments WHERE download_id = downloads.id AND state = 'done'), 0)";
+const BYTES: &str = "COALESCE((SELECT SUM(written) FROM chunks WHERE download_id = downloads.id), 0) + COALESCE((SELECT SUM(bytes) FROM hls_segments WHERE download_id = downloads.id AND state = 'done'), 0) + COALESCE((SELECT SUM(MIN(done, size)) FROM torrent_files WHERE download_id = downloads.id AND selected = 1), 0)";
 
 pub fn insert_download_with_headers(
     c: &mut Connection,
@@ -235,7 +239,7 @@ pub fn list_with_bytes(c: &Connection) -> rusqlite::Result<Vec<(DownloadRecord, 
     let mut st = c.prepare(&format!(
         "SELECT {COLS}, {BYTES} FROM downloads ORDER BY created_at DESC, rowid DESC"
     ))?;
-    let rows = st.query_map([], |r| Ok((to_record(r)?, r.get::<_, i64>(26)? as u64)))?;
+    let rows = st.query_map([], |r| Ok((to_record(r)?, r.get::<_, i64>(27)? as u64)))?;
     rows.collect()
 }
 
@@ -243,7 +247,7 @@ pub fn get_with_bytes(c: &Connection, id: &str) -> rusqlite::Result<Option<(Down
     c.query_row(
         &format!("SELECT {COLS}, {BYTES} FROM downloads WHERE id=?1"),
         [id],
-        |r| Ok((to_record(r)?, r.get::<_, i64>(26)? as u64)),
+        |r| Ok((to_record(r)?, r.get::<_, i64>(27)? as u64)),
     )
     .optional()
 }
@@ -409,4 +413,157 @@ pub fn set_speed_limit(c: &Connection, id: &str, bps: Option<u64>) -> rusqlite::
         params![id, bps.map(|v| v as i64)],
     )?;
     Ok(())
+}
+
+pub fn find_by_info_hash(c: &Connection, hash: &str) -> rusqlite::Result<Option<DownloadRecord>> {
+    c.query_row(
+        &format!("SELECT {COLS} FROM downloads WHERE info_hash=?1"),
+        [hash.to_ascii_lowercase()],
+        to_record,
+    )
+    .optional()
+}
+
+fn trackers_json(t: &[String]) -> String {
+    serde_json::to_string(t).unwrap_or_else(|_| "[]".into())
+}
+
+pub fn put_torrent_meta(c: &Connection, m: &TorrentMetaRecord) -> rusqlite::Result<()> {
+    c.execute(
+        "INSERT INTO torrent_meta (download_id, source, trackers, has_meta) VALUES (?1,?2,?3,?4)
+         ON CONFLICT(download_id) DO UPDATE SET source=?2, trackers=?3, has_meta=?4",
+        params![m.download_id, m.source, trackers_json(&m.trackers), m.has_meta as i64],
+    )?;
+    Ok(())
+}
+
+pub fn get_torrent_meta(c: &Connection, id: &str) -> rusqlite::Result<Option<TorrentMetaRecord>> {
+    c.query_row(
+        "SELECT download_id, source, trackers, has_meta FROM torrent_meta WHERE download_id=?1",
+        [id],
+        |r| {
+            let t: String = r.get(2)?;
+            Ok(TorrentMetaRecord {
+                download_id: r.get(0)?,
+                source: r.get(1)?,
+                trackers: serde_json::from_str(&t).unwrap_or_default(),
+                has_meta: r.get::<_, i64>(3)? != 0,
+            })
+        },
+    )
+    .optional()
+}
+
+/// Adds `add` to the stored trackers, keeping order and dropping duplicates.
+pub fn merge_trackers(
+    c: &mut Connection,
+    id: &str,
+    add: &[String],
+) -> rusqlite::Result<Vec<String>> {
+    let tx = c.transaction()?;
+    let mut list = get_torrent_meta(&tx, id)?
+        .map(|m| m.trackers)
+        .unwrap_or_default();
+    for t in add {
+        if !list.contains(t) {
+            list.push(t.clone());
+        }
+    }
+    tx.execute(
+        "UPDATE torrent_meta SET trackers=?2 WHERE download_id=?1",
+        params![id, trackers_json(&list)],
+    )?;
+    tx.commit()?;
+    Ok(list)
+}
+
+const SELECTED_SIZE: &str = "UPDATE downloads SET size=(SELECT COALESCE(SUM(size),0) FROM torrent_files \
+     WHERE download_id=?1 AND selected=1) WHERE id=?1";
+
+/// Replaces the file list, marks the metadata known and sets the size to the selected total.
+pub fn replace_torrent_files(
+    c: &mut Connection,
+    id: &str,
+    files: &[TorrentFileRecord],
+) -> rusqlite::Result<()> {
+    let tx = c.transaction()?;
+    tx.execute("DELETE FROM torrent_files WHERE download_id=?1", [id])?;
+    for f in files {
+        tx.execute(
+            "INSERT INTO torrent_files (download_id, idx, path, size, selected, done) \
+             VALUES (?1,?2,?3,?4,?5,?6)",
+            params![
+                id,
+                f.idx as i64,
+                f.path,
+                f.size as i64,
+                f.selected as i64,
+                f.done as i64
+            ],
+        )?;
+    }
+    tx.execute(
+        "UPDATE torrent_meta SET has_meta=1 WHERE download_id=?1",
+        [id],
+    )?;
+    tx.execute(SELECTED_SIZE, [id])?;
+    tx.commit()
+}
+
+pub fn get_torrent_files(c: &Connection, id: &str) -> rusqlite::Result<Vec<TorrentFileRecord>> {
+    let mut st = c.prepare(
+        "SELECT idx, path, size, selected, done FROM torrent_files WHERE download_id=?1 ORDER BY idx",
+    )?;
+    let rows = st.query_map([id], |r| {
+        Ok(TorrentFileRecord {
+            idx: r.get::<_, i64>(0)? as usize,
+            path: r.get(1)?,
+            size: r.get::<_, i64>(2)? as u64,
+            selected: r.get::<_, i64>(3)? != 0,
+            done: r.get::<_, i64>(4)? as u64,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Selects exactly `selected`; returns the new selected total, also stored as the size.
+pub fn set_torrent_selection(
+    c: &mut Connection,
+    id: &str,
+    selected: &[usize],
+) -> rusqlite::Result<u64> {
+    let tx = c.transaction()?;
+    tx.execute(
+        "UPDATE torrent_files SET selected=0 WHERE download_id=?1",
+        [id],
+    )?;
+    for idx in selected {
+        tx.execute(
+            "UPDATE torrent_files SET selected=1 WHERE download_id=?1 AND idx=?2",
+            params![id, *idx as i64],
+        )?;
+    }
+    tx.execute(SELECTED_SIZE, [id])?;
+    let total: i64 = tx.query_row(
+        "SELECT COALESCE(size,0) FROM downloads WHERE id=?1",
+        [id],
+        |r| r.get(0),
+    )?;
+    tx.commit()?;
+    Ok(total as u64)
+}
+
+pub fn save_torrent_progress(
+    c: &mut Connection,
+    id: &str,
+    done: &[(usize, u64)],
+) -> rusqlite::Result<()> {
+    let tx = c.transaction()?;
+    for (idx, d) in done {
+        tx.execute(
+            "UPDATE torrent_files SET done=?3 WHERE download_id=?1 AND idx=?2",
+            params![id, *idx as i64, *d as i64],
+        )?;
+    }
+    tx.commit()
 }

@@ -37,6 +37,8 @@ pub struct DownloadRecord {
     /// Why a paused download is paused: None (by the user), "schedule" or "exists"
     /// (waiting for the user to say what to do with a file that already exists).
     pub pause_reason: Option<String>,
+    /// Lowercase hex v1 info hash; torrents only.
+    pub info_hash: Option<String>,
 }
 
 impl DownloadRecord {
@@ -68,6 +70,7 @@ impl DownloadRecord {
             finished_at: None,
             auto_place: false,
             pause_reason: None,
+            info_hash: None,
         }
     }
 }
@@ -127,4 +130,46 @@ pub struct ProbeMeta {
     pub etag: Option<String>,
     pub last_modified: Option<String>,
     pub filename: Option<String>,
+}
+
+impl DownloadRecord {
+    /// A torrent download. `url` holds a bare magnet link built from the hash; the real
+    /// source (magnet or stored .torrent) is in `torrent_meta`.
+    pub fn new_torrent(id: &str, info_hash: &str, name: &str, save_dir: &str) -> Self {
+        let hash = info_hash.to_ascii_lowercase();
+        Self {
+            kind: "torrent".into(),
+            category: "torrent".into(),
+            max_connections: 0,
+            ..Self::new_file(id, &format!("magnet:?xt=urn:btih:{hash}"), name, save_dir)
+        }
+        .with_info_hash(hash)
+    }
+
+    fn with_info_hash(mut self, hash: String) -> Self {
+        self.info_hash = Some(hash);
+        self
+    }
+}
+
+/// Where a torrent came from and which trackers it has collected.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TorrentMetaRecord {
+    pub download_id: String,
+    /// The magnet URI, or the path of ODM's stored copy of the .torrent file.
+    pub source: String,
+    pub trackers: Vec<String>,
+    pub has_meta: bool,
+}
+
+/// One file of a torrent. `idx` is librqbit's file index.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TorrentFileRecord {
+    pub idx: usize,
+    /// The original path inside the torrent, `/`-separated.
+    pub path: String,
+    pub size: u64,
+    pub selected: bool,
+    /// Bytes of this file on disk, saved now and then while it downloads.
+    pub done: u64,
 }

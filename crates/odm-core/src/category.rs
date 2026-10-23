@@ -10,10 +10,12 @@ pub enum Category {
     Image,
     Program,
     General,
+    /// Torrent downloads; never chosen from a file's extension or type.
+    Torrent,
 }
 
 impl Category {
-    pub const ALL: [Category; 7] = [
+    pub const ALL: [Category; 8] = [
         Self::Video,
         Self::Audio,
         Self::Document,
@@ -21,6 +23,7 @@ impl Category {
         Self::Image,
         Self::Program,
         Self::General,
+        Self::Torrent,
     ];
 
     pub fn as_str(&self) -> &'static str {
@@ -32,6 +35,7 @@ impl Category {
             Self::Image => "image",
             Self::Program => "program",
             Self::General => "general",
+            Self::Torrent => "torrent",
         }
     }
 
@@ -48,6 +52,7 @@ impl Category {
             Self::Image => "Images",
             Self::Program => "Programs",
             Self::General => "",
+            Self::Torrent => "Torrents",
         }
     }
 }
@@ -134,5 +139,19 @@ mod tests {
         assert_eq!(Category::Video.default_folder(), "Videos");
         assert_eq!(Category::General.default_folder(), "");
         assert_eq!(Category::parse("program"), Some(Category::Program));
+    }
+
+    #[test]
+    fn torrent_category_round_trips() {
+        assert_eq!(Category::parse("torrent"), Some(Category::Torrent));
+        assert_eq!(Category::Torrent.as_str(), "torrent");
+        assert_eq!(Category::Torrent.default_folder(), "Torrents");
+        assert!(Category::ALL.contains(&Category::Torrent));
+    }
+
+    #[test]
+    fn torrent_not_by_ext() {
+        // A .torrent file downloaded over HTTP is a general file, not a torrent download.
+        assert_eq!(detect("a.torrent", Some("application/x-bittorrent")), Category::General);
     }
 }

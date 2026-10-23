@@ -70,8 +70,29 @@ const V2: &str = "ALTER TABLE downloads ADD COLUMN auto_place INTEGER NOT NULL D
 /// Why a paused download is paused: NULL (by the user), 'schedule' or 'exists'.
 const V3: &str = "ALTER TABLE downloads ADD COLUMN pause_reason TEXT;";
 
+/// Torrents: their info hash, source and file list.
+const V4: &str = r#"
+ALTER TABLE downloads ADD COLUMN info_hash TEXT;
+CREATE UNIQUE INDEX idx_downloads_info_hash ON downloads(info_hash) WHERE info_hash IS NOT NULL;
+CREATE TABLE torrent_meta (
+    download_id TEXT PRIMARY KEY REFERENCES downloads(id) ON DELETE CASCADE,
+    source      TEXT NOT NULL,
+    trackers    TEXT NOT NULL DEFAULT '[]',
+    has_meta    INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE torrent_files (
+    download_id TEXT NOT NULL REFERENCES downloads(id) ON DELETE CASCADE,
+    idx         INTEGER NOT NULL,
+    path        TEXT NOT NULL,
+    size        INTEGER NOT NULL,
+    selected    INTEGER NOT NULL DEFAULT 1,
+    done        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (download_id, idx)
+);
+"#;
+
 /// Ordered; index i migrates to user_version i+1. Append only — never edit a shipped entry.
-const MIGRATIONS: &[&str] = &[V1, V2, V3];
+const MIGRATIONS: &[&str] = &[V1, V2, V3, V4];
 
 pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
