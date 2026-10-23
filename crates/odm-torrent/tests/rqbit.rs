@@ -54,7 +54,7 @@ async fn seed(files: &[(&str, usize)]) -> Seeder {
     )
     .await
     .unwrap();
-    let (created, _handle) = session
+    let (created, handle) = session
         .create_and_serve_torrent(
             &root,
             CreateTorrentOptions {
@@ -65,6 +65,10 @@ async fn seed(files: &[(&str, usize)]) -> Seeder {
         )
         .await
         .unwrap();
+    // The seeder serves only once it has checked its own files. A client that connects
+    // before then is dropped, and with this seeder as its only peer, a magnet fetch gives
+    // up ("input address stream exhausted"). Seen under the release script's test load.
+    handle.wait_until_initialized().await.unwrap();
     let hash = InfoHash::parse(&created.info_hash().as_string()).unwrap();
     Seeder {
         magnet: created.as_magnet().to_string(),
