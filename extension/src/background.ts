@@ -3,6 +3,7 @@ import { ext, cookiesFor, send, sendDetailed } from "./lib/browser";
 import {
   ClaimSet,
   captureUrl,
+  cookieHeader,
   isHttp,
   shouldCancelBrowserDownload,
   shouldOffer,
@@ -14,6 +15,7 @@ import { DetectionState, STORAGE_KEY, TabSites, changedTabs } from "./lib/detect
 import { MENU_ID } from "./lib/ids";
 import { errorText } from "./lib/protocol";
 import { isSitePage, toPagePayload } from "./lib/sites";
+import { isMagnet, isTorrentDownload, toTorrentPayload } from "./lib/torrent";
 import { BADGE, BADGE_ERROR } from "./lib/theme";
 import { SentHeaderCache, StreamStore, classify, responseSize, toStreamPayload, toVideoFilePayload, type Stream } from "./lib/streams";
 
@@ -96,6 +98,13 @@ async function addStream(tabId: number | undefined, url: string | undefined, tab
 }
 
 /** Sends a site page (YouTube, Facebook…) to ODM, which downloads its video with yt-dlp. Only a click gets here. */
+/** A magnet link the user clicked on a page; the page falls back to the browser when this fails. */
+async function addMagnet(url: string | undefined, tab?: chrome.tabs.Tab): Promise<Reply> {
+  if (!url || !isMagnet(url)) return { ok: false, message: "Not a magnet link." };
+  const r = await send("ADD_TORRENT", toTorrentPayload(url, "magnet", tab?.url, undefined, navigator.userAgent, "capture"), 15000);
+  return { ok: !!r?.ok, message: r?.ok ? "" : errorText(r) };
+}
+
 async function addPage(tabId: number | undefined, url: string | undefined, tab?: chrome.tabs.Tab): Promise<Reply> {
   if (!url || !isSitePage(url)) return { ok: false, message: "This page is not a supported video site." };
   const page = tabId === undefined ? tab : await pageOf(tabId, tab);
@@ -143,6 +152,9 @@ ext.runtime.onMessage.addListener((msg: unknown, sender: chrome.runtime.MessageS
       return true;
     case "odm-add-video":
       void addVideo(sender.tab?.id, m.src, sender.tab).then(sendResponse);
+      return true;
+    case "odm-magnet":
+      void addMagnet(m.url, sender.tab).then(sendResponse);
       return true;
     case "odm-add-page":
       // A content script is identified by its sender; the popup names the tab.
@@ -224,8 +236,14 @@ async function handle(item: DownloadLike, storeId?: string): Promise<void> {
   const view: BrowserItem = item;
   if (!shouldOffer(view, alt.active(Date.now()))) return;
   const cookies = await cookiesFor(captureUrl(view), storeId);
-  const payload = toCapturePayload(view, cookies, navigator.userAgent, Date.now());
-  const { response: r, failure, detail } = await sendDetailed("ADD_DOWNLOAD", payload);
+  // A .torrent file: ODM fetches it itself and adds it as a torrent.
+  const torrent = isTorrentDownload(view);
+  const { response: r, failure, detail } = torrent
+    ? await sendDetailed(
+        "ADD_TORRENT",
+        toTorrentPayload(captureUrl(view), "url", view.referrer, cookieHeader(cookies), navigator.userAgent, "capture"),
+      )
+    : await sendDetailed("ADD_DOWNLOAD", toCapturePayload(view, cookies, navigator.userAgent, Date.now()));
   if (!r) console.warn(`ODM did not answer (${failure}: ${detail}); the browser keeps the download.`);
   if (shouldCancelBrowserDownload(r)) {
     try {
@@ -284,6 +302,12 @@ ext.runtime.onInstalled.addListener(() => {
 
 ext.contextMenus.onClicked.addListener(async (info, tab) => {
   const url = info.linkUrl ?? info.srcUrl;
+  if (url && isMagnet(url)) {
+    const payload = toTorrentPayload(url, "magnet", info.pageUrl ?? tab?.url, undefined, navigator.userAgent, "menu");
+    const r = await send("ADD_TORRENT", payload, 15000);
+    if (!r || !r.ok) await flagError(errorText(r));
+    return;
+  }
   if (!url || !isHttp(url)) return;
   const cookies = await cookiesFor(url);
   const payload = toMenuPayload(url, info.pageUrl ?? tab?.url, cookies, navigator.userAgent);

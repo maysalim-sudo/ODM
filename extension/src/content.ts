@@ -1,5 +1,6 @@
 import { isSitePage, pageAddress, visibleStreams } from "./lib/sites";
 import { THEME } from "./lib/theme";
+import { isMagnet } from "./lib/torrent";
 
 function notify(down: boolean): void {
   try {
@@ -26,6 +27,29 @@ window.addEventListener(
   true,
 );
 window.addEventListener("blur", () => notify(false), true);
+
+// Magnet links open in ODM. With Alt held, or when ODM does not take it, the browser
+// handles the link as it would without the extension.
+document.addEventListener(
+  "click",
+  (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.altKey || e.ctrlKey || e.shiftKey || e.metaKey) return;
+    const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+    if (!a || !isMagnet(a.href)) return;
+    e.preventDefault();
+    const href = a.href;
+    const fallBack = () => {
+      location.href = href;
+    };
+    try {
+      const p = chrome.runtime.sendMessage({ type: "odm-magnet", url: href }) as Promise<{ ok?: boolean } | undefined>;
+      void p.then((r) => (r?.ok ? undefined : fallBack())).catch(fallBack);
+    } catch {
+      fallBack();
+    }
+  },
+  true,
+);
 
 // Video detection can be turned off per site or everywhere (popup). Off hides both on-page buttons.
 // No answer from the background counts as on. Each block below registers how it reacts.

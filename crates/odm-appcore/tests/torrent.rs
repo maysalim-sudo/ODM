@@ -269,3 +269,17 @@ async fn saving_port_zero_picks_one() {
         .unwrap();
     assert!((49152..=65535).contains(&saved.torrent_port), "{}", saved.torrent_port);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn capture_off_leaves_torrent_links_to_the_browser() {
+    let f = fixture().await;
+    f.ctx.settings.lock().unwrap().capture_enabled = false;
+    let link = format!("magnet:?xt=urn:btih:{HEX}");
+    let r = odm_appcore::ipc::dispatch(&f.ctx, req(cmd::ADD_TORRENT, json!({"link": link, "kind": "magnet", "source": "capture"}))).await;
+    assert!(!r.ok);
+    assert_eq!(r.error.unwrap().code, odm_core::ipc::code::SKIPPED);
+    assert!(f.ctx.manager.list().await.unwrap().is_empty());
+    // "Download with ODM" on a magnet link is always taken.
+    let r = odm_appcore::ipc::dispatch(&f.ctx, req(cmd::ADD_TORRENT, json!({"link": link, "kind": "magnet", "source": "menu"}))).await;
+    assert!(r.ok, "{:?}", r.error);
+}

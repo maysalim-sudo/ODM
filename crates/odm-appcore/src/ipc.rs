@@ -228,6 +228,12 @@ async fn add_torrent(ctx: &IpcContext, id: Option<String>, payload: Value) -> Re
         Err(e) => return Response::err(id, code::BAD_PAYLOAD, e.to_string()),
     };
     tracing::info!(cmd = cmd::ADD_TORRENT, kind = ?p.kind, link = %redact_url(&p.link), "ipc request");
+    // Clicks and downloads the extension picked up follow "Take over downloads"; the
+    // context menu is an explicit request.
+    let capture_on = ctx.settings.lock().unwrap_or_else(|e| e.into_inner()).capture_enabled;
+    if p.source == Source::Capture && !capture_on {
+        return Response::err(id, code::SKIPPED, "Taking over downloads is turned off.");
+    }
     let input = match p.kind {
         TorrentLinkKind::Magnet => crate::torrent::TorrentInput::Text(p.link),
         TorrentLinkKind::Url => {

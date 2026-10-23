@@ -17,6 +17,16 @@ export type AddDownloadPayload = {
   expires_at_ms?: number;
 };
 
+/** A magnet link, or a `.torrent` URL the app fetches with these headers and cookies. */
+export type AddTorrentPayload = {
+  link: string;
+  kind: "magnet" | "url";
+  referrer?: string;
+  headers: Record<string, string>;
+  cookies?: string;
+  source: "capture" | "menu";
+};
+
 export type AddStreamPayload = {
   page_url: string;
   page_title?: string;
