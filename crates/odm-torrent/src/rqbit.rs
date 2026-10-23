@@ -28,6 +28,9 @@ pub struct LibrqbitClient {
     fetching: AtomicUsize,
     /// Settings changed while busy: restart the session once it is idle.
     restart_pending: AtomicBool,
+    /// Torrents the engine has started and not paused or removed since. Anything else in
+    /// the session is held paused, including torrents librqbit restores as running.
+    wanted: Arc<Mutex<HashSet<InfoHash>>>,
 }
 
 fn session_err(e: impl std::fmt::Display) -> TorrentError {
@@ -82,6 +85,7 @@ impl LibrqbitClient {
             added: Mutex::new(HashSet::new()),
             fetching: AtomicUsize::new(0),
             restart_pending: AtomicBool::new(false),
+            wanted: Arc::default(),
         })
     }
 
@@ -107,6 +111,25 @@ impl LibrqbitClient {
     }
 
     /// Pauses everything so the saved state restores paused, then stops the session.
+    /// Stops the session the way a crash would: nothing is paused first, so the saved
+    /// session still says "running". Tests only.
+    #[doc(hidden)]
+    pub async fn crash_for_tests(&self) {
+        let _guard = self.init.lock().await;
+        let taken = self.session.write().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(s) = taken {
+            s.stop().await;
+        }
+    }
+
+    /// Whether librqbit is transferring this torrent (not paused, not checking). Tests only.
+    #[doc(hidden)]
+    pub fn running_for_tests(&self, hash: &InfoHash) -> bool {
+        self.handle(hash).is_some_and(|h| {
+            h.with_state(|s| matches!(s, librqbit::ManagedTorrentState::Live(_)))
+        })
+    }
+
     pub async fn shutdown(&self) {
         let _guard = self.init.lock().await;
         let taken = self.session.write().unwrap_or_else(|e| e.into_inner()).take();
@@ -130,8 +153,40 @@ impl LibrqbitClient {
         }
         let s = self.create().await?;
         pause_all(&s).await;
+        self.hold_restored(&s);
         *self.session.write().unwrap_or_else(|e| e.into_inner()) = Some(s.clone());
         Ok(s)
+    }
+
+    /// librqbit ignores a pause while it checks a restored torrent's data, then runs it if the
+    /// saved session said so (after a crash). Pause each one once its check ends, unless the
+    /// engine has started it by then.
+    fn hold_restored(&self, s: &Arc<Session>) {
+        let handles: Vec<_> = s.with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
+        for h in handles {
+            let (s, wanted) = (s.clone(), self.wanted.clone());
+            tokio::spawn(async move {
+                if h.wait_until_initialized().await.is_err() {
+                    return;
+                }
+                let hash = InfoHash::parse(&h.info_hash().as_string());
+                let keep = hash.is_some_and(|hash| {
+                    wanted.lock().unwrap_or_else(|e| e.into_inner()).contains(&hash)
+                });
+                if !keep && is_live(&h) {
+                    let _ = s.pause(&h).await;
+                }
+            });
+        }
+    }
+
+    fn want(&self, hash: &InfoHash, on: bool) {
+        let mut w = self.wanted.lock().unwrap_or_else(|e| e.into_inner());
+        if on {
+            w.insert(hash.clone());
+        } else {
+            w.remove(hash);
+        }
     }
 
     async fn create(&self) -> Result<Arc<Session>, TorrentError> {
@@ -187,7 +242,7 @@ impl LibrqbitClient {
         };
         session.with_torrents(|it| {
             for (_, h) in it {
-                if !h.is_paused() {
+                if is_live(h) {
                     return true;
                 }
             }
@@ -278,9 +333,19 @@ fn mark_sparse(f: &std::fs::File) {
 #[cfg(not(windows))]
 fn mark_sparse(_f: &std::fs::File) {}
 
+fn is_live(h: &ManagedTorrent) -> bool {
+    h.with_state(|st| matches!(st, librqbit::ManagedTorrentState::Live(_)))
+}
+
+fn is_checking(h: &ManagedTorrent) -> bool {
+    h.with_state(|st| matches!(st, librqbit::ManagedTorrentState::Initializing(_)))
+}
+
 async fn pause_all(s: &Arc<Session>) {
     let live: Vec<_> = s.with_torrents(|it| {
-        it.filter(|(_, h)| !h.is_paused()).map(|(_, h)| h.clone()).collect()
+        it.filter(|(_, h)| is_live(h) || is_checking(h))
+            .map(|(_, h)| h.clone())
+            .collect()
     });
     for h in live {
         let _ = s.pause(&h).await;
@@ -334,12 +399,15 @@ impl TorrentClient for LibrqbitClient {
         if let Some(h) = session.get(TorrentIdOrHash::Hash(id20(&req.info_hash))) {
             let added_here = self.added().contains(&req.info_hash);
             if !needs_readd(&h, &req.save_dir, &req.trackers, &self.settings().extra_peers, added_here) {
+                self.want(&req.info_hash, true);
+                // Restored torrents check their data first; librqbit refuses changes until then.
+                h.wait_until_initialized().await.map_err(session_err)?;
                 if let Some(only) = &req.only_files {
-                    h.wait_until_initialized().await.map_err(session_err)?;
                     let set: HashSet<usize> = only.iter().copied().collect();
                     session.update_only_files(&h, &set).await.map_err(session_err)?;
                 }
-                if h.is_paused() {
+                // After a crash librqbit may already run it; unpausing a live torrent fails.
+                if !is_live(&h) {
                     session.unpause(&h).await.map_err(session_err)?;
                 }
                 return Ok(());
@@ -385,6 +453,7 @@ impl TorrentClient for LibrqbitClient {
             }
         }
         session.add_torrent(add, Some(opts)).await.map_err(session_err)?;
+        self.want(&req.info_hash, true);
         self.added().insert(req.info_hash);
         Ok(())
     }
@@ -399,10 +468,13 @@ impl TorrentClient for LibrqbitClient {
     }
 
     async fn pause(&self, hash: &InfoHash) -> Result<(), TorrentError> {
+        self.want(hash, false);
         let (Some(session), Some(h)) = (self.current(), self.handle(hash)) else {
             return Ok(());
         };
-        if h.is_paused() {
+        // librqbit's paused flag can be set on a torrent that went live anyway (paused while
+        // it checked its data), so go by its state.
+        if !is_live(&h) && !is_checking(&h) {
             return Ok(());
         }
         session.pause(&h).await.map_err(session_err)?;
@@ -418,6 +490,7 @@ impl TorrentClient for LibrqbitClient {
             return Ok(());
         }
         self.added().remove(hash);
+        self.want(hash, false);
         session
             .delete(TorrentIdOrHash::Hash(id20(hash)), delete_files)
             .await

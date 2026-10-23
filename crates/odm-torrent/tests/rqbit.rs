@@ -421,3 +421,28 @@ async fn unticked_files_take_no_disk_space() {
     assert!(used < 1_000_000, "the unticked 8 MB file takes {used} bytes on disk");
     assert_eq!(on_disk(out.path(), "small.bin").as_deref(), Some(data(&s, "small.bin")));
 }
+
+/// A crash leaves the saved session saying "running". After restart the torrent must wait
+/// for the engine, and starting it must not fail because librqbit already made it live.
+/// The second run has no extra peers, like the app: librqbit restores the torrent itself.
+#[tokio::test(flavor = "multi_thread")]
+async fn crash_restart_waits_for_start() {
+    let s = seed(&[("big.bin", 3_000_000)]).await;
+    let state = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let mut set = settings(state.path(), vec![s.addr]);
+    set.download_bps = Some(400_000);
+    let c = LibrqbitClient::new(set.clone());
+    c.start(start_req(&s, out.path(), None)).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    c.crash_for_tests().await;
+    drop(c);
+
+    let c = LibrqbitClient::new(TorrentSettings { extra_peers: vec![], download_bps: None, ..set });
+    c.restore().await.unwrap();
+    // librqbit checks the data it has, then would carry on by itself.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(!c.running_for_tests(&s.hash), "restored torrent runs before the engine starts it");
+    c.start(start_req(&s, out.path(), None)).await.expect("start after a crash");
+    assert!(c.running_for_tests(&s.hash));
+}
