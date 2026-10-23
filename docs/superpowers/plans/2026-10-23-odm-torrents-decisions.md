@@ -73,3 +73,12 @@ Plan: `2026-10-23-odm-torrents.md`. Each line: the decision, why, and what it co
 - I3 (a .torrent for a magnet still fetching its file list was dropped) — the existing row's fetch stops and the .torrent's metadata is stored — torrent_file_completes_a_waiting_magnet RED→GREEN.
 - I6 (metadata fetch failures only logged; row spun forever) — a non-cancelled fetch error, or fetched names Windows cannot use, fails the waiting row with the message; Resume retries in the queue slot — metadata_failure_is_shown and fetched_names_windows_cannot_use_fail_the_row RED→GREEN.
 - I5 (torrents wrote over and could later delete files already at their target) — a torrent that never downloaded (started_at unset) and whose target files exist goes to "<name> (n)" (multi-file) or a "<stem> (n)" folder (single file); resumed torrents keep their folder — existing_folder_is_never_written_over and existing_single_file_is_never_written_over RED→GREEN, a_resumed_torrent_keeps_its_folder guards it. Suite: cargo test --workspace 52/52 suites, clippy clean, app 203/203, extension 115/115.
+
+## Found in live testing (2026-10-23)
+
+Tested in a debug build against real swarms (Big Buck Bunny, Sintel, Tears of Steel) and a dead magnet. Each fix has a test that failed first.
+
+- The confirm dialog reset your file ticks when any other download changed (its effects read the row object, rebuilt on every list change) — effects now follow the download id; `confirmDialog.test.ts`.
+- Unticked files took their full size on disk: librqbit sizes every file and its sparse marking did not take — ODM creates missing files sparse before adding; `unticked_files_take_no_disk_space`. Live: an unticked 571 MB file used 1 MB.
+- After a crash, a restored torrent ran by itself once its data check ended (librqbit ignores a pause sent during the check), and starting it then failed with "torrent is already live" — restored torrents are held until the engine starts them, and pause decisions follow the torrent's state, not librqbit's paused flag; `crash_restart_waits_for_start`. Live: two abrupt restarts resumed from 64.9 MiB and 208.9 MiB.
+- Confirmed live: magnet metadata in seconds; file choice at add; re-ticking a completed torrent downloads only the new file; finished torrents leave the session (no seeding); a dead magnet waits without error and cancelling it leaves no row, session entry or stored file; first-run port chosen and saved.
