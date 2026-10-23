@@ -8,6 +8,8 @@ license.workspace = true
 odm-core.workspace = true
 odm-store.workspace = true
 odm-engine.workspace = true
+odm-torrent.workspace = true
+bytes.workspace = true
 serde.workspace = true
 reqwest.workspace = true
 uuid.workspace = true
@@ -28,4 +30,5 @@ windows-sys = { workspace = true, features = ["Win32_Security", "Win32_Security_
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 odm-testserver.workspace = true
+axum.workspace = true
 tempfile.workspace = true

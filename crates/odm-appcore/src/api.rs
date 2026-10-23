@@ -5,13 +5,17 @@ use odm_engine::hls::playlist::{parse, Playlist, Variant};
 use odm_engine::retry::{classify_status, http_err};
 use odm_engine::site::is_site_page_url;
 use odm_engine::{
-    AddRequest, EngineConfig, ExistsChoice, ManagerHandle, SiteRequest, StreamRequest,
+    AddRequest, EngineConfig, ExistsChoice, ManagerHandle, SiteRequest, StreamRequest, TorrentAdded,
+    TorrentRequest,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::confirm::Pending;
-use crate::dto::{chunk_views, to_dto, DetailDto, DownloadDto};
+use crate::dto::{
+    chunk_views, to_dto, DetailDto, DownloadDto, PieceMapDto, TorrentDetailDto, TorrentFileDto,
+};
+use crate::torrent::{resolve, TorrentInput, FETCH_TIMEOUT};
 use crate::offers::Offers;
 use crate::settings::StartMode;
 use crate::Settings;
@@ -39,12 +43,72 @@ pub async fn detail(m: &ManagerHandle, id: &str) -> Result<Option<DetailDto>, St
     let Some((rec, bytes)) = m.get(id).await.map_err(msg)? else {
         return Ok(None);
     };
+    let torrent = match &rec.info_hash {
+        Some(hash) if rec.kind == "torrent" => Some(torrent_detail(m, id, hash).await?),
+        _ => None,
+    };
     Ok(Some(DetailDto {
         download: to_dto(&rec, bytes),
         final_url: rec.final_url.clone(),
         chunks: chunk_views(&m.chunks(id).await.map_err(msg)?),
         header_names: m.header_names(id).await.map_err(msg)?,
+        torrent,
     }))
+}
+
+async fn torrent_detail(m: &ManagerHandle, id: &str, hash: &str) -> Result<TorrentDetailDto, String> {
+    let files = m
+        .torrent_files(id)
+        .await
+        .map_err(msg)?
+        .into_iter()
+        .map(|f| TorrentFileDto {
+            idx: f.idx,
+            path: f.path,
+            size: f.size,
+            done: f.done.min(f.size),
+            selected: f.selected,
+        })
+        .collect();
+    let pieces = m.pieces(id).await.map_err(msg)?.map(|p| PieceMapDto {
+        count: p.piece_count,
+        have_hex: p.have.iter().map(|b| format!("{b:02x}")).collect(),
+    });
+    let trackers = m
+        .store()
+        .get_torrent_meta(id)
+        .await
+        .ok()
+        .flatten()
+        .map_or(0, |t| t.trackers.len());
+    Ok(TorrentDetailDto {
+        info_hash: hash.to_string(),
+        files,
+        pieces,
+        trackers,
+    })
+}
+
+/// Adds a magnet or `.torrent` paused and queues it for the confirm dialog (always shown
+/// for torrents). A torrent already in the list is not added again.
+pub async fn add_torrent(
+    m: &ManagerHandle,
+    pending: &Pending,
+    http: &reqwest::Client,
+    input: TorrentInput,
+) -> Result<TorrentAdded, String> {
+    let source = resolve(input, http, FETCH_TIMEOUT).await?;
+    let added = m
+        .add_torrent(TorrentRequest {
+            source,
+            save_dir: None,
+        })
+        .await
+        .map_err(msg)?;
+    if !added.existing {
+        pending.push(added.id.clone());
+    }
+    Ok(added)
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -387,6 +451,9 @@ pub struct ConfirmArgs {
     pub save_dir: Option<String>,
     /// "start", "later" or "cancel".
     pub action: String,
+    /// Torrents: the files to download, by index. None keeps the selection (all, for a new one).
+    #[serde(default)]
+    pub files: Option<Vec<usize>>,
 }
 
 /// The user's answer to the "New download" dialog for a download that was added paused.
@@ -406,6 +473,9 @@ pub async fn confirm_download(
     if name.is_some() || dir.is_some() {
         // A download that has already started keeps its name and folder.
         let _ = m.set_target(&a.id, name, dir).await;
+    }
+    if let Some(files) = a.files {
+        m.set_torrent_files(&a.id, files).await.map_err(msg)?;
     }
     if a.action == "start" {
         m.resume(&a.id).await.map_err(msg)?;

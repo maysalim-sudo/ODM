@@ -454,6 +454,7 @@ async fn confirm_actions() {
         filename: filename.map(Into::into),
         save_dir: None,
         action: action.into(),
+        files: None,
     };
 
     let a = add("a.bin").await;

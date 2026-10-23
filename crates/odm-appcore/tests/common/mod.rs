@@ -40,6 +40,11 @@ pub async fn fixture() -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let cfg = EngineConfig {
         download_dir: dir.path().to_path_buf(),
+        torrent: odm_torrent::TorrentSettings {
+            state_dir: dir.path().join("torrents"),
+            offline: true,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let manager = ManagerHandle::start(cfg, Store::open_in_memory().unwrap())

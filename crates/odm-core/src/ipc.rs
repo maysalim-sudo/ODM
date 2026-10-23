@@ -13,6 +13,7 @@ pub mod cmd {
     pub const ADD_DOWNLOAD: &str = "ADD_DOWNLOAD";
     pub const ADD_STREAM: &str = "ADD_STREAM";
     pub const ADD_PAGE: &str = "ADD_PAGE";
+    pub const ADD_TORRENT: &str = "ADD_TORRENT";
     pub const GET_SUMMARY: &str = "GET_SUMMARY";
     pub const PAUSE_ALL: &str = "PAUSE_ALL";
     pub const RESUME_ALL: &str = "RESUME_ALL";
@@ -144,6 +145,29 @@ pub struct AddPage {
     pub cookies: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TorrentLinkKind {
+    Magnet,
+    /// A `.torrent` file on the web; the app fetches it with `headers` and `cookies`.
+    Url,
+}
+
+/// A magnet link or `.torrent` URL from the browser.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AddTorrent {
+    pub link: String,
+    pub kind: TorrentLinkKind,
+    #[serde(default)]
+    pub referrer: Option<String>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default)]
+    pub cookies: Option<String>,
+    #[serde(default)]
+    pub source: Source,
+}
+
 #[derive(Serialize)]
 pub struct PingReply {
     pub version: String,
@@ -165,7 +189,7 @@ pub struct Added {
 pub fn starts_app(cmd: &str) -> bool {
     matches!(
         cmd,
-        cmd::ADD_DOWNLOAD | cmd::ADD_STREAM | cmd::ADD_PAGE | cmd::SHOW_WINDOW
+        cmd::ADD_DOWNLOAD | cmd::ADD_STREAM | cmd::ADD_PAGE | cmd::ADD_TORRENT | cmd::SHOW_WINDOW
     )
 }
 
@@ -334,6 +358,7 @@ mod tests {
             cmd::ADD_DOWNLOAD,
             cmd::ADD_STREAM,
             cmd::ADD_PAGE,
+            cmd::ADD_TORRENT,
             cmd::SHOW_WINDOW,
         ] {
             assert!(starts_app(c));

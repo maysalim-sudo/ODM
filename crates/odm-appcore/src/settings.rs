@@ -67,6 +67,12 @@ pub struct Settings {
     pub user_agent: String,
     pub update_check: bool,
     pub update_install: UpdateInstall,
+    /// The torrent listen port; 0 until the first run picks one (`ensure_torrent_port`).
+    pub torrent_port: u16,
+    pub torrent_upnp: bool,
+    /// Upload while downloading, KB/s: None = unlimited, 0 = no upload.
+    pub torrent_upload_kbps: Option<u64>,
+    pub torrent_max_peers: u32,
 }
 
 /// What to do when the target file already exists.
@@ -369,6 +375,10 @@ impl Default for Settings {
             user_agent: String::new(),
             update_check: true,
             update_install: UpdateInstall::default(),
+            torrent_port: 0,
+            torrent_upnp: true,
+            torrent_upload_kbps: Some(100),
+            torrent_max_peers: 100,
         }
     }
 }
@@ -478,6 +488,11 @@ impl Settings {
             self.user_agent.clear();
         }
         clamp_num("max_concurrent", &mut self.max_concurrent, 1, 10, &mut w);
+        clamp_num("torrent_max_peers", &mut self.torrent_max_peers, 10, 1000, &mut w);
+        if self.torrent_port != 0 && self.torrent_port < 1024 {
+            w.push(format!("torrent_port: {} is a system port; choosing another", self.torrent_port));
+            self.torrent_port = 0;
+        }
         clamp_num("max_connections", &mut self.max_connections, 1, 32, &mut w);
         clamp_num("max_attempts", &mut self.max_attempts, 1, 20, &mut w);
         clamp_num(
@@ -588,8 +603,36 @@ impl Settings {
         self.to_engine_config_with(crate::AppPaths::from_env().tools_dir)
     }
 
+    /// Picks the torrent port on first run. True when it changed (save the settings then).
+    pub fn ensure_torrent_port(&mut self) -> bool {
+        if self.torrent_port != 0 {
+            return false;
+        }
+        self.torrent_port = odm_torrent::port::random_port();
+        true
+    }
+
+    /// Torrents can only use a SOCKS5 proxy, and only one the user entered.
+    fn torrent_proxy(&self) -> Option<String> {
+        let url = self.proxy_url.trim();
+        let socks = ["socks5://", "socks5h://"]
+            .iter()
+            .any(|p| url.get(..p.len()).is_some_and(|h| h.eq_ignore_ascii_case(p)));
+        (self.proxy_mode == ProxyMode::Manual && socks).then(|| url.to_string())
+    }
+
     pub fn to_engine_config_with(&self, tools_dir: PathBuf) -> EngineConfig {
         EngineConfig {
+            torrent: odm_torrent::TorrentSettings {
+                listen_port: self.torrent_port,
+                upnp: self.torrent_upnp,
+                upload_bps: self.torrent_upload_kbps.map(|k| k.saturating_mul(1024)),
+                download_bps: None,
+                peer_limit: self.torrent_max_peers as usize,
+                socks_proxy: self.torrent_proxy(),
+                state_dir: crate::AppPaths::from_env().torrents,
+                ..odm_torrent::TorrentSettings::default()
+            },
             tools_dir: Some(tools_dir),
             download_dir: PathBuf::from(&self.download_dir),
             category_folders: self.category_folders.clone().into_iter().collect(),

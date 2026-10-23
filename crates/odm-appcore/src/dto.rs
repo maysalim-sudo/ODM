@@ -31,6 +31,9 @@ pub struct DownloadDto {
     pub pause_reason: Option<String>,
     /// This download's own speed limit; null = none.
     pub speed_limit_kbps: Option<u64>,
+    /// Torrents only: the info hash, and whether the file list is known yet.
+    pub info_hash: Option<String>,
+    pub has_meta: Option<bool>,
 }
 
 /// The stored failure text, rewritten in plain language when its code is known.
@@ -71,6 +74,9 @@ pub fn to_dto(r: &DownloadRecord, bytes: u64) -> DownloadDto {
         finished_at: r.finished_at,
         pause_reason: r.pause_reason.clone(),
         speed_limit_kbps: r.speed_limit.map(|b| (b / 1024).max(1)),
+        info_hash: r.info_hash.clone(),
+        // A torrent gets its size from the file list.
+        has_meta: (r.kind == "torrent").then_some(r.size.is_some()),
     }
 }
 
@@ -102,6 +108,33 @@ pub struct DetailDto {
     pub chunks: Vec<ChunkView>,
     /// Names only. Header values (cookies, tokens) never leave the engine.
     pub header_names: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub torrent: Option<TorrentDetailDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TorrentDetailDto {
+    pub info_hash: String,
+    pub files: Vec<TorrentFileDto>,
+    /// Only while the torrent is in the session.
+    pub pieces: Option<PieceMapDto>,
+    pub trackers: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TorrentFileDto {
+    pub idx: usize,
+    pub path: String,
+    pub size: u64,
+    pub done: u64,
+    pub selected: bool,
+}
+
+/// The bitfield as lowercase hex, most significant bit first.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PieceMapDto {
+    pub count: u32,
+    pub have_hex: String,
 }
 
 /// Everything the UI receives on the `odm://event` channel.

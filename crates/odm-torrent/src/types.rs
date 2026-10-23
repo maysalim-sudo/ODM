@@ -130,7 +130,8 @@ impl Default for TorrentSettings {
             download_bps: None,
             peer_limit: 100,
             socks_proxy: None,
-            state_dir: PathBuf::new(),
+            // The app always sets its own; this keeps a forgotten one out of the working directory.
+            state_dir: std::env::temp_dir().join("odm-torrents"),
             extra_peers: Vec::new(),
             offline: false,
         }

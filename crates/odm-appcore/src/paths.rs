@@ -10,6 +10,8 @@ pub struct AppPaths {
     /// Where the video tools (FFmpeg, yt-dlp, Deno) are kept: `<data_dir>/tools` when
     /// `ODM_DATA_DIR` is set, else `%LOCALAPPDATA%/ODM/tools`.
     pub tools_dir: PathBuf,
+    /// Torrent session state, fastresume data and `.torrent` copies.
+    pub torrents: PathBuf,
 }
 
 impl AppPaths {
@@ -20,6 +22,7 @@ impl AppPaths {
             settings: data_dir.join("settings.json"),
             logs: data_dir.join("logs"),
             tools_dir: data_dir.join("tools"),
+            torrents: data_dir.join("torrents"),
             data_dir,
         }
     }

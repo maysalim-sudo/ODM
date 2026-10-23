@@ -7,8 +7,8 @@ use crate::offers::{find_reusable, OfferDto, Offers};
 use crate::summary::SpeedBoard;
 use crate::Settings;
 use odm_core::ipc::{
-    cmd, code, AddDownload, AddPage, AddStream, Added, PingReply, Request, Response, Source,
-    Summary,
+    cmd, code, AddDownload, AddPage, AddStream, AddTorrent, Added, PingReply, Request, Response,
+    Source, Summary, TorrentLinkKind,
 };
 use odm_core::{filename, redact_url, DownloadState};
 use odm_engine::{AddRequest, ManagerHandle, SiteRequest, StreamRequest};
@@ -75,6 +75,7 @@ pub async fn dispatch(ctx: &IpcContext, req: Request) -> Response {
         cmd::ADD_STREAM => add_stream(ctx, id, req.payload).await,
         cmd::ADD_PAGE => add_page(ctx, id, req.payload).await,
         cmd::ADD_DOWNLOAD => add_download(ctx, id, req.payload).await,
+        cmd::ADD_TORRENT => add_torrent(ctx, id, req.payload).await,
         other => {
             let shown: String = other.chars().take(64).collect();
             Response::err(
@@ -216,6 +217,50 @@ async fn add_page(ctx: &IpcContext, id: Option<String>, payload: Value) -> Respo
             reply(id, &Added { download_id })
         }
         Err(e) => Response::err(id, code::ADD_FAILED, user_message(&e)),
+    }
+}
+
+/// A magnet click or a `.torrent` download in the browser. Torrents always show the
+/// confirm dialog, whatever the browser-confirm setting says.
+async fn add_torrent(ctx: &IpcContext, id: Option<String>, payload: Value) -> Response {
+    let p: AddTorrent = match serde_json::from_value(payload) {
+        Ok(p) => p,
+        Err(e) => return Response::err(id, code::BAD_PAYLOAD, e.to_string()),
+    };
+    tracing::info!(cmd = cmd::ADD_TORRENT, kind = ?p.kind, link = %redact_url(&p.link), "ipc request");
+    let input = match p.kind {
+        TorrentLinkKind::Magnet => crate::torrent::TorrentInput::Text(p.link),
+        TorrentLinkKind::Url => {
+            let mut headers: Vec<(String, String)> = p.headers.into_iter().collect();
+            if let Some(r) = p.referrer.filter(|r| !r.is_empty()) {
+                if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("referer")) {
+                    headers.push(("Referer".into(), r));
+                }
+            }
+            if let Some(c) = p.cookies.filter(|c| !c.is_empty()) {
+                headers.push(("Cookie".into(), c));
+            }
+            crate::torrent::TorrentInput::Url {
+                url: p.link,
+                headers: normalize_headers(headers),
+            }
+        }
+    };
+    let http = {
+        let cfg = ctx.settings.lock().unwrap_or_else(|e| e.into_inner()).to_engine_config();
+        odm_engine::download::build_client(&cfg)
+    };
+    match crate::api::add_torrent(&ctx.manager, &ctx.pending, &http, input).await {
+        Ok(added) => {
+            if added.existing {
+                (ctx.show_window)();
+            } else {
+                (ctx.on_confirm)(&added.id);
+                (ctx.show_window)();
+            }
+            reply(id, &Added { download_id: added.id })
+        }
+        Err(e) => Response::err(id, code::ADD_FAILED, e),
     }
 }
 

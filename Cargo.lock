@@ -3737,11 +3737,14 @@ dependencies = [
 name = "odm-appcore"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "bytes",
  "futures-util",
  "odm-core",
  "odm-engine",
  "odm-store",
  "odm-testserver",
+ "odm-torrent",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -3796,6 +3799,7 @@ dependencies = [
  "odm-core",
  "odm-store",
  "odm-testserver",
+ "odm-torrent",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -3825,6 +3829,7 @@ version = "0.1.0"
 dependencies = [
  "odm-core",
  "rusqlite",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
