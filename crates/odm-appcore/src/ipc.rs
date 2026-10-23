@@ -230,7 +230,11 @@ async fn add_torrent(ctx: &IpcContext, id: Option<String>, payload: Value) -> Re
     tracing::info!(cmd = cmd::ADD_TORRENT, kind = ?p.kind, link = %redact_url(&p.link), "ipc request");
     // Clicks and downloads the extension picked up follow "Take over downloads"; the
     // context menu is an explicit request.
-    let capture_on = ctx.settings.lock().unwrap_or_else(|e| e.into_inner()).capture_enabled;
+    let capture_on = ctx
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .capture_enabled;
     if p.source == Source::Capture && !capture_on {
         return Response::err(id, code::SKIPPED, "Taking over downloads is turned off.");
     }
@@ -239,7 +243,10 @@ async fn add_torrent(ctx: &IpcContext, id: Option<String>, payload: Value) -> Re
         TorrentLinkKind::Url => {
             let mut headers: Vec<(String, String)> = p.headers.into_iter().collect();
             if let Some(r) = p.referrer.filter(|r| !r.is_empty()) {
-                if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("referer")) {
+                if !headers
+                    .iter()
+                    .any(|(k, _)| k.eq_ignore_ascii_case("referer"))
+                {
                     headers.push(("Referer".into(), r));
                 }
             }
@@ -253,7 +260,11 @@ async fn add_torrent(ctx: &IpcContext, id: Option<String>, payload: Value) -> Re
         }
     };
     let http = {
-        let cfg = ctx.settings.lock().unwrap_or_else(|e| e.into_inner()).to_engine_config();
+        let cfg = ctx
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .to_engine_config();
         odm_engine::download::build_client(&cfg)
     };
     match crate::api::add_torrent(&ctx.manager, &ctx.pending, &http, input).await {
@@ -264,7 +275,12 @@ async fn add_torrent(ctx: &IpcContext, id: Option<String>, payload: Value) -> Re
                 (ctx.on_confirm)(&added.id);
                 (ctx.show_window)();
             }
-            reply(id, &Added { download_id: added.id })
+            reply(
+                id,
+                &Added {
+                    download_id: added.id,
+                },
+            )
         }
         Err(e) => Response::err(id, code::ADD_FAILED, e),
     }

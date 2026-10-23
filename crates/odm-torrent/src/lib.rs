@@ -1,10 +1,10 @@
 //! BitTorrent for ODM. The only crate that uses librqbit; everything else talks to
 //! [`TorrentClient`].
+#[cfg(any(test, feature = "fake"))]
+pub mod fake;
 pub mod parse;
 pub mod port;
 pub mod rqbit;
-#[cfg(any(test, feature = "fake"))]
-pub mod fake;
 mod types;
 
 pub use parse::{check_names, magnet_info_hash, parse, with_trackers};

@@ -10,9 +10,15 @@ fn args(v: &[&str]) -> Vec<String> {
 #[test]
 fn torrent_arg_magnet() {
     let m = "magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01";
-    assert_eq!(torrent_arg(&args(&["ODM.exe", m])), Some(TorrentInput::Text(m.into())));
+    assert_eq!(
+        torrent_arg(&args(&["ODM.exe", m])),
+        Some(TorrentInput::Text(m.into()))
+    );
     let upper = "MAGNET:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01";
-    assert_eq!(torrent_arg(&args(&["ODM.exe", upper])), Some(TorrentInput::Text(upper.into())));
+    assert_eq!(
+        torrent_arg(&args(&["ODM.exe", upper])),
+        Some(TorrentInput::Text(upper.into()))
+    );
 }
 
 #[test]
@@ -21,7 +27,10 @@ fn torrent_arg_file() {
     let p = dir.path().join("Some Show.TORRENT");
     std::fs::write(&p, b"x").unwrap();
     let s = p.to_string_lossy().into_owned();
-    assert_eq!(torrent_arg(&args(&["ODM.exe", &s])), Some(TorrentInput::File(p)));
+    assert_eq!(
+        torrent_arg(&args(&["ODM.exe", &s])),
+        Some(TorrentInput::File(p))
+    );
 }
 
 #[test]
@@ -29,12 +38,20 @@ fn torrent_arg_ignores_background_flag() {
     assert_eq!(torrent_arg(&args(&["ODM.exe", "--background"])), None);
     assert_eq!(torrent_arg(&args(&["ODM.exe"])), None);
     // The exe itself is never taken, even if its name looked like one.
-    assert_eq!(torrent_arg(&args(&["magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01"])), None);
+    assert_eq!(
+        torrent_arg(&args(&[
+            "magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01"
+        ])),
+        None
+    );
 }
 
 #[test]
 fn torrent_arg_missing_file_is_none() {
-    assert_eq!(torrent_arg(&args(&["ODM.exe", "C:/nowhere/gone.torrent"])), None);
+    assert_eq!(
+        torrent_arg(&args(&["ODM.exe", "C:/nowhere/gone.torrent"])),
+        None
+    );
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("notes.txt");
     std::fs::write(&p, b"x").unwrap();

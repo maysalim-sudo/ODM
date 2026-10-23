@@ -1,8 +1,8 @@
 //! [`TorrentClient`] on a librqbit session. The session starts on first use; restored
 //! torrents are paused so only the engine's queue starts them.
 use crate::port::pick_port;
-use bytes::Bytes;
 use crate::*;
+use bytes::Bytes;
 use librqbit::api::TorrentIdOrHash;
 use librqbit::dht::Id20;
 use librqbit::limits::LimitsConfig;
@@ -46,7 +46,10 @@ fn nz(bps: Option<u64>) -> Option<NonZeroU32> {
     bps.and_then(|b| NonZeroU32::new(b.min(u32::MAX as u64) as u32))
 }
 
-fn meta_from(info: &ValidatedTorrentMetaV1Info<librqbit::ByteBufOwned>, bytes: Bytes) -> TorrentMeta {
+fn meta_from(
+    info: &ValidatedTorrentMetaV1Info<librqbit::ByteBufOwned>,
+    bytes: Bytes,
+) -> TorrentMeta {
     let files = info
         .iter_file_details()
         .enumerate()
@@ -58,7 +61,10 @@ fn meta_from(info: &ValidatedTorrentMetaV1Info<librqbit::ByteBufOwned>, bytes: B
         })
         .collect();
     TorrentMeta {
-        name: info.name().map(|n| n.into_owned()).unwrap_or_else(|| "torrent".into()),
+        name: info
+            .name()
+            .map(|n| n.into_owned())
+            .unwrap_or_else(|| "torrent".into()),
         files,
         torrent_bytes: bytes,
     }
@@ -90,7 +96,10 @@ impl LibrqbitClient {
     }
 
     fn settings(&self) -> TorrentSettings {
-        self.settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn added(&self) -> std::sync::MutexGuard<'_, HashSet<InfoHash>> {
@@ -98,7 +107,10 @@ impl LibrqbitClient {
     }
 
     fn current(&self) -> Option<Arc<Session>> {
-        self.session.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.session
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn handle(&self, h: &InfoHash) -> Option<Arc<ManagedTorrent>> {
@@ -116,7 +128,11 @@ impl LibrqbitClient {
     #[doc(hidden)]
     pub async fn crash_for_tests(&self) {
         let _guard = self.init.lock().await;
-        let taken = self.session.write().unwrap_or_else(|e| e.into_inner()).take();
+        let taken = self
+            .session
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         if let Some(s) = taken {
             s.stop().await;
         }
@@ -125,14 +141,17 @@ impl LibrqbitClient {
     /// Whether librqbit is transferring this torrent (not paused, not checking). Tests only.
     #[doc(hidden)]
     pub fn running_for_tests(&self, hash: &InfoHash) -> bool {
-        self.handle(hash).is_some_and(|h| {
-            h.with_state(|s| matches!(s, librqbit::ManagedTorrentState::Live(_)))
-        })
+        self.handle(hash)
+            .is_some_and(|h| h.with_state(|s| matches!(s, librqbit::ManagedTorrentState::Live(_))))
     }
 
     pub async fn shutdown(&self) {
         let _guard = self.init.lock().await;
-        let taken = self.session.write().unwrap_or_else(|e| e.into_inner()).take();
+        let taken = self
+            .session
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         if let Some(s) = taken {
             pause_all(&s).await;
             s.stop().await;
@@ -171,7 +190,10 @@ impl LibrqbitClient {
                 }
                 let hash = InfoHash::parse(&h.info_hash().as_string());
                 let keep = hash.is_some_and(|hash| {
-                    wanted.lock().unwrap_or_else(|e| e.into_inner()).contains(&hash)
+                    wanted
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .contains(&hash)
                 });
                 if !keep && is_live(&h) {
                     let _ = s.pause(&h).await;
@@ -281,7 +303,9 @@ fn needs_readd(
     let shared = h.shared();
     let known: HashSet<String> = shared.trackers.iter().map(|u| u.to_string()).collect();
     let new_tracker = trackers.iter().any(|t| {
-        let norm = url::Url::parse(t).map(|u| u.to_string()).unwrap_or_else(|_| t.clone());
+        let norm = url::Url::parse(t)
+            .map(|u| u.to_string())
+            .unwrap_or_else(|_| t.clone());
         !known.contains(&norm)
     });
     let new_peer = !peers.is_empty() && !added_here;
@@ -303,7 +327,11 @@ fn create_sparse(out: &std::path::Path, files: &[TorrentFile]) {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        if let Ok(file) = std::fs::OpenOptions::new().write(true).create_new(true).open(&p) {
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&p)
+        {
             mark_sparse(&file);
         }
     }
@@ -361,7 +389,9 @@ impl TorrentClient for LibrqbitClient {
     ) -> Result<TorrentMeta, TorrentError> {
         let uri = match source {
             TorrentSource::Bytes(_) => {
-                return parse(source)?.meta.ok_or_else(|| TorrentError::Invalid("no metadata".into()))
+                return parse(source)?
+                    .meta
+                    .ok_or_else(|| TorrentError::Invalid("no metadata".into()))
             }
             TorrentSource::Magnet(u) => u.clone(),
         };
@@ -398,13 +428,22 @@ impl TorrentClient for LibrqbitClient {
         let session = self.session().await?;
         if let Some(h) = session.get(TorrentIdOrHash::Hash(id20(&req.info_hash))) {
             let added_here = self.added().contains(&req.info_hash);
-            if !needs_readd(&h, &req.save_dir, &req.trackers, &self.settings().extra_peers, added_here) {
+            if !needs_readd(
+                &h,
+                &req.save_dir,
+                &req.trackers,
+                &self.settings().extra_peers,
+                added_here,
+            ) {
                 self.want(&req.info_hash, true);
                 // Restored torrents check their data first; librqbit refuses changes until then.
                 h.wait_until_initialized().await.map_err(session_err)?;
                 if let Some(only) = &req.only_files {
                     let set: HashSet<usize> = only.iter().copied().collect();
-                    session.update_only_files(&h, &set).await.map_err(session_err)?;
+                    session
+                        .update_only_files(&h, &set)
+                        .await
+                        .map_err(session_err)?;
                 }
                 // After a crash librqbit may already run it; unpausing a live torrent fails.
                 if !is_live(&h) {
@@ -430,7 +469,9 @@ impl TorrentClient for LibrqbitClient {
                     }
                 }
                 let _ = uri;
-                AddTorrent::from_url(Magnet::from_id20(id20(&req.info_hash), trackers, None).to_string())
+                AddTorrent::from_url(
+                    Magnet::from_id20(id20(&req.info_hash), trackers, None).to_string(),
+                )
             }
         };
         let set = self.settings();
@@ -452,7 +493,10 @@ impl TorrentClient for LibrqbitClient {
                 create_sparse(&req.save_dir, &meta.files);
             }
         }
-        session.add_torrent(add, Some(opts)).await.map_err(session_err)?;
+        session
+            .add_torrent(add, Some(opts))
+            .await
+            .map_err(session_err)?;
         self.want(&req.info_hash, true);
         self.added().insert(req.info_hash);
         Ok(())
@@ -464,7 +508,10 @@ impl TorrentClient for LibrqbitClient {
         // librqbit refuses changes while it checks existing data.
         h.wait_until_initialized().await.map_err(session_err)?;
         let set: HashSet<usize> = selected.iter().copied().collect();
-        session.update_only_files(&h, &set).await.map_err(session_err)
+        session
+            .update_only_files(&h, &set)
+            .await
+            .map_err(session_err)
     }
 
     async fn pause(&self, hash: &InfoHash) -> Result<(), TorrentError> {

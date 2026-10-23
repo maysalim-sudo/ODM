@@ -4,7 +4,7 @@ use odm_core::DownloadState;
 use odm_engine::{EngineConfig, EngineEvent, ManagerHandle, TorrentRequest};
 use odm_store::{DownloadRecord, Store};
 use odm_torrent::fake::{FakeCall, FakeScript, FakeTorrentClient};
-use odm_torrent::{InfoHash, TorrentMeta, TorrentFile, TorrentSettings, TorrentSource};
+use odm_torrent::{InfoHash, TorrentFile, TorrentMeta, TorrentSettings, TorrentSource};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -23,8 +23,16 @@ fn meta() -> TorrentMeta {
     TorrentMeta {
         name: "Foo".into(),
         files: vec![
-            TorrentFile { idx: 0, path: "a.bin".into(), size: 100 },
-            TorrentFile { idx: 1, path: "sub/b.bin".into(), size: 50 },
+            TorrentFile {
+                idx: 0,
+                path: "a.bin".into(),
+                size: 100,
+            },
+            TorrentFile {
+                idx: 1,
+                path: "sub/b.bin".into(),
+                size: 50,
+            },
         ],
         torrent_bytes: Bytes::from_static(b"d4:infod4:name3:Fooee"),
     }
@@ -65,7 +73,10 @@ async fn row(store: &Store, id: &str) -> DownloadRecord {
     store.get_download(id).await.unwrap().expect("record")
 }
 
-async fn wait_for<F: Fn(&EngineEvent) -> bool>(rx: &mut tokio::sync::broadcast::Receiver<EngineEvent>, f: F) {
+async fn wait_for<F: Fn(&EngineEvent) -> bool>(
+    rx: &mut tokio::sync::broadcast::Receiver<EngineEvent>,
+    f: F,
+) {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
@@ -81,18 +92,38 @@ async fn wait_for<F: Fn(&EngineEvent) -> bool>(rx: &mut tokio::sync::broadcast::
 async fn magnet_adds_paused_row_then_metadata() {
     let dir = tempfile::tempdir().unwrap();
     let (m, store, fake) = start(dir.path()).await;
-    fake.script(&hash(), FakeScript { meta: Some(meta()), metadata_after: Some(Duration::from_millis(20)), ..Default::default() });
+    fake.script(
+        &hash(),
+        FakeScript {
+            meta: Some(meta()),
+            metadata_after: Some(Duration::from_millis(20)),
+            ..Default::default()
+        },
+    );
     let mut rx = m.subscribe();
-    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    let added = m
+        .add_torrent(TorrentRequest {
+            source: magnet(""),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     assert!(!added.existing);
     let r = row(&store, &added.id).await;
-    assert_eq!((r.kind.as_str(), r.state), ("torrent", DownloadState::Paused));
+    assert_eq!(
+        (r.kind.as_str(), r.state),
+        ("torrent", DownloadState::Paused)
+    );
     assert_eq!(r.info_hash.as_deref(), Some(HEX));
     assert_eq!(r.filename, "Foo");
     assert!(store.get_torrent_files(&added.id).await.unwrap().is_empty());
 
     let id = added.id.clone();
-    wait_for(&mut rx, |e| matches!(e, EngineEvent::TorrentMetadata { id: i } if *i == id)).await;
+    wait_for(
+        &mut rx,
+        |e| matches!(e, EngineEvent::TorrentMetadata { id: i } if *i == id),
+    )
+    .await;
     let files = m.torrent_files(&added.id).await.unwrap();
     assert_eq!(files.len(), 2);
     assert!(files.iter().all(|f| f.selected));
@@ -109,7 +140,10 @@ async fn torrent_bytes_have_files_immediately() {
     let dir = tempfile::tempdir().unwrap();
     let (m, store, fake) = start(dir.path()).await;
     let added = m
-        .add_torrent(TorrentRequest { source: TorrentSource::Bytes(torrent_bytes()), save_dir: Some(dir.path().join("here")) })
+        .add_torrent(TorrentRequest {
+            source: TorrentSource::Bytes(torrent_bytes()),
+            save_dir: Some(dir.path().join("here")),
+        })
         .await
         .unwrap();
     let r = row(&store, &added.id).await;
@@ -126,23 +160,59 @@ async fn torrent_bytes_have_files_immediately() {
 async fn default_folder_is_the_torrent_category_folder() {
     let dir = tempfile::tempdir().unwrap();
     let (m, store, fake) = start(dir.path()).await;
-    fake.script(&hash(), FakeScript { metadata_after: None, ..Default::default() });
-    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
-    assert_eq!(Path::new(&row(&store, &added.id).await.save_dir), dir.path().join("dl").join("Torrents"));
+    fake.script(
+        &hash(),
+        FakeScript {
+            metadata_after: None,
+            ..Default::default()
+        },
+    );
+    let added = m
+        .add_torrent(TorrentRequest {
+            source: magnet(""),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        Path::new(&row(&store, &added.id).await.save_dir),
+        dir.path().join("dl").join("Torrents")
+    );
 }
 
 #[tokio::test]
 async fn duplicate_merges_trackers() {
     let dir = tempfile::tempdir().unwrap();
     let (m, store, fake) = start(dir.path()).await;
-    fake.script(&hash(), FakeScript { metadata_after: None, ..Default::default() });
-    let a = m.add_torrent(TorrentRequest { source: magnet("&tr=udp%3A%2F%2Fa%3A1"), save_dir: None }).await.unwrap();
-    let b = m.add_torrent(TorrentRequest { source: magnet("&tr=udp%3A%2F%2Fb%3A2"), save_dir: None }).await.unwrap();
+    fake.script(
+        &hash(),
+        FakeScript {
+            metadata_after: None,
+            ..Default::default()
+        },
+    );
+    let a = m
+        .add_torrent(TorrentRequest {
+            source: magnet("&tr=udp%3A%2F%2Fa%3A1"),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
+    let b = m
+        .add_torrent(TorrentRequest {
+            source: magnet("&tr=udp%3A%2F%2Fb%3A2"),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     assert!(b.existing);
     assert_eq!(a.id, b.id);
     assert_eq!(store.list_downloads().await.unwrap().len(), 1);
     let tm = store.get_torrent_meta(&a.id).await.unwrap().unwrap();
-    assert_eq!(tm.trackers, vec!["udp://a:1".to_string(), "udp://b:2".to_string()]);
+    assert_eq!(
+        tm.trackers,
+        vec!["udp://a:1".to_string(), "udp://b:2".to_string()]
+    );
 }
 
 #[tokio::test]
@@ -150,10 +220,16 @@ async fn invalid_source_creates_no_row() {
     let dir = tempfile::tempdir().unwrap();
     let (m, store, _fake) = start(dir.path()).await;
     let err = m
-        .add_torrent(TorrentRequest { source: TorrentSource::Magnet("http://x/y".into()), save_dir: None })
+        .add_torrent(TorrentRequest {
+            source: TorrentSource::Magnet("http://x/y".into()),
+            save_dir: None,
+        })
         .await
         .unwrap_err();
-    assert_eq!(err.message, "This isn't a valid magnet link or torrent file.");
+    assert_eq!(
+        err.message,
+        "This isn't a valid magnet link or torrent file."
+    );
     assert!(store.list_downloads().await.unwrap().is_empty());
 }
 
@@ -161,13 +237,30 @@ async fn invalid_source_creates_no_row() {
 async fn remove_during_metadata_drops_handle() {
     let dir = tempfile::tempdir().unwrap();
     let (m, store, fake) = start(dir.path()).await;
-    fake.script(&hash(), FakeScript { meta: Some(meta()), metadata_after: None, ..Default::default() });
-    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    fake.script(
+        &hash(),
+        FakeScript {
+            meta: Some(meta()),
+            metadata_after: None,
+            ..Default::default()
+        },
+    );
+    let added = m
+        .add_torrent(TorrentRequest {
+            source: magnet(""),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
     m.remove(&added.id, false).await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     while !fake.calls().contains(&FakeCall::FetchCancelled(hash())) {
-        assert!(Instant::now() < deadline, "fetch not cancelled: {:?}", fake.calls());
+        assert!(
+            Instant::now() < deadline,
+            "fetch not cancelled: {:?}",
+            fake.calls()
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert!(store.get_download(&added.id).await.unwrap().is_none());
@@ -181,7 +274,10 @@ async fn speed_limit_reaches_torrents() {
     m.set_speed_limit(500_000).await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let hit = fake.calls().iter().any(|c| matches!(c, FakeCall::ApplySettings(s) if s.download_bps == Some(500_000)));
+        let hit = fake
+            .calls()
+            .iter()
+            .any(|c| matches!(c, FakeCall::ApplySettings(s) if s.download_bps == Some(500_000)));
         if hit {
             break;
         }
@@ -195,17 +291,44 @@ async fn restart_refetches_metadata() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_in_memory().unwrap();
     let fake = FakeTorrentClient::new();
-    fake.script(&hash(), FakeScript { meta: Some(meta()), metadata_after: None, ..Default::default() });
-    let m = ManagerHandle::start_with_torrents(cfg(dir.path()), store.clone(), fake.clone()).await.unwrap();
-    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    fake.script(
+        &hash(),
+        FakeScript {
+            meta: Some(meta()),
+            metadata_after: None,
+            ..Default::default()
+        },
+    );
+    let m = ManagerHandle::start_with_torrents(cfg(dir.path()), store.clone(), fake.clone())
+        .await
+        .unwrap();
+    let added = m
+        .add_torrent(TorrentRequest {
+            source: magnet(""),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     m.shutdown().await;
 
     let fake2 = FakeTorrentClient::new();
-    fake2.script(&hash(), FakeScript { meta: Some(meta()), metadata_after: Some(Duration::ZERO), ..Default::default() });
-    let m2 = ManagerHandle::start_with_torrents(cfg(dir.path()), store.clone(), fake2).await.unwrap();
+    fake2.script(
+        &hash(),
+        FakeScript {
+            meta: Some(meta()),
+            metadata_after: Some(Duration::ZERO),
+            ..Default::default()
+        },
+    );
+    let m2 = ManagerHandle::start_with_torrents(cfg(dir.path()), store.clone(), fake2)
+        .await
+        .unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     while m2.torrent_files(&added.id).await.unwrap().is_empty() {
-        assert!(Instant::now() < deadline, "metadata not fetched after restart");
+        assert!(
+            Instant::now() < deadline,
+            "metadata not fetched after restart"
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
@@ -219,7 +342,12 @@ async fn wait_state(store: &Store, id: &str, want: DownloadState) -> DownloadRec
         if r.state == want {
             return r;
         }
-        assert!(Instant::now() < deadline, "want {want:?}, have {:?} ({:?})", r.state, r.error_msg);
+        assert!(
+            Instant::now() < deadline,
+            "want {want:?}, have {:?} ({:?})",
+            r.state,
+            r.error_msg
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
@@ -227,7 +355,11 @@ async fn wait_state(store: &Store, id: &str, want: DownloadState) -> DownloadRec
 async fn wait_call(fake: &FakeTorrentClient, f: impl Fn(&FakeCall) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !fake.calls().iter().any(&f) {
-        assert!(Instant::now() < deadline, "call not seen: {:?}", fake.calls());
+        assert!(
+            Instant::now() < deadline,
+            "call not seen: {:?}",
+            fake.calls()
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
@@ -251,10 +383,26 @@ async fn wait_files(m: &ManagerHandle, id: &str) {
 }
 
 /// A magnet whose metadata arrives at once, confirmed and started.
-async fn running(dir: &Path, script: FakeScript) -> (ManagerHandle, Store, Arc<FakeTorrentClient>, String) {
+async fn running(
+    dir: &Path,
+    script: FakeScript,
+) -> (ManagerHandle, Store, Arc<FakeTorrentClient>, String) {
     let (m, store, fake) = start(dir).await;
-    fake.script(&hash(), FakeScript { meta: Some(meta()), metadata_after: Some(Duration::ZERO), ..script });
-    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    fake.script(
+        &hash(),
+        FakeScript {
+            meta: Some(meta()),
+            metadata_after: Some(Duration::ZERO),
+            ..script
+        },
+    );
+    let added = m
+        .add_torrent(TorrentRequest {
+            source: magnet(""),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     wait_files(&m, &added.id).await;
     m.resume(&added.id).await.unwrap();
     (m, store, fake, added.id)
@@ -270,7 +418,16 @@ async fn runs_to_completed_and_leaves_session() {
     let r = wait_state(&store, &id, DownloadState::Completed).await;
     assert!(r.finished_at.is_some());
     let calls = fake.calls();
-    assert_eq!(&calls[calls.len() - 2..], &[FakeCall::Pause(hash()), FakeCall::Remove { hash: hash(), delete: false }]);
+    assert_eq!(
+        &calls[calls.len() - 2..],
+        &[
+            FakeCall::Pause(hash()),
+            FakeCall::Remove {
+                hash: hash(),
+                delete: false
+            }
+        ]
+    );
     assert!(fake.live().is_empty());
     assert_eq!(store.get_with_bytes(&id).await.unwrap().unwrap().1, 150);
 }
@@ -285,10 +442,15 @@ async fn progress_never_decreases() {
     for done in [50, 40, 60] {
         fake.advance(&hash(), done);
         let until = Instant::now() + Duration::from_millis(300);
-        while let Ok(Ok(e)) = tokio::time::timeout(until.saturating_duration_since(Instant::now()), rx.recv()).await {
+        while let Ok(Ok(e)) =
+            tokio::time::timeout(until.saturating_duration_since(Instant::now()), rx.recv()).await
+        {
             if let EngineEvent::Progress(p) = e {
                 if p.id == id {
-                    assert!(p.torrent.is_some(), "torrent progress carries peers and upload");
+                    assert!(
+                        p.torrent.is_some(),
+                        "torrent progress carries peers and upload"
+                    );
                     seen.push(p.bytes);
                 }
             }
@@ -315,15 +477,36 @@ async fn set_files_rejects_empty() {
     let (m, _store, _fake, id) = running(dir.path(), FakeScript::default()).await;
     let err = m.set_torrent_files(&id, vec![]).await.unwrap_err();
     assert_eq!(err.message, "Keep at least one file selected.");
-    assert_eq!(m.torrent_files(&id).await.unwrap().iter().filter(|f| f.selected).count(), 2);
+    assert_eq!(
+        m.torrent_files(&id)
+            .await
+            .unwrap()
+            .iter()
+            .filter(|f| f.selected)
+            .count(),
+        2
+    );
 }
 
 #[tokio::test]
 async fn retick_completed_requeues() {
     let dir = tempfile::tempdir().unwrap();
     let (m, store, fake) = start(dir.path()).await;
-    fake.script(&hash(), FakeScript { meta: Some(meta()), metadata_after: Some(Duration::ZERO), ..Default::default() });
-    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    fake.script(
+        &hash(),
+        FakeScript {
+            meta: Some(meta()),
+            metadata_after: Some(Duration::ZERO),
+            ..Default::default()
+        },
+    );
+    let added = m
+        .add_torrent(TorrentRequest {
+            source: magnet(""),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     wait_files(&m, &added.id).await;
     m.set_torrent_files(&added.id, vec![0]).await.unwrap();
     m.resume(&added.id).await.unwrap();
@@ -351,7 +534,10 @@ async fn unticking_on_completed_stays_completed() {
 #[tokio::test]
 async fn start_failure_fails_row() {
     let dir = tempfile::tempdir().unwrap();
-    let script = FakeScript { fail_start: Some("disk full".into()), ..Default::default() };
+    let script = FakeScript {
+        fail_start: Some("disk full".into()),
+        ..Default::default()
+    };
     let (_m, store, _fake, id) = running(dir.path(), script).await;
     let r = wait_state(&store, &id, DownloadState::Failed).await;
     assert!(r.error_msg.unwrap_or_default().contains("disk full"));
@@ -361,13 +547,22 @@ async fn start_failure_fails_row() {
 async fn http_downloads_unaffected_by_torrent_failure() {
     use odm_testserver::{body, Faults, TestServer};
     let dir = tempfile::tempdir().unwrap();
-    let script = FakeScript { fail_start: Some("disk full".into()), ..Default::default() };
+    let script = FakeScript {
+        fail_start: Some("disk full".into()),
+        ..Default::default()
+    };
     let (m, store, _fake, id) = running(dir.path(), script).await;
     let s = TestServer::start(1 << 20, Faults::default()).await;
-    let http = m.add(odm_engine::AddRequest::new(s.url("/file"))).await.unwrap();
+    let http = m
+        .add(odm_engine::AddRequest::new(s.url("/file")))
+        .await
+        .unwrap();
     wait_state(&store, &id, DownloadState::Failed).await;
     let r = wait_state(&store, &http, DownloadState::Completed).await;
-    assert_eq!(std::fs::read(Path::new(&r.save_dir).join(&r.filename)).unwrap(), body(1 << 20));
+    assert_eq!(
+        std::fs::read(Path::new(&r.save_dir).join(&r.filename)).unwrap(),
+        body(1 << 20)
+    );
 }
 
 #[tokio::test]
@@ -390,7 +585,13 @@ async fn cancel_deletes_files() {
     wait_state(&store, &id, DownloadState::Downloading).await;
     m.cancel(&id, false).await.unwrap();
     wait_state(&store, &id, DownloadState::Cancelled).await;
-    wait_call(&fake, |c| *c == FakeCall::Remove { hash: hash(), delete: true }).await;
+    wait_call(&fake, |c| {
+        *c == FakeCall::Remove {
+            hash: hash(),
+            delete: true,
+        }
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -399,24 +600,55 @@ async fn remove_keeps_or_deletes_files_as_asked() {
     let (m, store, fake, id) = running(dir.path(), FakeScript::default()).await;
     wait_state(&store, &id, DownloadState::Downloading).await;
     m.remove(&id, false).await.unwrap();
-    wait_call(&fake, |c| *c == FakeCall::Remove { hash: hash(), delete: false }).await;
+    wait_call(&fake, |c| {
+        *c == FakeCall::Remove {
+            hash: hash(),
+            delete: false,
+        }
+    })
+    .await;
     let deadline = Instant::now() + Duration::from_secs(5);
     while store.get_download(&id).await.unwrap().is_some() {
         assert!(Instant::now() < deadline);
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     // The stored .torrent copy goes with the row.
-    assert!(!dir.path().join("state").join("files").join(format!("{HEX}.torrent")).exists());
+    assert!(!dir
+        .path()
+        .join("state")
+        .join("files")
+        .join(format!("{HEX}.torrent"))
+        .exists());
 }
 
 #[tokio::test]
 async fn download_all_before_metadata_fetches_it_first() {
     let dir = tempfile::tempdir().unwrap();
     let (m, store, fake) = start(dir.path()).await;
-    fake.script(&hash(), FakeScript { meta: Some(meta()), metadata_after: None, ..Default::default() });
-    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    fake.script(
+        &hash(),
+        FakeScript {
+            meta: Some(meta()),
+            metadata_after: None,
+            ..Default::default()
+        },
+    );
+    let added = m
+        .add_torrent(TorrentRequest {
+            source: magnet(""),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     // "Download all" while the list is still being fetched.
-    fake.script(&hash(), FakeScript { meta: Some(meta()), metadata_after: Some(Duration::from_millis(100)), ..Default::default() });
+    fake.script(
+        &hash(),
+        FakeScript {
+            meta: Some(meta()),
+            metadata_after: Some(Duration::from_millis(100)),
+            ..Default::default()
+        },
+    );
     m.resume(&added.id).await.unwrap();
     wait_state(&store, &added.id, DownloadState::Probing).await;
     wait_state(&store, &added.id, DownloadState::Downloading).await;
@@ -458,10 +690,19 @@ async fn cancelled_torrent_can_be_added_again() {
     wait_state(&store, &id, DownloadState::Downloading).await;
     m.cancel(&id, false).await.unwrap();
     wait_state(&store, &id, DownloadState::Cancelled).await;
-    let again = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    let again = m
+        .add_torrent(TorrentRequest {
+            source: magnet(""),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     assert!(!again.existing);
     assert_ne!(again.id, id);
-    assert!(store.get_download(&id).await.unwrap().is_none(), "the cancelled row is replaced");
+    assert!(
+        store.get_download(&id).await.unwrap().is_none(),
+        "the cancelled row is replaced"
+    );
     assert_eq!(row(&store, &again.id).await.state, DownloadState::Paused);
 }
 
@@ -470,12 +711,32 @@ async fn torrent_file_completes_a_waiting_magnet() {
     let dir = tempfile::tempdir().unwrap();
     let (m, store, fake) = start(dir.path()).await;
     let bytes = torrent_bytes();
-    let h = odm_torrent::parse(&TorrentSource::Bytes(bytes.clone())).unwrap().info_hash;
-    fake.script(&h, FakeScript { metadata_after: None, ..Default::default() });
+    let h = odm_torrent::parse(&TorrentSource::Bytes(bytes.clone()))
+        .unwrap()
+        .info_hash;
+    fake.script(
+        &h,
+        FakeScript {
+            metadata_after: None,
+            ..Default::default()
+        },
+    );
     let src = TorrentSource::Magnet(format!("magnet:?xt=urn:btih:{}", h.as_str()));
-    let first = m.add_torrent(TorrentRequest { source: src, save_dir: None }).await.unwrap();
+    let first = m
+        .add_torrent(TorrentRequest {
+            source: src,
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
-    let second = m.add_torrent(TorrentRequest { source: TorrentSource::Bytes(bytes), save_dir: None }).await.unwrap();
+    let second = m
+        .add_torrent(TorrentRequest {
+            source: TorrentSource::Bytes(bytes),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     assert!(second.existing);
     assert_eq!(second.id, first.id);
     assert_eq!(m.torrent_files(&first.id).await.unwrap().len(), 2);
@@ -488,10 +749,26 @@ async fn metadata_failure_is_shown() {
     let dir = tempfile::tempdir().unwrap();
     let (m, store, fake) = start(dir.path()).await;
     // The fetch ends with an error instead of a file list.
-    fake.script(&hash(), FakeScript { meta: None, metadata_after: Some(Duration::ZERO), ..Default::default() });
-    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    fake.script(
+        &hash(),
+        FakeScript {
+            meta: None,
+            metadata_after: Some(Duration::ZERO),
+            ..Default::default()
+        },
+    );
+    let added = m
+        .add_torrent(TorrentRequest {
+            source: magnet(""),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     let r = wait_state(&store, &added.id, DownloadState::Failed).await;
-    assert!(r.error_msg.unwrap_or_default().contains("no metadata scripted"));
+    assert!(r
+        .error_msg
+        .unwrap_or_default()
+        .contains("no metadata scripted"));
 }
 
 #[tokio::test]
@@ -500,13 +777,33 @@ async fn fetched_names_windows_cannot_use_fail_the_row() {
     let (m, store, fake) = start(dir.path()).await;
     let bad = TorrentMeta {
         name: "Foo".into(),
-        files: vec![TorrentFile { idx: 0, path: "c:evil.dll".into(), size: 10 }],
+        files: vec![TorrentFile {
+            idx: 0,
+            path: "c:evil.dll".into(),
+            size: 10,
+        }],
         torrent_bytes: Bytes::new(),
     };
-    fake.script(&hash(), FakeScript { meta: Some(bad), metadata_after: Some(Duration::ZERO), ..Default::default() });
-    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    fake.script(
+        &hash(),
+        FakeScript {
+            meta: Some(bad),
+            metadata_after: Some(Duration::ZERO),
+            ..Default::default()
+        },
+    );
+    let added = m
+        .add_torrent(TorrentRequest {
+            source: magnet(""),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     let r = wait_state(&store, &added.id, DownloadState::Failed).await;
-    assert_eq!(r.error_msg.as_deref(), Some("This torrent has a file name Windows can't use: c:evil.dll"));
+    assert_eq!(
+        r.error_msg.as_deref(),
+        Some("This torrent has a file name Windows can't use: c:evil.dll")
+    );
     assert!(m.torrent_files(&added.id).await.unwrap().is_empty());
 }
 
@@ -531,7 +828,10 @@ async fn existing_folder_is_never_written_over() {
     wait_state(&store, &id, DownloadState::Downloading).await;
     assert_eq!(start_dirs(&fake), vec![save.join("Foo (1)")]);
     assert_eq!(row(&store, &id).await.filename, "Foo (1)");
-    assert_eq!(std::fs::read(save.join("Foo").join("a.bin")).unwrap(), b"mine");
+    assert_eq!(
+        std::fs::read(save.join("Foo").join("a.bin")).unwrap(),
+        b"mine"
+    );
 }
 
 #[tokio::test]
@@ -542,12 +842,29 @@ async fn existing_single_file_is_never_written_over() {
     std::fs::write(save.join("movie.mkv"), b"mine").unwrap();
     let single = TorrentMeta {
         name: "movie.mkv".into(),
-        files: vec![TorrentFile { idx: 0, path: "movie.mkv".into(), size: 10 }],
+        files: vec![TorrentFile {
+            idx: 0,
+            path: "movie.mkv".into(),
+            size: 10,
+        }],
         torrent_bytes: Bytes::new(),
     };
     let (m, store, fake) = start(dir.path()).await;
-    fake.script(&hash(), FakeScript { meta: Some(single), metadata_after: Some(Duration::ZERO), ..Default::default() });
-    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    fake.script(
+        &hash(),
+        FakeScript {
+            meta: Some(single),
+            metadata_after: Some(Duration::ZERO),
+            ..Default::default()
+        },
+    );
+    let added = m
+        .add_torrent(TorrentRequest {
+            source: magnet(""),
+            save_dir: None,
+        })
+        .await
+        .unwrap();
     wait_files(&m, &added.id).await;
     m.resume(&added.id).await.unwrap();
     wait_state(&store, &added.id, DownloadState::Downloading).await;

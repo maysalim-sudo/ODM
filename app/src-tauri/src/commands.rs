@@ -1,11 +1,11 @@
 use odm_appcore::api::{self, AddArgs, BatchResult, ConfirmArgs, Suggestion};
 use odm_appcore::dto::{DetailDto, DownloadDto, TorrentFileDto, UiEvent};
-use odm_appcore::torrent::TorrentInput;
-use serde::{Deserialize, Serialize};
 use odm_appcore::integration::{self, IntegrationStatus};
 use odm_appcore::offers::OfferDto;
 use odm_appcore::tools::{self, ToolSources, ToolsStatus};
+use odm_appcore::torrent::TorrentInput;
 use odm_appcore::Settings;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -73,9 +73,13 @@ pub async fn open_torrent(app: &AppHandle, input: TorrentInput) -> Res<TorrentAd
     };
     let added = api::add_torrent(&state.manager, &state.pending, &http, input).await?;
     let ev = if added.existing {
-        UiEvent::Focus { id: added.id.clone() }
+        UiEvent::Focus {
+            id: added.id.clone(),
+        }
     } else {
-        UiEvent::ConfirmDownload { id: added.id.clone() }
+        UiEvent::ConfirmDownload {
+            id: added.id.clone(),
+        }
     };
     if let Err(e) = app.emit(crate::EVENT, &ev) {
         tracing::warn!("could not send an event to the window: {e}");

@@ -66,7 +66,10 @@ async fn fetch(
             resp.status().as_u16()
         ));
     }
-    if resp.content_length().is_some_and(|l| l > MAX_TORRENT_BYTES as u64) {
+    if resp
+        .content_length()
+        .is_some_and(|l| l > MAX_TORRENT_BYTES as u64)
+    {
         return Err(TOO_LARGE.into());
     }
     let mut out = Vec::new();

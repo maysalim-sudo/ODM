@@ -73,7 +73,10 @@ pub(crate) async fn store_metadata(
     odm_torrent::check_names(&meta.files)
         .map_err(|e| odm_core::OdmError::new(odm_core::ErrorKind::Other, e.to_string()))?;
     let store = &env.store;
-    let (Ok(Some(rec)), Ok(Some(tm))) = (store.get_download(id).await, store.get_torrent_meta(id).await) else {
+    let (Ok(Some(rec)), Ok(Some(tm))) = (
+        store.get_download(id).await,
+        store.get_torrent_meta(id).await,
+    ) else {
         return Ok(());
     };
     if tm.has_meta {
@@ -105,7 +108,9 @@ pub(crate) async fn store_metadata(
     if !rec.filename_locked && rec.filename != name {
         let _ = store.set_filename(id, name).await;
     }
-    let _ = env.events.send(EngineEvent::TorrentMetadata { id: id.to_string() });
+    let _ = env
+        .events
+        .send(EngineEvent::TorrentMetadata { id: id.to_string() });
     Ok(())
 }
 
@@ -129,7 +134,9 @@ pub(crate) fn inside(out: &Path, path: &str) -> Option<PathBuf> {
 pub(crate) fn delete_files(out: &Path, files: &[TorrentFileRecord], own_folder: bool) {
     let mut dirs: Vec<PathBuf> = Vec::new();
     for f in files {
-        let Some(p) = inside(out, &f.path) else { continue };
+        let Some(p) = inside(out, &f.path) else {
+            continue;
+        };
         let _ = std::fs::remove_file(&p);
         let mut d = p.parent().map(Path::to_path_buf);
         while let Some(dir) = d {
@@ -160,7 +167,16 @@ mod tests {
     fn inside_rejects_escapes() {
         let out = Path::new("C:/dl/Foo");
         assert_eq!(inside(out, "a/b.txt"), Some(out.join("a").join("b.txt")));
-        for bad in ["../x", "a/../../x", "/abs", "c:x", "C:/x", "a//b", ".", "a/./b"] {
+        for bad in [
+            "../x",
+            "a/../../x",
+            "/abs",
+            "c:x",
+            "C:/x",
+            "a//b",
+            ".",
+            "a/./b",
+        ] {
             assert_eq!(inside(out, bad), None, "{bad}");
         }
     }

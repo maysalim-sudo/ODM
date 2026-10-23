@@ -59,7 +59,8 @@ fn windows_ok(name: &str) -> bool {
         .unwrap_or("")
         .trim_end()
         .to_ascii_uppercase();
-    let numbered = |p: &str| stem.len() == 4 && stem.starts_with(p) && stem.as_bytes()[3].is_ascii_digit();
+    let numbered =
+        |p: &str| stem.len() == 4 && stem.starts_with(p) && stem.as_bytes()[3].is_ascii_digit();
     !(RESERVED.contains(&stem.as_str()) || numbered("COM") || numbered("LPT"))
 }
 
@@ -177,7 +178,9 @@ mod tests {
 
     #[test]
     fn magnet_without_btih_is_invalid() {
-        assert!(invalid(parse(&TorrentSource::Magnet("magnet:?dn=Foo".into()))));
+        assert!(invalid(parse(&TorrentSource::Magnet(
+            "magnet:?dn=Foo".into()
+        ))));
     }
 
     #[test]
@@ -216,7 +219,11 @@ mod tests {
         assert_eq!(p.trackers, vec!["udp://t.example:80".to_string()]);
         let meta = p.meta.unwrap();
         assert_eq!(meta.name, "Foo");
-        let files: Vec<_> = meta.files.iter().map(|f| (f.idx, f.path.as_str(), f.size)).collect();
+        let files: Vec<_> = meta
+            .files
+            .iter()
+            .map(|f| (f.idx, f.path.as_str(), f.size))
+            .collect();
         assert_eq!(files, vec![(0, "a/x.txt", 3), (2, "y.bin", 5)]);
         assert_eq!(meta.torrent_bytes.as_ref(), bytes.as_slice());
     }
@@ -225,13 +232,19 @@ mod tests {
     fn with_trackers_keeps_hash_and_adds_trackers() {
         let (bytes, _) = two_file_torrent();
         let before = parse(&TorrentSource::Bytes(Bytes::from(bytes.clone()))).unwrap();
-        let extra = vec!["udp://b.example:81".to_string(), "udp://t.example:80".to_string()];
+        let extra = vec![
+            "udp://b.example:81".to_string(),
+            "udp://t.example:80".to_string(),
+        ];
         let out = with_trackers(&Bytes::from(bytes), &extra).unwrap();
         let after = parse(&TorrentSource::Bytes(out)).unwrap();
         assert_eq!(after.info_hash, before.info_hash);
         assert_eq!(
             after.trackers,
-            vec!["udp://t.example:80".to_string(), "udp://b.example:81".to_string()]
+            vec![
+                "udp://t.example:80".to_string(),
+                "udp://b.example:81".to_string()
+            ]
         );
         assert_eq!(after.meta.unwrap().files, before.meta.unwrap().files);
     }
@@ -278,7 +291,10 @@ mod tests {
             let r = parse(&TorrentSource::Bytes(torrent_with(&[&["ok.txt"], bad])));
             match r {
                 Err(TorrentError::Invalid(m)) => {
-                    assert!(m.starts_with("This torrent has a file name Windows can't use: "), "{m}");
+                    assert!(
+                        m.starts_with("This torrent has a file name Windows can't use: "),
+                        "{m}"
+                    );
                     assert!(m.contains(bad.last().unwrap().trim_end()), "{m}");
                 }
                 other => panic!("{bad:?} was accepted: {other:?}"),
@@ -288,13 +304,25 @@ mod tests {
 
     #[test]
     fn ordinary_names_are_fine() {
-        let ok = torrent_with(&[&["Season 1", "e01 - Pilot.mkv"], &["icon.txt"], &["CONSOLE.txt"], &["com10.log"], &["über ñ.txt"]]);
-        let files = parse(&TorrentSource::Bytes(ok)).unwrap().meta.unwrap().files;
+        let ok = torrent_with(&[
+            &["Season 1", "e01 - Pilot.mkv"],
+            &["icon.txt"],
+            &["CONSOLE.txt"],
+            &["com10.log"],
+            &["über ñ.txt"],
+        ]);
+        let files = parse(&TorrentSource::Bytes(ok))
+            .unwrap()
+            .meta
+            .unwrap()
+            .files;
         assert_eq!(files.len(), 5);
     }
 
     #[test]
     fn garbage_bytes_are_invalid() {
-        assert!(invalid(parse(&TorrentSource::Bytes(Bytes::from_static(b"not bencode")))));
+        assert!(invalid(parse(&TorrentSource::Bytes(Bytes::from_static(
+            b"not bencode"
+        )))));
     }
 }

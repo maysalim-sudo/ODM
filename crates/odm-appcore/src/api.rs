@@ -5,8 +5,8 @@ use odm_engine::hls::playlist::{parse, Playlist, Variant};
 use odm_engine::retry::{classify_status, http_err};
 use odm_engine::site::is_site_page_url;
 use odm_engine::{
-    AddRequest, EngineConfig, ExistsChoice, ManagerHandle, SiteRequest, StreamRequest, TorrentAdded,
-    TorrentRequest,
+    AddRequest, EngineConfig, ExistsChoice, ManagerHandle, SiteRequest, StreamRequest,
+    TorrentAdded, TorrentRequest,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -15,9 +15,9 @@ use crate::confirm::Pending;
 use crate::dto::{
     chunk_views, to_dto, DetailDto, DownloadDto, PieceMapDto, TorrentDetailDto, TorrentFileDto,
 };
-use crate::torrent::{resolve, TorrentInput, FETCH_TIMEOUT};
 use crate::offers::Offers;
 use crate::settings::StartMode;
+use crate::torrent::{resolve, TorrentInput, FETCH_TIMEOUT};
 use crate::Settings;
 
 pub use crate::messages::user_message;
@@ -72,7 +72,11 @@ pub async fn torrent_files(m: &ManagerHandle, id: &str) -> Result<Vec<TorrentFil
         .collect())
 }
 
-async fn torrent_detail(m: &ManagerHandle, id: &str, hash: &str) -> Result<TorrentDetailDto, String> {
+async fn torrent_detail(
+    m: &ManagerHandle,
+    id: &str,
+    hash: &str,
+) -> Result<TorrentDetailDto, String> {
     let files = torrent_files(m, id).await?;
     let pieces = m.pieces(id).await.map_err(msg)?.map(|p| PieceMapDto {
         count: p.piece_count,

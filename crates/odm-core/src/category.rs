@@ -152,6 +152,9 @@ mod tests {
     #[test]
     fn torrent_not_by_ext() {
         // A .torrent file downloaded over HTTP is a general file, not a torrent download.
-        assert_eq!(detect("a.torrent", Some("application/x-bittorrent")), Category::General);
+        assert_eq!(
+            detect("a.torrent", Some("application/x-bittorrent")),
+            Category::General
+        );
     }
 }

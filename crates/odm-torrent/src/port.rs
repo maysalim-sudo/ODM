@@ -34,7 +34,8 @@ mod tests {
     fn free() -> u16 {
         loop {
             let p = random_port();
-            if TcpListener::bind(("0.0.0.0", p)).is_ok() && UdpSocket::bind(("0.0.0.0", p)).is_ok() {
+            if TcpListener::bind(("0.0.0.0", p)).is_ok() && UdpSocket::bind(("0.0.0.0", p)).is_ok()
+            {
                 return p;
             }
         }

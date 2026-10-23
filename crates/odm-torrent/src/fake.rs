@@ -24,7 +24,10 @@ pub enum FakeCall {
     },
     SetFiles(InfoHash, Vec<usize>),
     Pause(InfoHash),
-    Remove { hash: InfoHash, delete: bool },
+    Remove {
+        hash: InfoHash,
+        delete: bool,
+    },
     ApplySettings(TorrentSettings),
 }
 
@@ -108,7 +111,10 @@ impl TorrentClient for FakeTorrentClient {
         let script = {
             let mut st = self.lock();
             st.calls.push(FakeCall::Fetch(hash.clone()));
-            st.torrents.get(&hash).map(|e| e.script.clone()).unwrap_or_default()
+            st.torrents
+                .get(&hash)
+                .map(|e| e.script.clone())
+                .unwrap_or_default()
         };
         let wait = async {
             match script.metadata_after {
@@ -143,8 +149,13 @@ impl TorrentClient for FakeTorrentClient {
 
     async fn set_files(&self, hash: &InfoHash, selected: &[usize]) -> Result<(), TorrentError> {
         let mut st = self.lock();
-        st.calls.push(FakeCall::SetFiles(hash.clone(), selected.to_vec()));
-        let e = st.torrents.get_mut(hash).filter(|e| e.live).ok_or(TorrentError::NotFound)?;
+        st.calls
+            .push(FakeCall::SetFiles(hash.clone(), selected.to_vec()));
+        let e = st
+            .torrents
+            .get_mut(hash)
+            .filter(|e| e.live)
+            .ok_or(TorrentError::NotFound)?;
         e.only_files = Some(selected.to_vec());
         Ok(())
     }
@@ -156,7 +167,10 @@ impl TorrentClient for FakeTorrentClient {
 
     async fn remove(&self, hash: &InfoHash, delete_files: bool) -> Result<(), TorrentError> {
         let mut st = self.lock();
-        st.calls.push(FakeCall::Remove { hash: hash.clone(), delete: delete_files });
+        st.calls.push(FakeCall::Remove {
+            hash: hash.clone(),
+            delete: delete_files,
+        });
         if let Some(e) = st.torrents.get_mut(hash) {
             e.live = false;
         }
@@ -185,7 +199,10 @@ impl TorrentClient for FakeTorrentClient {
     }
 
     fn pieces(&self, hash: &InfoHash) -> Option<PieceMap> {
-        self.stats(hash).map(|_| PieceMap { piece_count: 8, have: vec![0b1010_0000] })
+        self.stats(hash).map(|_| PieceMap {
+            piece_count: 8,
+            have: vec![0b1010_0000],
+        })
     }
 
     async fn apply_settings(&self, settings: TorrentSettings) -> Result<(), TorrentError> {
@@ -213,8 +230,16 @@ mod tests {
         TorrentMeta {
             name: "Foo".into(),
             files: vec![
-                TorrentFile { idx: 0, path: "a".into(), size: 100 },
-                TorrentFile { idx: 1, path: "b".into(), size: 50 },
+                TorrentFile {
+                    idx: 0,
+                    path: "a".into(),
+                    size: 100,
+                },
+                TorrentFile {
+                    idx: 1,
+                    path: "b".into(),
+                    size: 50,
+                },
             ],
             torrent_bytes: Bytes::new(),
         }
@@ -234,7 +259,13 @@ mod tests {
     #[tokio::test]
     async fn fake_records_calls() {
         let f = FakeTorrentClient::new();
-        f.script(&hash(), FakeScript { meta: Some(meta()), ..Default::default() });
+        f.script(
+            &hash(),
+            FakeScript {
+                meta: Some(meta()),
+                ..Default::default()
+            },
+        );
         f.start(start(Some(vec![1]))).await.unwrap();
         f.set_files(&hash(), &[0, 1]).await.unwrap();
         f.pause(&hash()).await.unwrap();
@@ -242,10 +273,17 @@ mod tests {
         assert_eq!(
             f.calls(),
             vec![
-                FakeCall::Start { hash: hash(), only_files: Some(vec![1]), save_dir: "x".into() },
+                FakeCall::Start {
+                    hash: hash(),
+                    only_files: Some(vec![1]),
+                    save_dir: "x".into()
+                },
                 FakeCall::SetFiles(hash(), vec![0, 1]),
                 FakeCall::Pause(hash()),
-                FakeCall::Remove { hash: hash(), delete: true },
+                FakeCall::Remove {
+                    hash: hash(),
+                    delete: true
+                },
             ]
         );
         assert!(f.live().is_empty());
@@ -254,28 +292,59 @@ mod tests {
     #[tokio::test]
     async fn fake_metadata_never_until_cancel() {
         let f = FakeTorrentClient::new();
-        f.script(&hash(), FakeScript { meta: Some(meta()), metadata_after: None, ..Default::default() });
+        f.script(
+            &hash(),
+            FakeScript {
+                meta: Some(meta()),
+                metadata_after: None,
+                ..Default::default()
+            },
+        );
         let cancel = CancellationToken::new();
         let c2 = cancel.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(50)).await;
             c2.cancel();
         });
-        assert_eq!(f.fetch_metadata(&magnet(), cancel).await, Err(TorrentError::Cancelled));
+        assert_eq!(
+            f.fetch_metadata(&magnet(), cancel).await,
+            Err(TorrentError::Cancelled)
+        );
 
-        f.script(&hash(), FakeScript { meta: Some(meta()), metadata_after: Some(Duration::ZERO), ..Default::default() });
-        assert_eq!(f.fetch_metadata(&magnet(), CancellationToken::new()).await.unwrap(), meta());
+        f.script(
+            &hash(),
+            FakeScript {
+                meta: Some(meta()),
+                metadata_after: Some(Duration::ZERO),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            f.fetch_metadata(&magnet(), CancellationToken::new())
+                .await
+                .unwrap(),
+            meta()
+        );
     }
 
     #[tokio::test]
     async fn fake_finishes_when_done_reaches_total() {
         let f = FakeTorrentClient::new();
-        f.script(&hash(), FakeScript { meta: Some(meta()), ..Default::default() });
+        f.script(
+            &hash(),
+            FakeScript {
+                meta: Some(meta()),
+                ..Default::default()
+            },
+        );
         assert!(f.stats(&hash()).is_none());
         f.start(start(Some(vec![0]))).await.unwrap();
         f.advance(&hash(), 60);
         let st = f.stats(&hash()).unwrap();
-        assert_eq!((st.selected_total, st.selected_done, st.finished), (100, 60, false));
+        assert_eq!(
+            (st.selected_total, st.selected_done, st.finished),
+            (100, 60, false)
+        );
         f.advance(&hash(), 100);
         assert!(f.stats(&hash()).unwrap().finished);
         assert_eq!(f.live(), vec![hash()]);
@@ -284,8 +353,17 @@ mod tests {
     #[tokio::test]
     async fn fake_start_failure() {
         let f = FakeTorrentClient::new();
-        f.script(&hash(), FakeScript { fail_start: Some("disk full".into()), ..Default::default() });
-        assert_eq!(f.start(start(None)).await, Err(TorrentError::Io("disk full".into())));
+        f.script(
+            &hash(),
+            FakeScript {
+                fail_start: Some("disk full".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            f.start(start(None)).await,
+            Err(TorrentError::Io("disk full".into()))
+        );
         assert!(f.live().is_empty());
     }
 }

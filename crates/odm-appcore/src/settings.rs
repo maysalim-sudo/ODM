@@ -488,9 +488,18 @@ impl Settings {
             self.user_agent.clear();
         }
         clamp_num("max_concurrent", &mut self.max_concurrent, 1, 10, &mut w);
-        clamp_num("torrent_max_peers", &mut self.torrent_max_peers, 10, 1000, &mut w);
+        clamp_num(
+            "torrent_max_peers",
+            &mut self.torrent_max_peers,
+            10,
+            1000,
+            &mut w,
+        );
         if self.torrent_port != 0 && self.torrent_port < 1024 {
-            w.push(format!("torrent_port: {} is a system port; choosing another", self.torrent_port));
+            w.push(format!(
+                "torrent_port: {} is a system port; choosing another",
+                self.torrent_port
+            ));
             self.torrent_port = 0;
         }
         clamp_num("max_connections", &mut self.max_connections, 1, 32, &mut w);
@@ -615,9 +624,10 @@ impl Settings {
     /// Torrents can only use a SOCKS5 proxy, and only one the user entered.
     fn torrent_proxy(&self) -> Option<String> {
         let url = self.proxy_url.trim();
-        let socks = ["socks5://", "socks5h://"]
-            .iter()
-            .any(|p| url.get(..p.len()).is_some_and(|h| h.eq_ignore_ascii_case(p)));
+        let socks = ["socks5://", "socks5h://"].iter().any(|p| {
+            url.get(..p.len())
+                .is_some_and(|h| h.eq_ignore_ascii_case(p))
+        });
         (self.proxy_mode == ProxyMode::Manual && socks).then(|| url.to_string())
     }
 

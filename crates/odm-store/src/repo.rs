@@ -432,7 +432,12 @@ pub fn put_torrent_meta(c: &Connection, m: &TorrentMetaRecord) -> rusqlite::Resu
     c.execute(
         "INSERT INTO torrent_meta (download_id, source, trackers, has_meta) VALUES (?1,?2,?3,?4)
          ON CONFLICT(download_id) DO UPDATE SET source=?2, trackers=?3, has_meta=?4",
-        params![m.download_id, m.source, trackers_json(&m.trackers), m.has_meta as i64],
+        params![
+            m.download_id,
+            m.source,
+            trackers_json(&m.trackers),
+            m.has_meta as i64
+        ],
     )?;
     Ok(())
 }
@@ -477,7 +482,8 @@ pub fn merge_trackers(
     Ok(list)
 }
 
-const SELECTED_SIZE: &str = "UPDATE downloads SET size=(SELECT COALESCE(SUM(size),0) FROM torrent_files \
+const SELECTED_SIZE: &str =
+    "UPDATE downloads SET size=(SELECT COALESCE(SUM(size),0) FROM torrent_files \
      WHERE download_id=?1 AND selected=1) WHERE id=?1";
 
 /// Replaces the file list, marks the metadata known and sets the size to the selected total.

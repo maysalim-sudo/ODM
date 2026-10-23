@@ -19,9 +19,9 @@ use crate::torrent::{
     client_settings, file_records, store_metadata, stored_torrent, write_torrent, TorrentAdded,
     TorrentRequest,
 };
+use crate::{EngineConfig, EngineEvent, ExistsChoice, ExistsPolicy, SpeedLimiter};
 use odm_store::{TorrentFileRecord, TorrentMetaRecord};
 use odm_torrent::{TorrentClient, TorrentError, TorrentMeta, TorrentSource};
-use crate::{EngineConfig, EngineEvent, ExistsChoice, ExistsPolicy, SpeedLimiter};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
@@ -105,7 +105,10 @@ enum Cmd {
     Add(AddRequest, oneshot::Sender<Result<String, OdmError>>),
     AddStream(StreamRequest, oneshot::Sender<Result<String, OdmError>>),
     AddSite(SiteRequest, oneshot::Sender<Result<String, OdmError>>),
-    AddTorrent(TorrentRequest, oneshot::Sender<Result<TorrentAdded, OdmError>>),
+    AddTorrent(
+        TorrentRequest,
+        oneshot::Sender<Result<TorrentAdded, OdmError>>,
+    ),
     /// A torrent's metadata arrived from peers.
     Metadata(String, TorrentMeta),
     /// A torrent's metadata fetch failed (not cancelled).
@@ -329,14 +332,17 @@ impl ManagerHandle {
     /// at once; a completed one is queued again when a new file still needs downloading.
     pub async fn set_torrent_files(&self, id: &str, selected: Vec<usize>) -> Result<(), OdmError> {
         let (tx, rx) = oneshot::channel();
-        self.send(Cmd::SetTorrentFiles(id.into(), selected, tx)).await?;
+        self.send(Cmd::SetTorrentFiles(id.into(), selected, tx))
+            .await?;
         rx.await.map_err(|_| closed())?
     }
 
     /// Which pieces of a torrent in the session are on disk.
     pub async fn pieces(&self, id: &str) -> Result<Option<odm_torrent::PieceMap>, OdmError> {
         let rec = self.store.get_download(id).await.map_err(store_err)?;
-        let hash = rec.and_then(|r| r.info_hash).and_then(|h| odm_torrent::InfoHash::parse(&h));
+        let hash = rec
+            .and_then(|r| r.info_hash)
+            .and_then(|h| odm_torrent::InfoHash::parse(&h));
         Ok(hash.and_then(|h| self.torrents.pieces(&h)))
     }
 
@@ -961,7 +967,11 @@ impl Manager {
             .await
             .map_err(store_err)?;
         if self.active.contains_key(id) {
-            if let Some(hash) = rec.info_hash.as_deref().and_then(odm_torrent::InfoHash::parse) {
+            if let Some(hash) = rec
+                .info_hash
+                .as_deref()
+                .and_then(odm_torrent::InfoHash::parse)
+            {
                 if let Err(e) = self.env.torrents.set_files(&hash, &selected).await {
                     tracing::warn!(%id, "changing torrent files: {e}");
                 }
@@ -974,7 +984,10 @@ impl Manager {
             }
         }
         // The UI reloads the file list on this event.
-        let _ = self.env.events.send(EngineEvent::TorrentMetadata { id: id.to_string() });
+        let _ = self
+            .env
+            .events
+            .send(EngineEvent::TorrentMetadata { id: id.to_string() });
         Ok(())
     }
 
@@ -1160,7 +1173,11 @@ impl Manager {
 
     /// Takes a torrent out of the session, deleting its files when asked.
     async fn drop_torrent(&self, rec: &DownloadRecord, delete_files: bool) {
-        let Some(hash) = rec.info_hash.as_deref().and_then(odm_torrent::InfoHash::parse) else {
+        let Some(hash) = rec
+            .info_hash
+            .as_deref()
+            .and_then(odm_torrent::InfoHash::parse)
+        else {
             return;
         };
         if let Err(e) = self.env.torrents.remove(&hash, delete_files).await {
