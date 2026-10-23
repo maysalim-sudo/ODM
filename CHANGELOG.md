@@ -6,6 +6,8 @@ The top versioned section becomes the "What's new" text of an update, so write i
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-23
+
 ### Added
 
 - Torrent downloads. Add a magnet link or a .torrent file from the Add window, by dropping it on the window, from the browser extension, or by opening it in Windows (an installer option).
@@ -41,4 +43,5 @@ First public release.
 - Automatic updates: ODM checks for a new version, shows what's new and installs it. Updates are signed, and ODM refuses one that does not verify.
 - More file types that run code (such as .url, .chm and .appinstaller) are flagged before you open them.
 
+[0.2.0]: https://github.com/salimmay/ODM/releases/tag/v0.2.0
 [0.1.0]: https://github.com/salimmay/ODM/releases/tag/v0.1.0
