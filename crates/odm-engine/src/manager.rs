@@ -108,6 +108,8 @@ enum Cmd {
     AddTorrent(TorrentRequest, oneshot::Sender<Result<TorrentAdded, OdmError>>),
     /// A torrent's metadata arrived from peers.
     Metadata(String, TorrentMeta),
+    /// A torrent's metadata fetch failed (not cancelled).
+    MetadataFailed(String, String),
     SetTorrentFiles(String, Vec<usize>, oneshot::Sender<Result<(), OdmError>>),
     Pause(String),
     Resume(String),
@@ -502,6 +504,11 @@ impl Manager {
                     let _ = reply.send(r);
                 }
                 Cmd::Metadata(id, meta) => self.metadata(id, meta).await,
+                Cmd::MetadataFailed(id, msg) => {
+                    self.fetchers.remove(&id);
+                    self.fail_waiting_torrent(&id, OdmError::new(ErrorKind::Other, msg))
+                        .await;
+                }
                 Cmd::SetTorrentFiles(id, sel, reply) => {
                     let r = self.set_torrent_files(&id, sel).await;
                     let _ = reply.send(r);
@@ -800,14 +807,31 @@ impl Manager {
         let hash = parsed.info_hash.as_str().to_string();
         let store = &self.env.store;
         if let Some(existing) = store.find_by_info_hash(&hash).await.map_err(store_err)? {
-            store
-                .merge_trackers(&existing.id, parsed.trackers)
-                .await
-                .map_err(store_err)?;
-            return Ok(TorrentAdded {
-                id: existing.id,
-                existing: true,
-            });
+            if existing.state == DownloadState::Cancelled {
+                // A cancelled download cannot be resumed: the new add replaces it.
+                self.delete_record(&existing.id, false).await;
+            } else {
+                store
+                    .merge_trackers(&existing.id, parsed.trackers)
+                    .await
+                    .map_err(store_err)?;
+                // The .torrent of a magnet still waiting for its file list brings the list.
+                if let (Some(meta), TorrentSource::Bytes(_)) = (&parsed.meta, &req.source) {
+                    let waiting = store
+                        .get_torrent_meta(&existing.id)
+                        .await
+                        .map_err(store_err)?
+                        .is_some_and(|t| !t.has_meta);
+                    if waiting {
+                        self.stop_fetch(&existing.id);
+                        store_metadata(&self.env, &existing.id, meta).await?;
+                    }
+                }
+                return Ok(TorrentAdded {
+                    id: existing.id,
+                    existing: true,
+                });
+            }
         }
         let id = uuid::Uuid::new_v4().simple().to_string();
         let name = parsed
@@ -875,7 +899,10 @@ impl Manager {
                     let _ = tx.send(Cmd::Metadata(id, meta)).await;
                 }
                 Err(TorrentError::Cancelled) => {}
-                Err(e) => tracing::warn!(id = %id, "torrent metadata: {e}"),
+                Err(e) => {
+                    tracing::warn!(id = %id, "torrent metadata: {e}");
+                    let _ = tx.send(Cmd::MetadataFailed(id, e.to_string())).await;
+                }
             }
         });
     }
@@ -902,7 +929,17 @@ impl Manager {
 
     async fn metadata(&mut self, id: String, meta: TorrentMeta) {
         self.fetchers.remove(&id);
-        store_metadata(&self.env, &id, &meta).await;
+        if let Err(e) = store_metadata(&self.env, &id, &meta).await {
+            self.fail_waiting_torrent(&id, e).await;
+        }
+    }
+
+    /// A torrent waiting for its file list cannot get it: show why on its row. Resume
+    /// tries again.
+    async fn fail_waiting_torrent(&mut self, id: &str, e: OdmError) {
+        if self.state_of(id).await == Some(DownloadState::Paused) {
+            transition(&self.env, id, DownloadState::Failed, Some(&e)).await;
+        }
     }
 
     async fn set_torrent_files(&mut self, id: &str, selected: Vec<usize>) -> Result<(), OdmError> {

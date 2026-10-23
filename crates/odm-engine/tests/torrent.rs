@@ -450,3 +450,62 @@ async fn cancel_deletes_only_the_torrents_files() {
     assert!(!out.join("sub").exists(), "emptied folders go");
     assert_eq!(std::fs::read(out.join("mine.txt")).unwrap(), b"keep me");
 }
+
+#[tokio::test]
+async fn cancelled_torrent_can_be_added_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let (m, store, _fake, id) = running(dir.path(), FakeScript::default()).await;
+    wait_state(&store, &id, DownloadState::Downloading).await;
+    m.cancel(&id, false).await.unwrap();
+    wait_state(&store, &id, DownloadState::Cancelled).await;
+    let again = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    assert!(!again.existing);
+    assert_ne!(again.id, id);
+    assert!(store.get_download(&id).await.unwrap().is_none(), "the cancelled row is replaced");
+    assert_eq!(row(&store, &again.id).await.state, DownloadState::Paused);
+}
+
+#[tokio::test]
+async fn torrent_file_completes_a_waiting_magnet() {
+    let dir = tempfile::tempdir().unwrap();
+    let (m, store, fake) = start(dir.path()).await;
+    let bytes = torrent_bytes();
+    let h = odm_torrent::parse(&TorrentSource::Bytes(bytes.clone())).unwrap().info_hash;
+    fake.script(&h, FakeScript { metadata_after: None, ..Default::default() });
+    let src = TorrentSource::Magnet(format!("magnet:?xt=urn:btih:{}", h.as_str()));
+    let first = m.add_torrent(TorrentRequest { source: src, save_dir: None }).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let second = m.add_torrent(TorrentRequest { source: TorrentSource::Bytes(bytes), save_dir: None }).await.unwrap();
+    assert!(second.existing);
+    assert_eq!(second.id, first.id);
+    assert_eq!(m.torrent_files(&first.id).await.unwrap().len(), 2);
+    assert_eq!(row(&store, &first.id).await.size, Some(8));
+    wait_call(&fake, |c| *c == FakeCall::FetchCancelled(h.clone())).await;
+}
+
+#[tokio::test]
+async fn metadata_failure_is_shown() {
+    let dir = tempfile::tempdir().unwrap();
+    let (m, store, fake) = start(dir.path()).await;
+    // The fetch ends with an error instead of a file list.
+    fake.script(&hash(), FakeScript { meta: None, metadata_after: Some(Duration::ZERO), ..Default::default() });
+    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    let r = wait_state(&store, &added.id, DownloadState::Failed).await;
+    assert!(r.error_msg.unwrap_or_default().contains("no metadata scripted"));
+}
+
+#[tokio::test]
+async fn fetched_names_windows_cannot_use_fail_the_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let (m, store, fake) = start(dir.path()).await;
+    let bad = TorrentMeta {
+        name: "Foo".into(),
+        files: vec![TorrentFile { idx: 0, path: "c:evil.dll".into(), size: 10 }],
+        torrent_bytes: Bytes::new(),
+    };
+    fake.script(&hash(), FakeScript { meta: Some(bad), metadata_after: Some(Duration::ZERO), ..Default::default() });
+    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    let r = wait_state(&store, &added.id, DownloadState::Failed).await;
+    assert_eq!(r.error_msg.as_deref(), Some("This torrent has a file name Windows can't use: c:evil.dll"));
+    assert!(m.torrent_files(&added.id).await.unwrap().is_empty());
+}

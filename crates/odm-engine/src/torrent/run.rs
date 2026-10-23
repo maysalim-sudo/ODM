@@ -78,7 +78,7 @@ async fn run_inner(env: &DownloadEnv, id: &str, cancel: &CancellationToken) -> R
             .fetch_metadata(&TorrentSource::Magnet(tm.source.clone()), cancel.child_token())
             .await
             .map_err(client_err)?;
-        store_metadata(env, id, &meta).await;
+        store_metadata(env, id, &meta).await?;
         tm = env.store.get_torrent_meta(id).await.map_err(store_err)?.ok_or_else(|| other("torrent source missing"))?;
     }
     if cancel.is_cancelled() {

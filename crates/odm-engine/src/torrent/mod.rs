@@ -63,17 +63,24 @@ pub(crate) fn client_settings(cfg: &EngineConfig, global_bps: u64) -> TorrentSet
 }
 
 /// Saves metadata peers sent for a torrent waiting for it: the file list (all selected),
-/// a `.torrent` copy as its new source, and its name. Then tells the UI.
-pub(crate) async fn store_metadata(env: &DownloadEnv, id: &str, meta: &TorrentMeta) {
+/// a `.torrent` copy as its new source, and its name. Then tells the UI. Fails for file
+/// names Windows cannot use; nothing is stored then.
+pub(crate) async fn store_metadata(
+    env: &DownloadEnv,
+    id: &str,
+    meta: &TorrentMeta,
+) -> Result<(), odm_core::OdmError> {
+    odm_torrent::check_names(&meta.files)
+        .map_err(|e| odm_core::OdmError::new(odm_core::ErrorKind::Other, e.to_string()))?;
     let store = &env.store;
     let (Ok(Some(rec)), Ok(Some(tm))) = (store.get_download(id).await, store.get_torrent_meta(id).await) else {
-        return;
+        return Ok(());
     };
     if tm.has_meta {
-        return;
+        return Ok(());
     }
     let Some(hash) = rec.info_hash.clone() else {
-        return;
+        return Ok(());
     };
     // Kept as a .torrent so the download does not ask peers for it again.
     let path = stored_torrent(&env.config, &hash);
@@ -92,13 +99,14 @@ pub(crate) async fn store_metadata(env: &DownloadEnv, id: &str, meta: &TorrentMe
         .await
         .is_err()
     {
-        return;
+        return Ok(());
     }
     let name = filename::sanitize(&meta.name);
     if !rec.filename_locked && rec.filename != name {
         let _ = store.set_filename(id, name).await;
     }
     let _ = env.events.send(EngineEvent::TorrentMetadata { id: id.to_string() });
+    Ok(())
 }
 
 /// `path` (a torrent's `/`-separated relative path) under `out`, or None unless every part
