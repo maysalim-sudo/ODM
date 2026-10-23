@@ -43,6 +43,16 @@ pub struct ProgressSnapshot {
     pub chunks: Vec<ChunkView>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub segments: Option<SegmentProgress>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub torrent: Option<TorrentProgress>,
+}
+
+/// Swarm figures of a torrent download.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct TorrentProgress {
+    pub peers_connected: u32,
+    pub peers_seen: u32,
+    pub up_bps: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -105,6 +115,7 @@ mod tests {
                     state: ChunkViewState::Active,
                 }],
                 segments: None,
+                torrent: None,
             })),
             r#"{"type":"progress","id":"a1","bytes":10,"total":100,"speed_bps":5,"eta_s":18,"chunks":[{"idx":0,"start":0,"end":99,"written":10,"state":"active"}]}"#
         );
@@ -117,6 +128,7 @@ mod tests {
                 eta_s: Some(18),
                 chunks: vec![],
                 segments: Some(SegmentProgress { done: 3, total: 12 }),
+                torrent: None,
             })),
             r#"{"type":"progress","id":"h1","bytes":300,"total":1200,"speed_bps":50,"eta_s":18,"chunks":[],"segments":{"done":3,"total":12}}"#
         );
@@ -141,6 +153,23 @@ mod tests {
         assert_eq!(
             json(&EngineEvent::Removed { id: "a1".into() }),
             r#"{"type":"removed","id":"a1"}"#
+        );
+        assert_eq!(
+            json(&EngineEvent::Progress(ProgressSnapshot {
+                id: "t1".into(),
+                bytes: 5,
+                total: Some(10),
+                speed_bps: 2,
+                eta_s: Some(3),
+                chunks: vec![],
+                segments: None,
+                torrent: Some(TorrentProgress {
+                    peers_connected: 3,
+                    peers_seen: 9,
+                    up_bps: 7,
+                }),
+            })),
+            r#"{"type":"progress","id":"t1","bytes":5,"total":10,"speed_bps":2,"eta_s":3,"chunks":[],"torrent":{"peers_connected":3,"peers_seen":9,"up_bps":7}}"#
         );
         assert_eq!(
             json(&EngineEvent::TorrentMetadata { id: "t1".into() }),

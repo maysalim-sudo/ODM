@@ -278,6 +278,7 @@ fn emit_progress(
         eta_s: eta(est, bytes, speed),
         chunks: vec![],
         segments: Some(SegmentProgress { done, total }),
+        torrent: None,
     }));
 }
 

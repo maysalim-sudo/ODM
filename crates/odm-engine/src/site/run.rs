@@ -129,6 +129,7 @@ fn emit(env: &DownloadEnv, id: &str, l: &Latest) {
         eta_s: l.eta,
         chunks: vec![],
         segments: None,
+        torrent: None,
     }));
 }
 

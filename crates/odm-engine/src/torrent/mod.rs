@@ -1,9 +1,14 @@
 //! Torrent downloads: adding them, their metadata, and (in `run`) downloading them.
+pub mod progress;
+pub mod run;
 use odm_store::TorrentFileRecord;
 use odm_torrent::{TorrentMeta, TorrentSettings, TorrentSource};
 use std::path::{Path, PathBuf};
 
-use crate::EngineConfig;
+use crate::download::DownloadEnv;
+use crate::{EngineConfig, EngineEvent};
+use odm_core::filename;
+use odm_store::TorrentMetaRecord;
 
 /// A magnet link or `.torrent` to add. It is added paused, waiting for the user's file choice.
 #[derive(Debug, Clone)]
@@ -55,4 +60,43 @@ pub(crate) fn client_settings(cfg: &EngineConfig, global_bps: u64) -> TorrentSet
         download_bps: (global_bps > 0).then_some(global_bps),
         ..cfg.torrent.clone()
     }
+}
+
+/// Saves metadata peers sent for a torrent waiting for it: the file list (all selected),
+/// a `.torrent` copy as its new source, and its name. Then tells the UI.
+pub(crate) async fn store_metadata(env: &DownloadEnv, id: &str, meta: &TorrentMeta) {
+    let store = &env.store;
+    let (Ok(Some(rec)), Ok(Some(tm))) = (store.get_download(id).await, store.get_torrent_meta(id).await) else {
+        return;
+    };
+    if tm.has_meta {
+        return;
+    }
+    let Some(hash) = rec.info_hash.clone() else {
+        return;
+    };
+    // Kept as a .torrent so the download does not ask peers for it again.
+    let path = stored_torrent(&env.config, &hash);
+    let source = match write_torrent(&path, &meta.torrent_bytes) {
+        Ok(()) => path.to_string_lossy().into_owned(),
+        Err(e) => {
+            tracing::warn!(id = %id, "saving torrent metadata: {e}");
+            tm.source.clone()
+        }
+    };
+    let _ = store
+        .put_torrent_meta(TorrentMetaRecord { source, ..tm })
+        .await;
+    if store
+        .replace_torrent_files(id, file_records(meta))
+        .await
+        .is_err()
+    {
+        return;
+    }
+    let name = filename::sanitize(&meta.name);
+    if !rec.filename_locked && rec.filename != name {
+        let _ = store.set_filename(id, name).await;
+    }
+    let _ = env.events.send(EngineEvent::TorrentMetadata { id: id.to_string() });
 }

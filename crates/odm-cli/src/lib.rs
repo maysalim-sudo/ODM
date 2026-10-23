@@ -154,6 +154,7 @@ mod tests {
             eta_s: None,
             chunks: vec![view(0, Active), view(1, Active), view(2, Done)],
             segments: None,
+            torrent: None,
         };
         assert_eq!(
             progress_line(&p),

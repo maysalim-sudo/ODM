@@ -14,8 +14,10 @@ use crate::download::{
 use crate::hls::run::{run_hls, temp_dir};
 use crate::schedule::{Clock, LocalNow, SystemClock};
 use crate::site::{run_site, temp_dir as site_temp_dir};
+use crate::torrent::run::run_torrent;
 use crate::torrent::{
-    client_settings, file_records, stored_torrent, write_torrent, TorrentAdded, TorrentRequest,
+    client_settings, file_records, store_metadata, stored_torrent, write_torrent, TorrentAdded,
+    TorrentRequest,
 };
 use odm_store::{TorrentFileRecord, TorrentMetaRecord};
 use odm_torrent::{TorrentClient, TorrentError, TorrentMeta, TorrentSource};
@@ -106,6 +108,7 @@ enum Cmd {
     AddTorrent(TorrentRequest, oneshot::Sender<Result<TorrentAdded, OdmError>>),
     /// A torrent's metadata arrived from peers.
     Metadata(String, TorrentMeta),
+    SetTorrentFiles(String, Vec<usize>, oneshot::Sender<Result<(), OdmError>>),
     Pause(String),
     Resume(String),
     Cancel(String, bool),
@@ -174,6 +177,7 @@ pub struct ManagerHandle {
     tx: mpsc::Sender<Cmd>,
     events: broadcast::Sender<EngineEvent>,
     store: Store,
+    torrents: Arc<dyn TorrentClient>,
 }
 
 fn store_err(e: odm_store::StoreError) -> OdmError {
@@ -283,8 +287,14 @@ impl ManagerHandle {
                 }
             }
         });
+        let torrents = manager.env.torrents.clone();
         tokio::spawn(manager.run(rx));
-        Ok(ManagerHandle { tx, events, store })
+        Ok(ManagerHandle {
+            tx,
+            events,
+            store,
+            torrents,
+        })
     }
 
     async fn send(&self, c: Cmd) -> Result<(), OdmError> {
@@ -311,6 +321,21 @@ impl ManagerHandle {
         let (tx, rx) = oneshot::channel();
         self.send(Cmd::AddTorrent(req, tx)).await?;
         rx.await.map_err(|_| closed())?
+    }
+
+    /// Chooses which files of a torrent to download; at least one. Running torrents change
+    /// at once; a completed one is queued again when a new file still needs downloading.
+    pub async fn set_torrent_files(&self, id: &str, selected: Vec<usize>) -> Result<(), OdmError> {
+        let (tx, rx) = oneshot::channel();
+        self.send(Cmd::SetTorrentFiles(id.into(), selected, tx)).await?;
+        rx.await.map_err(|_| closed())?
+    }
+
+    /// Which pieces of a torrent in the session are on disk.
+    pub async fn pieces(&self, id: &str) -> Result<Option<odm_torrent::PieceMap>, OdmError> {
+        let rec = self.store.get_download(id).await.map_err(store_err)?;
+        let hash = rec.and_then(|r| r.info_hash).and_then(|h| odm_torrent::InfoHash::parse(&h));
+        Ok(hash.and_then(|h| self.torrents.pieces(&h)))
     }
 
     /// A torrent's files, by librqbit index. Empty until its metadata is known.
@@ -477,6 +502,10 @@ impl Manager {
                     let _ = reply.send(r);
                 }
                 Cmd::Metadata(id, meta) => self.metadata(id, meta).await,
+                Cmd::SetTorrentFiles(id, sel, reply) => {
+                    let r = self.set_torrent_files(&id, sel).await;
+                    let _ = reply.send(r);
+                }
                 Cmd::AddStream(req, reply) => {
                     let r = self.add_stream(req).await;
                     let _ = reply.send(r);
@@ -873,43 +902,43 @@ impl Manager {
 
     async fn metadata(&mut self, id: String, meta: TorrentMeta) {
         self.fetchers.remove(&id);
+        store_metadata(&self.env, &id, &meta).await;
+    }
+
+    async fn set_torrent_files(&mut self, id: &str, selected: Vec<usize>) -> Result<(), OdmError> {
+        if selected.is_empty() {
+            return Err(OdmError::new(
+                ErrorKind::Other,
+                "Keep at least one file selected.",
+            ));
+        }
         let store = self.env.store.clone();
-        let (Ok(Some(rec)), Ok(Some(tm))) = (
-            store.get_download(&id).await,
-            store.get_torrent_meta(&id).await,
-        ) else {
-            return;
-        };
-        if tm.has_meta {
-            return;
-        }
-        let Some(hash) = rec.info_hash.clone() else {
-            return;
-        };
-        // Kept as a .torrent so the download does not ask peers for it again.
-        let path = stored_torrent(&self.env.config, &hash);
-        let source = match write_torrent(&path, &meta.torrent_bytes) {
-            Ok(()) => path.to_string_lossy().into_owned(),
-            Err(e) => {
-                tracing::warn!(id = %id, "saving torrent metadata: {e}");
-                tm.source.clone()
-            }
-        };
-        let _ = store
-            .put_torrent_meta(TorrentMetaRecord { source, ..tm })
-            .await;
-        if store
-            .replace_torrent_files(&id, file_records(&meta))
+        let rec = store
+            .get_download(id)
             .await
-            .is_err()
-        {
-            return;
+            .map_err(store_err)?
+            .filter(|r| r.kind == "torrent")
+            .ok_or_else(|| OdmError::new(ErrorKind::Other, "not a torrent"))?;
+        store
+            .set_torrent_selection(id, selected.clone())
+            .await
+            .map_err(store_err)?;
+        if self.active.contains_key(id) {
+            if let Some(hash) = rec.info_hash.as_deref().and_then(odm_torrent::InfoHash::parse) {
+                if let Err(e) = self.env.torrents.set_files(&hash, &selected).await {
+                    tracing::warn!(%id, "changing torrent files: {e}");
+                }
+            }
+        } else if rec.state == DownloadState::Completed {
+            let files = store.get_torrent_files(id).await.map_err(store_err)?;
+            if files.iter().any(|f| f.selected && f.done < f.size) {
+                transition(&self.env, id, DownloadState::Queued, None).await;
+                self.schedule().await;
+            }
         }
-        let name = filename::sanitize(&meta.name);
-        if !rec.filename_locked && rec.filename != name {
-            let _ = store.set_filename(&id, name).await;
-        }
-        let _ = self.env.events.send(EngineEvent::TorrentMetadata { id });
+        // The UI reloads the file list on this event.
+        let _ = self.env.events.send(EngineEvent::TorrentMetadata { id: id.to_string() });
+        Ok(())
     }
 
     async fn apply_torrent_settings(&self) {
@@ -1083,13 +1112,45 @@ impl Manager {
 
     async fn delete_part(&self, id: &str) {
         if let Ok(Some(rec)) = self.env.store.get_download(id).await {
-            remove_partials(&rec);
+            if rec.kind == "torrent" {
+                // A cancelled torrent cannot be resumed: its files go.
+                self.drop_torrent(&rec, true).await;
+            } else {
+                remove_partials(&rec);
+            }
+        }
+    }
+
+    /// Takes a torrent out of the session, deleting its files when asked.
+    async fn drop_torrent(&self, rec: &DownloadRecord, delete_files: bool) {
+        let Some(hash) = rec.info_hash.as_deref().and_then(odm_torrent::InfoHash::parse) else {
+            return;
+        };
+        if let Err(e) = self.env.torrents.remove(&hash, delete_files).await {
+            tracing::warn!(id = %rec.id, "removing torrent: {e}");
+        }
+        if delete_files {
+            // Not in the session (completed, or never started): delete what is on disk.
+            if let Ok(files) = self.env.store.get_torrent_files(&rec.id).await {
+                let out = crate::torrent::run::output_dir(rec, &files);
+                for f in &files {
+                    let _ = std::fs::remove_file(out.join(&f.path));
+                }
+                if files.len() > 1 {
+                    let _ = std::fs::remove_dir_all(&out).or_else(|_| std::fs::remove_dir(&out));
+                }
+            }
         }
     }
 
     async fn delete_record(&self, id: &str, delete_file: bool) {
         if let Ok(Some(rec)) = self.env.store.get_download(id).await {
-            if rec.state == DownloadState::Completed {
+            if rec.kind == "torrent" {
+                self.drop_torrent(&rec, delete_file).await;
+                if let Some(hash) = &rec.info_hash {
+                    let _ = std::fs::remove_file(stored_torrent(&self.env.config, hash));
+                }
+            } else if rec.state == DownloadState::Completed {
                 if delete_file {
                     let _ = std::fs::remove_file(Path::new(&rec.save_dir).join(&rec.filename));
                 }
@@ -1434,6 +1495,7 @@ impl Manager {
                 match kind.as_str() {
                     "hls" => run_hls(&env, &inner_id, task_cancel).await,
                     "site" => run_site(&env, &inner_id, task_cancel).await,
+                    "torrent" => run_torrent(&env, &inner_id, task_cancel).await,
                     _ => run_download(&env, &inner_id, task_cancel).await,
                 }
             })

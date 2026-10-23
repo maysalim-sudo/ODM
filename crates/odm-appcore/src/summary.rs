@@ -66,6 +66,7 @@ mod tests {
             eta_s: None,
             chunks: vec![],
             segments: None,
+            torrent: None,
         })
     }
 

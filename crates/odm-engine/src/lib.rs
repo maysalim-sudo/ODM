@@ -12,7 +12,9 @@ pub mod schedule;
 pub mod speed;
 
 pub use config::{EngineConfig, ExistsChoice, ExistsPolicy};
-pub use events::{ChunkView, ChunkViewState, EngineEvent, ProgressSnapshot, SegmentProgress};
+pub use events::{
+    ChunkView, ChunkViewState, EngineEvent, ProgressSnapshot, SegmentProgress, TorrentProgress,
+};
 pub mod worker;
 
 pub mod download;

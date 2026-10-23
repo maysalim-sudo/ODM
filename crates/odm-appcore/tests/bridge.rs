@@ -31,6 +31,7 @@ fn progress(id: &str, bytes: u64) -> EngineEvent {
         eta_s: None,
         chunks: vec![],
         segments: None,
+        torrent: None,
     })
 }
 

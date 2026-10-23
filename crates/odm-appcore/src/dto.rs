@@ -133,6 +133,14 @@ pub enum UiEvent {
         done: u64,
         total: u64,
     },
+    /// A torrent's file list arrived or changed: reload it.
+    TorrentMetadata {
+        id: String,
+    },
+    /// A torrent that is already in the list was added again: show that row.
+    Focus {
+        id: String,
+    },
     /// A finished download's file name is taken: ask Replace, Keep both or Cancel.
     ExistsPrompt {
         id: String,

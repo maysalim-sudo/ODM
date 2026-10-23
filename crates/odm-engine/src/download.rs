@@ -710,6 +710,7 @@ fn emit_progress(
         eta_s: eta(rec.size, bytes, speed),
         chunks: table.views(),
         segments: None,
+        torrent: None,
     }));
 }
 
