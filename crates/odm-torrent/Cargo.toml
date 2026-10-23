@@ -1,0 +1,24 @@
+[package]
+name = "odm-torrent"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[features]
+fake = []
+
+[dependencies]
+odm-core.workspace = true
+librqbit.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+fastrand.workspace = true
+anyhow = "1"
+
+[dev-dependencies]
+tempfile.workspace = true
+sha1 = "0.10"
