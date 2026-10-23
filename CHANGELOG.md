@@ -4,6 +4,16 @@ All notable changes to ODM are listed here. The format follows [Keep a Changelog
 
 The top versioned section becomes the "What's new" text of an update, so write it for users.
 
+## [Unreleased]
+
+### Added
+
+- Torrent downloads. Add a magnet link or a .torrent file from the Add window, by dropping it on the window, from the browser extension, or by opening it in Windows (an installer option).
+- Choose which files of a torrent to download before it starts, and change them while it runs. A magnet shows "Fetching file list…" until peers send its list.
+- Follow a torrent in the details panel: peers, upload speed, per-file progress and a piece map.
+- A Torrents section in Settings: listen port, router port opening (UPnP), upload while downloading, and peers per torrent.
+- ODM is a downloader, not a seeding client: a torrent stops sharing once its files are complete.
+
 ## [0.1.0] - 2026-10-11
 
 First public release.
