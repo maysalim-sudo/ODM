@@ -509,3 +509,66 @@ async fn fetched_names_windows_cannot_use_fail_the_row() {
     assert_eq!(r.error_msg.as_deref(), Some("This torrent has a file name Windows can't use: c:evil.dll"));
     assert!(m.torrent_files(&added.id).await.unwrap().is_empty());
 }
+
+fn start_dirs(fake: &FakeTorrentClient) -> Vec<std::path::PathBuf> {
+    fake.calls()
+        .into_iter()
+        .filter_map(|c| match c {
+            FakeCall::Start { save_dir, .. } => Some(save_dir),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn existing_folder_is_never_written_over() {
+    let dir = tempfile::tempdir().unwrap();
+    let save = dir.path().join("dl").join("Torrents");
+    // The user already has a "Foo" folder with a file named like one in the torrent.
+    std::fs::create_dir_all(save.join("Foo")).unwrap();
+    std::fs::write(save.join("Foo").join("a.bin"), b"mine").unwrap();
+    let (_m, store, fake, id) = running(dir.path(), FakeScript::default()).await;
+    wait_state(&store, &id, DownloadState::Downloading).await;
+    assert_eq!(start_dirs(&fake), vec![save.join("Foo (1)")]);
+    assert_eq!(row(&store, &id).await.filename, "Foo (1)");
+    assert_eq!(std::fs::read(save.join("Foo").join("a.bin")).unwrap(), b"mine");
+}
+
+#[tokio::test]
+async fn existing_single_file_is_never_written_over() {
+    let dir = tempfile::tempdir().unwrap();
+    let save = dir.path().join("dl").join("Torrents");
+    std::fs::create_dir_all(&save).unwrap();
+    std::fs::write(save.join("movie.mkv"), b"mine").unwrap();
+    let single = TorrentMeta {
+        name: "movie.mkv".into(),
+        files: vec![TorrentFile { idx: 0, path: "movie.mkv".into(), size: 10 }],
+        torrent_bytes: Bytes::new(),
+    };
+    let (m, store, fake) = start(dir.path()).await;
+    fake.script(&hash(), FakeScript { meta: Some(single), metadata_after: Some(Duration::ZERO), ..Default::default() });
+    let added = m.add_torrent(TorrentRequest { source: magnet(""), save_dir: None }).await.unwrap();
+    wait_files(&m, &added.id).await;
+    m.resume(&added.id).await.unwrap();
+    wait_state(&store, &added.id, DownloadState::Downloading).await;
+    assert_eq!(start_dirs(&fake), vec![save.join("movie (1)")]);
+    assert_eq!(std::fs::read(save.join("movie.mkv")).unwrap(), b"mine");
+}
+
+#[tokio::test]
+async fn a_resumed_torrent_keeps_its_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let (m, store, fake, id) = running(dir.path(), FakeScript::default()).await;
+    wait_state(&store, &id, DownloadState::Downloading).await;
+    // Its own files are on disk now.
+    let out = Path::new(&row(&store, &id).await.save_dir).join("Foo");
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(out.join("a.bin"), b"part").unwrap();
+    m.pause(&id).await.unwrap();
+    wait_state(&store, &id, DownloadState::Paused).await;
+    m.resume(&id).await.unwrap();
+    wait_state(&store, &id, DownloadState::Downloading).await;
+    let dirs = start_dirs(&fake);
+    assert_eq!(dirs.len(), 2);
+    assert_eq!(dirs[0], dirs[1]);
+}

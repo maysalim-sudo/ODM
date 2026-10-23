@@ -39,6 +39,41 @@ pub(crate) fn output_dir(rec: &DownloadRecord, files: &[TorrentFileRecord]) -> P
     }
 }
 
+enum Target {
+    /// The torrent's own folder under a new name.
+    Folder(String),
+    /// A single-file torrent goes into this folder instead.
+    Dir(PathBuf),
+}
+
+/// A free place when any of the torrent's files already exists where it would go: the
+/// torrent's folder as "<name> (n)", or for a single file a folder "<stem> (n)" for it.
+fn free_target(rec: &DownloadRecord, files: &[TorrentFileRecord]) -> Option<Target> {
+    let out = output_dir(rec, files);
+    let taken = |out: &std::path::Path| {
+        files
+            .iter()
+            .any(|f| super::inside(out, &f.path).is_some_and(|p| p.exists()))
+    };
+    if !taken(&out) {
+        return None;
+    }
+    let save = PathBuf::from(&rec.save_dir);
+    if files.len() == 1 {
+        let path = std::path::Path::new(&files[0].path);
+        let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        (1..1000)
+            .map(|n| save.join(format!("{stem} ({n})")))
+            .find(|d| !d.exists())
+            .map(Target::Dir)
+    } else {
+        (1..1000)
+            .map(|n| format!("{} ({n})", rec.filename))
+            .find(|name| !save.join(name).exists())
+            .map(Target::Folder)
+    }
+}
+
 pub async fn run_torrent(env: &DownloadEnv, id: &str, cancel: CancellationToken) -> Outcome {
     let hash = match env.store.get_download(id).await {
         Ok(Some(r)) => r.info_hash.as_deref().and_then(InfoHash::parse),
@@ -84,9 +119,23 @@ async fn run_inner(env: &DownloadEnv, id: &str, cancel: &CancellationToken) -> R
     if cancel.is_cancelled() {
         return Err(cancelled());
     }
-    let rec = env.store.get_download(id).await.map_err(store_err)?.ok_or_else(|| other("download not found"))?;
+    let mut rec = env.store.get_download(id).await.map_err(store_err)?.ok_or_else(|| other("download not found"))?;
     let files = env.store.get_torrent_files(id).await.map_err(store_err)?;
     let selected: Vec<usize> = files.iter().filter(|f| f.selected).map(|f| f.idx).collect();
+    // A torrent that never downloaded must not land on files that are already there:
+    // librqbit would write over them, and a cancel would then delete them.
+    if rec.started_at.is_none() {
+        match free_target(&rec, &files) {
+            Some(Target::Folder(name)) => env.store.set_filename(id, name).await.map_err(store_err)?,
+            Some(Target::Dir(dir)) => env
+                .store
+                .set_target(id, None, Some(dir.to_string_lossy().into_owned()))
+                .await
+                .map_err(store_err)?,
+            None => {}
+        }
+        rec = env.store.get_download(id).await.map_err(store_err)?.ok_or_else(|| other("download not found"))?;
+    }
     let out = output_dir(&rec, &files);
     let source = if tm.source.starts_with("magnet:") {
         TorrentSource::Magnet(tm.source.clone())

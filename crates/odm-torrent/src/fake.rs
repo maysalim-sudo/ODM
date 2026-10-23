@@ -17,7 +17,11 @@ pub enum FakeCall {
     Fetch(InfoHash),
     /// A metadata fetch ended because its token was cancelled.
     FetchCancelled(InfoHash),
-    Start { hash: InfoHash, only_files: Option<Vec<usize>> },
+    Start {
+        hash: InfoHash,
+        only_files: Option<Vec<usize>>,
+        save_dir: std::path::PathBuf,
+    },
     SetFiles(InfoHash, Vec<usize>),
     Pause(InfoHash),
     Remove { hash: InfoHash, delete: bool },
@@ -123,7 +127,11 @@ impl TorrentClient for FakeTorrentClient {
 
     async fn start(&self, req: StartTorrent) -> Result<(), TorrentError> {
         let mut st = self.lock();
-        st.calls.push(FakeCall::Start { hash: req.info_hash.clone(), only_files: req.only_files.clone() });
+        st.calls.push(FakeCall::Start {
+            hash: req.info_hash.clone(),
+            only_files: req.only_files.clone(),
+            save_dir: req.save_dir.clone(),
+        });
         let e = st.torrents.entry(req.info_hash).or_default();
         if let Some(msg) = &e.script.fail_start {
             return Err(TorrentError::Io(msg.clone()));
@@ -234,7 +242,7 @@ mod tests {
         assert_eq!(
             f.calls(),
             vec![
-                FakeCall::Start { hash: hash(), only_files: Some(vec![1]) },
+                FakeCall::Start { hash: hash(), only_files: Some(vec![1]), save_dir: "x".into() },
                 FakeCall::SetFiles(hash(), vec![0, 1]),
                 FakeCall::Pause(hash()),
                 FakeCall::Remove { hash: hash(), delete: true },
