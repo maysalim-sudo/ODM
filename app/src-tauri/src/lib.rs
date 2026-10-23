@@ -1,6 +1,7 @@
 mod commands;
 mod shell;
 mod speed_menu;
+pub mod torrent_arg;
 pub mod updates;
 
 use odm_appcore::api::{store_open_message, user_message};
@@ -77,9 +78,15 @@ pub fn run() {
     let _ = paths.ensure();
     // Kept alive until the process exits, so buffered log lines are flushed.
     let mut log_guard = logging::init(&paths.logs).ok();
-    let (settings, warnings) = Settings::load(&paths.settings);
+    let (mut settings, warnings) = Settings::load(&paths.settings);
     for w in &warnings {
         tracing::warn!("settings: {w}");
+    }
+    // The torrent listen port is chosen once and kept.
+    if settings.ensure_torrent_port() {
+        if let Err(e) = settings.save(&paths.settings) {
+            tracing::warn!("saving the torrent port: {e}");
+        }
     }
     tracing::info!(data_dir = %paths.data_dir.display(), "ODM starting");
     // The browser host and "Start ODM with Windows" start ODM with --background so no window
@@ -98,6 +105,15 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if !argv.iter().any(|a| a == "--background") {
                 shell::show_main(app);
+            }
+            // A magnet link or .torrent opened while ODM runs.
+            if let Some(input) = torrent_arg::torrent_arg(&argv) {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = commands::open_torrent(&app, input).await {
+                        tracing::warn!("opening a torrent from the command line: {e}");
+                    }
+                });
             }
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -229,6 +245,15 @@ pub fn run() {
                 std::thread::spawn(move || registration::ensure_registered(&host_exe, &app_exe));
             }
 
+            // ODM started by opening a magnet link or .torrent file.
+            if let Some(input) = torrent_arg::torrent_arg(&std::env::args().collect::<Vec<_>>()) {
+                let app = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = commands::open_torrent(&app, input).await {
+                        tracing::warn!("opening a torrent from the command line: {e}");
+                    }
+                });
+            }
             tauri::async_runtime::spawn(bridge::run(
                 manager,
                 UI_PROGRESS_INTERVAL,
@@ -249,6 +274,10 @@ pub fn run() {
             commands::get_detail,
             commands::add_download,
             commands::add_batch,
+            commands::add_torrent,
+            commands::torrent_files,
+            commands::set_torrent_files,
+            commands::pick_torrent_file,
             commands::suggest,
             commands::pause,
             commands::resume,

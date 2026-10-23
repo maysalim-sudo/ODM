@@ -13,6 +13,8 @@ import type {
   StoreLinks,
   Suggestion,
   ToolsStatus,
+  TorrentFile,
+  TorrentInput,
   UiEvent,
   UpdateStatus,
 } from "./types";
@@ -23,6 +25,12 @@ export const addDownload = (args: AddArgs) => invoke<string>("add_download", { a
 export const addBatch = (text: string, saveDir: string | null) =>
   invoke<BatchResult>("add_batch", { text, saveDir });
 export const suggest = (url: string) => invoke<Suggestion>("suggest", { url });
+export const addTorrent = (input: TorrentInput) =>
+  invoke<{ id: string; existing: boolean }>("add_torrent", { input });
+export const torrentFiles = (id: string) => invoke<TorrentFile[]>("torrent_files", { id });
+export const setTorrentFiles = (id: string, selected: number[]) =>
+  invoke<void>("set_torrent_files", { id, selected });
+export const pickTorrentFile = () => invoke<string | null>("pick_torrent_file");
 export const pause = (ids: string[]) => invoke<void>("pause", { ids });
 export const resume = (ids: string[]) => invoke<void>("resume", { ids });
 export const cancel = (ids: string[], deleteFile: boolean) => invoke<void>("cancel", { ids, deleteFile });

@@ -105,6 +105,8 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
       return { rows, resync: true };
     case "reuse_offer":
     case "confirm_download":
+    case "torrent_metadata":
+    case "focus":
     case "tools_progress":
     case "exists_prompt":
     case "update_available":

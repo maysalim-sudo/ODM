@@ -71,6 +71,10 @@ const DEFAULTS: Settings = {
   user_agent: "",
   update_check: true,
   update_install: "ask",
+  torrent_port: 51000,
+  torrent_upnp: true,
+  torrent_upload_kbps: 100,
+  torrent_max_peers: 100,
 };
 
 describe("sections", () => {

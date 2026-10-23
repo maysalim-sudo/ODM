@@ -33,6 +33,9 @@ export interface Download {
   pause_reason: string | null;
   /** This download's own speed limit; null = none. */
   speed_limit_kbps: number | null;
+  /** Torrents only: the info hash, and whether the file list is known yet. */
+  info_hash?: string | null;
+  has_meta?: boolean | null;
 }
 
 export interface ChunkView {
@@ -52,7 +55,38 @@ export interface Progress {
   chunks: ChunkView[];
   /** HLS only: finished and total segments. */
   segments?: SegmentProgress;
+  /** Torrents only. */
+  torrent?: TorrentProgress;
 }
+
+export interface TorrentProgress {
+  peers_connected: number;
+  peers_seen: number;
+  up_bps: number;
+}
+
+export interface TorrentFile {
+  idx: number;
+  path: string;
+  size: number;
+  done: number;
+  selected: boolean;
+}
+
+export interface PieceMap {
+  count: number;
+  /** Bitfield as hex, most significant bit first. */
+  have_hex: string;
+}
+
+export interface TorrentDetail {
+  info_hash: string;
+  files: TorrentFile[];
+  pieces: PieceMap | null;
+  trackers: number;
+}
+
+export type TorrentInput = { kind: "magnet"; text: string } | { kind: "file"; path: string };
 
 export interface SegmentProgress {
   done: number;
@@ -64,6 +98,7 @@ export interface Detail {
   final_url: string | null;
   chunks: ChunkView[];
   header_names: string[];
+  torrent?: TorrentDetail;
 }
 
 export interface Offer {
@@ -79,6 +114,8 @@ export type UiEvent =
   | { type: "resync" }
   | { type: "reuse_offer"; offer: Offer }
   | { type: "confirm_download"; id: string }
+  | { type: "torrent_metadata"; id: string }
+  | { type: "focus"; id: string }
   | { type: "tools_progress"; stage: string; done: number; total: number }
   | { type: "exists_prompt"; id: string; name: string }
   | { type: "after_queue_pending"; action: Exclude<AfterQueue, "nothing">; seconds: number }
@@ -175,6 +212,12 @@ export interface Settings {
   user_agent: string;
   update_check: boolean;
   update_install: UpdateInstall;
+  /** 0 until the first run picks one. */
+  torrent_port: number;
+  torrent_upnp: boolean;
+  /** KB/s while downloading; null = unlimited, 0 = no upload. */
+  torrent_upload_kbps: number | null;
+  torrent_max_peers: number;
 }
 
 export type OnExists = "rename" | "overwrite" | "ask";
@@ -219,6 +262,8 @@ export interface ConfirmArgs {
   filename?: string | null;
   save_dir?: string | null;
   action: "start" | "later" | "cancel";
+  /** Torrents: the files to download; omitted keeps the selection. */
+  files?: number[] | null;
 }
 
 export interface Suggestion {

@@ -56,9 +56,9 @@ pub async fn detail(m: &ManagerHandle, id: &str) -> Result<Option<DetailDto>, St
     }))
 }
 
-async fn torrent_detail(m: &ManagerHandle, id: &str, hash: &str) -> Result<TorrentDetailDto, String> {
-    let files = m
-        .torrent_files(id)
+/// A torrent's files with their stored progress; empty until the file list is known.
+pub async fn torrent_files(m: &ManagerHandle, id: &str) -> Result<Vec<TorrentFileDto>, String> {
+    Ok(m.torrent_files(id)
         .await
         .map_err(msg)?
         .into_iter()
@@ -69,7 +69,11 @@ async fn torrent_detail(m: &ManagerHandle, id: &str, hash: &str) -> Result<Torre
             done: f.done.min(f.size),
             selected: f.selected,
         })
-        .collect();
+        .collect())
+}
+
+async fn torrent_detail(m: &ManagerHandle, id: &str, hash: &str) -> Result<TorrentDetailDto, String> {
+    let files = torrent_files(m, id).await?;
     let pieces = m.pieces(id).await.map_err(msg)?.map(|p| PieceMapDto {
         count: p.piece_count,
         have_hex: p.have.iter().map(|b| format!("{b:02x}")).collect(),

@@ -1,5 +1,7 @@
 use odm_appcore::api::{self, AddArgs, BatchResult, ConfirmArgs, Suggestion};
-use odm_appcore::dto::{DetailDto, DownloadDto, UiEvent};
+use odm_appcore::dto::{DetailDto, DownloadDto, TorrentFileDto, UiEvent};
+use odm_appcore::torrent::TorrentInput;
+use serde::{Deserialize, Serialize};
 use odm_appcore::integration::{self, IntegrationStatus};
 use odm_appcore::offers::OfferDto;
 use odm_appcore::tools::{self, ToolSources, ToolsStatus};
@@ -46,6 +48,84 @@ pub async fn add_batch(
 ) -> Res<BatchResult> {
     let paused = starts_paused(&state);
     api::add_batch(&state.manager, &text, save_dir, paused).await
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TorrentInputDto {
+    Magnet { text: String },
+    File { path: String },
+}
+
+#[derive(Debug, Serialize)]
+pub struct TorrentAddedDto {
+    pub id: String,
+    pub existing: bool,
+}
+
+/// Adds a torrent and tells the window: the confirm dialog for a new one, or the
+/// existing row for one already in the list.
+pub async fn open_torrent(app: &AppHandle, input: TorrentInput) -> Res<TorrentAddedDto> {
+    let state = app.state::<AppState>();
+    let http = {
+        let cfg = state.settings.lock().unwrap().to_engine_config();
+        odm_engine::download::build_client(&cfg)
+    };
+    let added = api::add_torrent(&state.manager, &state.pending, &http, input).await?;
+    let ev = if added.existing {
+        UiEvent::Focus { id: added.id.clone() }
+    } else {
+        UiEvent::ConfirmDownload { id: added.id.clone() }
+    };
+    if let Err(e) = app.emit(crate::EVENT, &ev) {
+        tracing::warn!("could not send an event to the window: {e}");
+    }
+    Ok(TorrentAddedDto {
+        id: added.id,
+        existing: added.existing,
+    })
+}
+
+#[tauri::command]
+pub async fn add_torrent(app: AppHandle, input: TorrentInputDto) -> Res<TorrentAddedDto> {
+    let input = match input {
+        TorrentInputDto::Magnet { text } => TorrentInput::Text(text),
+        TorrentInputDto::File { path } => TorrentInput::File(PathBuf::from(path)),
+    };
+    open_torrent(&app, input).await
+}
+
+#[tauri::command]
+pub async fn torrent_files(state: State<'_, AppState>, id: String) -> Res<Vec<TorrentFileDto>> {
+    api::torrent_files(&state.manager, &id).await
+}
+
+#[tauri::command]
+pub async fn set_torrent_files(
+    state: State<'_, AppState>,
+    id: String,
+    selected: Vec<usize>,
+) -> Res<()> {
+    state
+        .manager
+        .set_torrent_files(&id, selected)
+        .await
+        .map_err(msg)
+}
+
+/// Picks a `.torrent` file.
+#[tauri::command]
+pub async fn pick_torrent_file(app: AppHandle) -> Res<Option<String>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("Torrent files", &["torrent"])
+            .blocking_pick_file()
+            .and_then(|p| p.into_path().ok())
+            .map(|p| p.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// The answer to "<name> already exists": replace, keep_both or cancel.
