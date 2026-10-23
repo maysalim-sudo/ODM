@@ -4,6 +4,12 @@ A personal download manager for Windows. It downloads files over several connect
 
 It takes over downloads from Chrome, Edge, Brave, Vivaldi, Opera, Firefox and Floorp. It also finds the videos a page plays and downloads them: plain video files, HLS streams, and, through yt-dlp, videos on YouTube, Facebook, Instagram, X, TikTok, Vimeo and more.
 
+![The ODM download list: downloads by category, progress, speed and time left](docs/screenshots/1-list.png)
+
+| Connections | New download | Video on a page | Extension popup |
+| --- | --- | --- | --- |
+| ![One download split into 8 parts](docs/screenshots/2-chunks.png) | ![The new download dialog](docs/screenshots/3-new-download.png) | ![The Download with ODM button over a video](docs/screenshots/4-video-button.png) | ![The browser extension popup](docs/screenshots/5-popup.png) |
+
 ODM is a personal project, shared as is. The installer is not code-signed. ODM updates itself from the GitHub releases, and every update is signed and checked before it is installed.
 
 ## Quick start (no building)
@@ -92,7 +98,7 @@ Choose a password. This writes the private key to `%USERPROFILE%\.tauri\odm-upda
        node scripts\release.mjs --publish-ready
 
    It refuses to start without both variables or without the `.pub` file, runs every check and test first, and stops at the first failure. Then it builds the signed installer and writes `target\release-assets\`: `latest.json`, `ODM_<version>_x64-setup.exe`, its `.sig`, and `ODM-setup.exe` (the same installer under the stable name the website links to).
-4. Create the GitHub release `v<version>` and upload those four files. Installed copies read `https://github.com/salimmay/ODM/releases/latest/download/latest.json`, so the update reaches them once the release is published (not as a draft or a pre-release).
+4. Create the GitHub release `v<version>` and upload those four files. Installed copies read the `latest.json` of the latest release (the updater `endpoints` in `app/src-tauri/tauri.conf.json`), so the update reaches them once the release is published (not as a draft or a pre-release).
 
 To test an update locally, set `ODM_UPDATE_ENDPOINT` to another `latest.json` before starting ODM. It accepts an https address, or plain http on this PC (`localhost`, `127.0.0.1`); the signature is still required.
 
@@ -173,6 +179,7 @@ MIT. See [LICENSE](LICENSE).
 | `crates/odm-core` | Shared types: states, errors, file names, categories |
 | `crates/odm-store` | SQLite storage |
 | `crates/odm-engine` | The download engine and queue |
+| `crates/odm-torrent` | BitTorrent and magnet links (the only crate that uses librqbit) |
 | `crates/odm-appcore` | App logic that doesn't depend on Tauri: settings, logging, UI data, event bridge |
 | `crates/odm-cli` | Command-line tool |
 | `crates/odm-host` | Browser helper (native messaging host) and its registration |
