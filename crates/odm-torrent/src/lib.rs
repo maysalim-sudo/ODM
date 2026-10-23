@@ -2,6 +2,7 @@
 //! [`TorrentClient`].
 pub mod parse;
 pub mod port;
+pub mod rqbit;
 mod types;
 
 pub use parse::{magnet_info_hash, parse};

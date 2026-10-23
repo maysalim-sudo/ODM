@@ -117,6 +117,8 @@ pub struct TorrentSettings {
     pub state_dir: PathBuf,
     /// Peers to try first; empty in the app, used by tests to reach a local seeder.
     pub extra_peers: Vec<SocketAddr>,
+    /// No DHT, trackers, local discovery or UPnP: tests only.
+    pub offline: bool,
 }
 
 impl Default for TorrentSettings {
@@ -130,6 +132,7 @@ impl Default for TorrentSettings {
             socks_proxy: None,
             state_dir: PathBuf::new(),
             extra_peers: Vec::new(),
+            offline: false,
         }
     }
 }

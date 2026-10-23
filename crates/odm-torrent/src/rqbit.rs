@@ -1,0 +1,415 @@
+//! [`TorrentClient`] on a librqbit session. The session starts on first use; restored
+//! torrents are paused so only the engine's queue starts them.
+use crate::port::pick_port;
+use bytes::Bytes;
+use crate::*;
+use librqbit::api::TorrentIdOrHash;
+use librqbit::dht::Id20;
+use librqbit::limits::LimitsConfig;
+use librqbit::{
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, Api, ConnectionOptions, DhtSessionConfig,
+    ListenerOptions, Magnet, ManagedTorrent, Session, SessionOptions, SessionPersistenceConfig,
+    TorrentStatsState, ValidatedTorrentMetaV1Info,
+};
+use std::collections::HashSet;
+use std::num::NonZeroU32;
+use std::str::FromStr;
+use std::sync::{Arc, Mutex, RwLock};
+
+pub struct LibrqbitClient {
+    settings: Mutex<TorrentSettings>,
+    /// Serializes session creation and restarts.
+    init: tokio::sync::Mutex<()>,
+    session: RwLock<Option<Arc<Session>>>,
+    /// Torrents this client added (as opposed to ones restored from an earlier run).
+    added: Mutex<HashSet<InfoHash>>,
+}
+
+fn session_err(e: impl std::fmt::Display) -> TorrentError {
+    TorrentError::Session(e.to_string())
+}
+
+fn id20(h: &InfoHash) -> Id20 {
+    // InfoHash is always 40 hex characters.
+    Id20::from_str(h.as_str()).expect("valid info hash")
+}
+
+fn nz(bps: Option<u64>) -> Option<NonZeroU32> {
+    bps.and_then(|b| NonZeroU32::new(b.min(u32::MAX as u64) as u32))
+}
+
+fn meta_from(info: &ValidatedTorrentMetaV1Info<librqbit::ByteBufOwned>, bytes: Bytes) -> TorrentMeta {
+    let files = info
+        .iter_file_details()
+        .enumerate()
+        .filter(|(_, d)| !d.attrs().padding)
+        .map(|(idx, d)| TorrentFile {
+            idx,
+            path: d.filename.to_vec().join("/"),
+            size: d.len,
+        })
+        .collect();
+    TorrentMeta {
+        name: info.name().map(|n| n.into_owned()).unwrap_or_else(|| "torrent".into()),
+        files,
+        torrent_bytes: bytes,
+    }
+}
+
+/// Settings that only take effect when a session is created.
+fn session_key(s: &TorrentSettings) -> impl PartialEq {
+    (
+        s.listen_port,
+        s.upnp,
+        s.socks_proxy.clone(),
+        s.upload_bps == Some(0),
+        s.offline,
+        s.state_dir.clone(),
+    )
+}
+
+impl LibrqbitClient {
+    pub fn new(settings: TorrentSettings) -> Arc<Self> {
+        Arc::new(Self {
+            settings: Mutex::new(settings),
+            init: tokio::sync::Mutex::new(()),
+            session: RwLock::new(None),
+            added: Mutex::new(HashSet::new()),
+        })
+    }
+
+    fn settings(&self) -> TorrentSettings {
+        self.settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    fn added(&self) -> std::sync::MutexGuard<'_, HashSet<InfoHash>> {
+        self.added.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn current(&self) -> Option<Arc<Session>> {
+        self.session.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    fn handle(&self, h: &InfoHash) -> Option<Arc<ManagedTorrent>> {
+        self.current()?.get(TorrentIdOrHash::Hash(id20(h)))
+    }
+
+    /// Starts the session now, loading torrents saved by an earlier run (paused).
+    pub async fn restore(&self) -> Result<(), TorrentError> {
+        self.session().await.map(|_| ())
+    }
+
+    /// Pauses everything so the saved state restores paused, then stops the session.
+    pub async fn shutdown(&self) {
+        let _guard = self.init.lock().await;
+        let taken = self.session.write().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(s) = taken {
+            pause_all(&s).await;
+            s.stop().await;
+        }
+    }
+
+    pub fn active_port(&self) -> Option<u16> {
+        self.current()?.listen_addr().map(|a| a.port())
+    }
+
+    async fn session(&self) -> Result<Arc<Session>, TorrentError> {
+        if let Some(s) = self.current() {
+            return Ok(s);
+        }
+        let _guard = self.init.lock().await;
+        if let Some(s) = self.current() {
+            return Ok(s);
+        }
+        let s = self.create().await?;
+        pause_all(&s).await;
+        *self.session.write().unwrap_or_else(|e| e.into_inner()) = Some(s.clone());
+        Ok(s)
+    }
+
+    async fn create(&self) -> Result<Arc<Session>, TorrentError> {
+        let set = self.settings();
+        std::fs::create_dir_all(&set.state_dir).map_err(|e| TorrentError::Io(e.to_string()))?;
+        let port = pick_port(set.listen_port)
+            .ok_or_else(|| TorrentError::Session("no free port for torrents".into()))?;
+        let opts = SessionOptions {
+            dht: (!set.offline).then(|| DhtSessionConfig {
+                persistence: Some(librqbit::dht::DhtPersistenceConfig {
+                    config_filename: Some(set.state_dir.join("dht.json")),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            disable_trackers: set.offline,
+            disable_local_service_discovery: set.offline,
+            fastresume: true,
+            persistence: Some(SessionPersistenceConfig::Json {
+                folder: Some(set.state_dir.join("session")),
+            }),
+            listen: Some(ListenerOptions {
+                listen_addr: ([0, 0, 0, 0], port).into(),
+                enable_upnp_port_forwarding: set.upnp && !set.offline,
+                ipv4_only: true,
+                ..Default::default()
+            }),
+            connect: Some(ConnectionOptions {
+                proxy_url: set.socks_proxy.clone(),
+                ..Default::default()
+            }),
+            ratelimits: LimitsConfig {
+                upload_bps: nz(set.upload_bps),
+                download_bps: nz(set.download_bps),
+            },
+            peer_limit: Some(set.peer_limit),
+            disable_upload: set.upload_bps == Some(0),
+            ipv4_only: true,
+            ..Default::default()
+        };
+        Session::new_with_opts(set.state_dir.join("default"), opts)
+            .await
+            .map_err(session_err)
+    }
+
+    fn initial_peers(&self) -> Option<Vec<std::net::SocketAddr>> {
+        let p = self.settings().extra_peers;
+        (!p.is_empty()).then_some(p)
+    }
+}
+
+/// True when `trackers` or `peers` hold something the torrent in the session was added without.
+/// `added_here` says whether this client added it (a restored torrent never got `peers`).
+fn needs_readd(h: &ManagedTorrent, trackers: &[String], peers: &[std::net::SocketAddr], added_here: bool) -> bool {
+    let shared = h.shared();
+    let known: HashSet<String> = shared.trackers.iter().map(|u| u.to_string()).collect();
+    let new_tracker = trackers.iter().any(|t| {
+        let norm = url::Url::parse(t).map(|u| u.to_string()).unwrap_or_else(|_| t.clone());
+        !known.contains(&norm)
+    });
+    let new_peer = !peers.is_empty() && !added_here;
+    new_tracker || new_peer
+}
+
+async fn pause_all(s: &Arc<Session>) {
+    let live: Vec<_> = s.with_torrents(|it| {
+        it.filter(|(_, h)| !h.is_paused()).map(|(_, h)| h.clone()).collect()
+    });
+    for h in live {
+        let _ = s.pause(&h).await;
+    }
+}
+
+#[async_trait]
+impl TorrentClient for LibrqbitClient {
+    async fn fetch_metadata(
+        &self,
+        source: &TorrentSource,
+        cancel: CancellationToken,
+    ) -> Result<TorrentMeta, TorrentError> {
+        let uri = match source {
+            TorrentSource::Bytes(_) => {
+                return parse(source)?.meta.ok_or_else(|| TorrentError::Invalid("no metadata".into()))
+            }
+            TorrentSource::Magnet(u) => u.clone(),
+        };
+        let session = self.session().await?;
+        let opts = AddTorrentOptions {
+            list_only: true,
+            initial_peers: self.initial_peers(),
+            ..Default::default()
+        };
+        let add = session.add_torrent(AddTorrent::from_url(uri), Some(opts));
+        let resp = tokio::select! {
+            _ = cancel.cancelled() => return Err(TorrentError::Cancelled),
+            r = add => r.map_err(session_err)?,
+        };
+        match resp {
+            AddTorrentResponse::ListOnly(r) => Ok(meta_from(&r.info, r.torrent_bytes)),
+            AddTorrentResponse::AlreadyManaged(_, h) | AddTorrentResponse::Added(_, h) => h
+                .with_metadata(|m| meta_from(&m.info, m.torrent_bytes.clone()))
+                .map_err(session_err),
+        }
+    }
+
+    async fn start(&self, req: StartTorrent) -> Result<(), TorrentError> {
+        let session = self.session().await?;
+        if let Some(h) = session.get(TorrentIdOrHash::Hash(id20(&req.info_hash))) {
+            let added_here = self.added().contains(&req.info_hash);
+            if !needs_readd(&h, &req.trackers, &self.settings().extra_peers, added_here) {
+                if let Some(only) = &req.only_files {
+                    h.wait_until_initialized().await.map_err(session_err)?;
+                    let set: HashSet<usize> = only.iter().copied().collect();
+                    session.update_only_files(&h, &set).await.map_err(session_err)?;
+                }
+                if h.is_paused() {
+                    session.unpause(&h).await.map_err(session_err)?;
+                }
+                return Ok(());
+            }
+            // New trackers or peers only reach librqbit when the torrent is added; the data
+            // on disk is kept and checked again, not downloaded again.
+            session
+                .delete(TorrentIdOrHash::Hash(id20(&req.info_hash)), false)
+                .await
+                .map_err(session_err)?;
+        }
+        let add = match &req.source {
+            TorrentSource::Bytes(b) => AddTorrent::from_bytes(b.clone()),
+            TorrentSource::Magnet(uri) => {
+                let parsed = parse(&req.source)?;
+                let mut trackers = parsed.trackers;
+                for t in &req.trackers {
+                    if !trackers.contains(t) {
+                        trackers.push(t.clone());
+                    }
+                }
+                let _ = uri;
+                AddTorrent::from_url(Magnet::from_id20(id20(&req.info_hash), trackers, None).to_string())
+            }
+        };
+        let set = self.settings();
+        let opts = AddTorrentOptions {
+            paused: false,
+            only_files: req.only_files.clone(),
+            output_folder: Some(req.save_dir.to_string_lossy().into_owned()),
+            overwrite: true,
+            initial_peers: self.initial_peers(),
+            peer_limit: Some(set.peer_limit),
+            ratelimits: LimitsConfig {
+                upload_bps: None,
+                download_bps: nz(req.download_bps),
+            },
+            ..Default::default()
+        };
+        session.add_torrent(add, Some(opts)).await.map_err(session_err)?;
+        self.added().insert(req.info_hash);
+        Ok(())
+    }
+
+    async fn set_files(&self, hash: &InfoHash, selected: &[usize]) -> Result<(), TorrentError> {
+        let session = self.current().ok_or(TorrentError::NotFound)?;
+        let h = self.handle(hash).ok_or(TorrentError::NotFound)?;
+        // librqbit refuses changes while it checks existing data.
+        h.wait_until_initialized().await.map_err(session_err)?;
+        let set: HashSet<usize> = selected.iter().copied().collect();
+        session.update_only_files(&h, &set).await.map_err(session_err)
+    }
+
+    async fn pause(&self, hash: &InfoHash) -> Result<(), TorrentError> {
+        let (Some(session), Some(h)) = (self.current(), self.handle(hash)) else {
+            return Ok(());
+        };
+        if h.is_paused() {
+            return Ok(());
+        }
+        session.pause(&h).await.map_err(session_err)
+    }
+
+    async fn remove(&self, hash: &InfoHash, delete_files: bool) -> Result<(), TorrentError> {
+        let Some(session) = self.current() else {
+            return Ok(());
+        };
+        if self.handle(hash).is_none() {
+            return Ok(());
+        }
+        self.added().remove(hash);
+        session
+            .delete(TorrentIdOrHash::Hash(id20(hash)), delete_files)
+            .await
+            .map_err(session_err)
+    }
+
+    fn stats(&self, hash: &InfoHash) -> Option<TorrentStats> {
+        let h = self.handle(hash)?;
+        let st = h.stats();
+        // (size, is padding) per librqbit file index.
+        let sizes: Option<Vec<(u64, bool)>> = h
+            .with_metadata(|m| {
+                m.info
+                    .iter_file_details()
+                    .map(|d| (d.len, d.attrs().padding))
+                    .collect()
+            })
+            .ok();
+        let has_meta = sizes.is_some();
+        let only = h.only_files();
+        let selected = |idx: usize| only.as_ref().is_none_or(|o| o.contains(&idx));
+        let (mut sel_total, mut sel_done) = (0u64, 0u64);
+        for (idx, &(len, pad)) in sizes.iter().flatten().enumerate() {
+            if pad || !selected(idx) {
+                continue;
+            }
+            sel_total += len;
+            sel_done += st.file_progress.get(idx).copied().unwrap_or(0).min(len);
+        }
+        if !has_meta {
+            sel_total = st.total_bytes;
+            sel_done = st.progress_bytes;
+        }
+        let files = st
+            .file_progress
+            .iter()
+            .enumerate()
+            .map(|(idx, &done)| FileProgress { idx, done })
+            .collect();
+        let (down, up, connected, seen) = match &st.live {
+            Some(l) => (
+                l.download_speed.as_bytes(),
+                l.upload_speed.as_bytes(),
+                l.snapshot.peer_stats.live,
+                l.snapshot.peer_stats.seen,
+            ),
+            None => (0, 0, 0, 0),
+        };
+        Some(TorrentStats {
+            selected_total: sel_total,
+            selected_done: sel_done,
+            down_bps: down,
+            up_bps: up,
+            peers_connected: connected,
+            peers_seen: seen,
+            files,
+            finished: st.finished,
+            checking: matches!(st.state, TorrentStatsState::Initializing { .. }),
+            has_meta,
+            error: st.error.clone(),
+        })
+    }
+
+    fn pieces(&self, hash: &InfoHash) -> Option<PieceMap> {
+        let session = self.current()?;
+        let (bf, len) = Api::new(session, None)
+            .api_dump_haves(TorrentIdOrHash::Hash(id20(hash)))
+            .ok()?;
+        Some(PieceMap {
+            piece_count: len,
+            have: bf.as_raw_slice().to_vec(),
+        })
+    }
+
+    async fn apply_settings(&self, new: TorrentSettings) -> Result<(), TorrentError> {
+        let old = std::mem::replace(
+            &mut *self.settings.lock().unwrap_or_else(|e| e.into_inner()),
+            new.clone(),
+        );
+        let Some(session) = self.current() else {
+            return Ok(());
+        };
+        session.ratelimits.set_download_bps(nz(new.download_bps));
+        session.ratelimits.set_upload_bps(nz(new.upload_bps));
+        if session_key(&old) != session_key(&new) {
+            let busy = session.with_torrents(|it| {
+                for (_, h) in it {
+                    if !h.is_paused() {
+                        return true;
+                    }
+                }
+                false
+            });
+            // A busy session keeps running; the new port and proxy apply when it next starts.
+            if !busy {
+                self.shutdown().await;
+            }
+        }
+        Ok(())
+    }
+}

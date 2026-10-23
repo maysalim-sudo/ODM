@@ -14,7 +14,7 @@ odm-engine = { path = "crates/odm-engine" }
 odm-testserver = { path = "crates/odm-testserver" }
 odm-appcore = { path = "crates/odm-appcore" }
 odm-torrent = { path = "crates/odm-torrent" }
-librqbit = { version = "=9.0.1", default-features = false, features = ["rust-tls"] }
+librqbit = { version = "=9.0.1", default-features = false, features = ["rust-tls", "disable-upload"] }
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
