@@ -57,11 +57,19 @@
         settingsOpen = true;
       })
       .then((un) => (gone ? un() : (off = un)));
+    // A .torrent dropped on the window opens like one picked in the Add dialog.
+    let offDrop: (() => void) | undefined;
+    void api
+      .onTorrentDrop((paths) => {
+        for (const path of paths) void downloads.run(() => api.addTorrent({ kind: "file", path }));
+      })
+      .then((un) => (gone ? un() : (offDrop = un)));
     const stop = integration.startPolling();
     return () => {
       gone = true;
       off?.();
       offQueue?.();
+      offDrop?.();
       stop();
     };
   });

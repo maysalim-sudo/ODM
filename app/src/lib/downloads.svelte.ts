@@ -17,6 +17,9 @@ class DownloadsStore {
   /** Browser downloads added paused that wait for the "New download" dialog, oldest first. */
   confirms = $state<string[]>([]);
 
+  /** Bumped per torrent when its file list arrives or changes, so open views reload it. */
+  fileLists = $state<Record<string, number>>({});
+
   /** Finished downloads whose file name is taken, waiting for Replace, Keep both or Cancel. */
   prompts = $state<ExistsPrompt[]>([]);
 
@@ -123,6 +126,18 @@ class DownloadsStore {
     }
     if (ev.type === "confirm_download") {
       this.addConfirm(ev.id);
+      return;
+    }
+    if (ev.type === "torrent_metadata") {
+      this.fileLists = { ...this.fileLists, [ev.id]: (this.fileLists[ev.id] ?? 0) + 1 };
+      return;
+    }
+    if (ev.type === "focus") {
+      // A torrent already in the list was added again: show its row.
+      if (this.rows.has(ev.id)) {
+        this.setFilter("all");
+        this.select(ev.id, "one");
+      }
       return;
     }
     if (ev.type === "exists_prompt") {

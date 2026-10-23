@@ -6,6 +6,9 @@
   import { CATEGORIES, CATEGORY_LABELS, integrationProblem, relativeTime } from "../lib/model";
   import {
     PAGE_MS,
+    randomTorrentPort,
+    torrentProxyNote,
+    uploadMode,
     SECTIONS,
     checkFolderName,
     checkHost,
@@ -721,6 +724,50 @@
                       {#if show("max_attempts")}
                         <SettingRow id="max_attempts">
                           <NumberField label="Retries per part" value={s.max_attempts} check={(v) => checkInt(v, 1, 20)} onvalid={(v) => set("max_attempts", v)} />
+                        </SettingRow>
+                      {/if}
+                    </div>
+                  {/if}
+                {:else if sec.id === "torrents"}
+                  {#if any("torrent_port", "torrent_upnp", "torrent_upload", "torrent_max_peers")}
+                    <div class="card">
+                      {#if show("torrent_port")}
+                        <SettingRow id="torrent_port">
+                          <NumberField label="Listen port" value={s.torrent_port} check={(v) => checkInt(v, 1024, 65535)} onvalid={(v) => set("torrent_port", v)} />
+                          <button onclick={() => set("torrent_port", randomTorrentPort())}>Random</button>
+                          {#snippet below()}
+                            {@const note = torrentProxyNote(s?.proxy_mode ?? "", s?.proxy_url ?? "")}
+                            {#if note}<p class="field-hint">{note}</p>{/if}
+                          {/snippet}
+                        </SettingRow>
+                      {/if}
+                      {#if show("torrent_upnp")}
+                        <SettingRow id="torrent_upnp">
+                          <Switch label="Open the port on the router" describedby="set-torrent_upnp-desc" checked={s.torrent_upnp} onchange={(v) => set("torrent_upnp", v)} />
+                        </SettingRow>
+                      {/if}
+                      {#if show("torrent_upload")}
+                        <SettingRow id="torrent_upload">
+                          <Segmented
+                            label="Upload while downloading"
+                            value={uploadMode(s.torrent_upload_kbps)}
+                            options={[
+                              { value: "limit", label: "Limit" },
+                              { value: "unlimited", label: "Unlimited" },
+                              { value: "none", label: "Don't upload" },
+                            ]}
+                            onchange={(v) => set("torrent_upload_kbps", v === "unlimited" ? null : v === "none" ? 0 : 100)}
+                          />
+                          {#snippet below()}
+                            {#if s && uploadMode(s.torrent_upload_kbps) === "limit"}
+                              <NumberField label="Upload limit" unit="KB/s" value={s.torrent_upload_kbps ?? 100} check={(v) => checkInt(v, 1, 10_000_000)} onvalid={(v) => set("torrent_upload_kbps", v)} />
+                            {/if}
+                          {/snippet}
+                        </SettingRow>
+                      {/if}
+                      {#if show("torrent_max_peers")}
+                        <SettingRow id="torrent_max_peers">
+                          <NumberField label="Peers per torrent" value={s.torrent_max_peers} check={(v) => checkInt(v, 10, 1000)} onvalid={(v) => set("torrent_max_peers", v)} />
                         </SettingRow>
                       {/if}
                     </div>

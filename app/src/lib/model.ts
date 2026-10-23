@@ -1,5 +1,6 @@
 import { fromKbps } from "./settingsPage";
-import type { AfterQueue, ChunkState, ChunkView, Download, DownloadState, ExistsPrompt, IntegrationStatus, Offer, SegmentProgress, StoreLinks, ToolInfo, ToolsStatus, UiEvent } from "./types";
+import { statusLabel } from "./format";
+import type { AfterQueue, ChunkState, ChunkView, Download, DownloadState, ExistsPrompt, IntegrationStatus, Offer, SegmentProgress, StoreLinks, ToolInfo, ToolsStatus, TorrentProgress, UiEvent } from "./types";
 
 /** A list row: the stored download plus live values from progress events. */
 export interface Row extends Download {
@@ -8,9 +9,11 @@ export interface Row extends Download {
   chunks: ChunkView[] | null;
   /** HLS only: from the last progress event. */
   segments: SegmentProgress | null;
+  /** Torrents only: peers and upload speed from the last progress event. */
+  torrent: TorrentProgress | null;
 }
 
-export const CATEGORIES = ["video", "audio", "document", "compressed", "image", "program", "general"] as const;
+export const CATEGORIES = ["video", "audio", "document", "compressed", "image", "program", "torrent", "general"] as const;
 
 /** Display names for the category ids, used by the sidebar and the settings. */
 export const CATEGORY_LABELS: Record<(typeof CATEGORIES)[number], string> = {
@@ -20,6 +23,7 @@ export const CATEGORY_LABELS: Record<(typeof CATEGORIES)[number], string> = {
   compressed: "Compressed",
   image: "Images",
   program: "Programs",
+  torrent: "Torrents",
   general: "Other",
 };
 
@@ -57,6 +61,7 @@ export function toRow(d: Download, prev?: Row): Row {
     eta_s: live ? live.eta_s : null,
     chunks: live ? live.chunks : null,
     segments: live ? live.segments : null,
+    torrent: live ? live.torrent : null,
   };
 }
 
@@ -97,6 +102,7 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
           eta_s: p.eta_s,
           chunks: p.chunks,
           segments: p.segments ?? null,
+          torrent: p.torrent ?? null,
         });
       }
       return { rows: next ?? rows, resync: false };
@@ -516,4 +522,21 @@ export function totalSpeed(rows: Map<string, Row>): number {
   let sum = 0;
   for (const r of rows.values()) sum += r.speed_bps;
   return sum;
+}
+
+/**
+ * A row's status. Torrents say what they wait for: their file list, the user's choice
+ * (`waiting`: it is queued for the confirm dialog), or the data check; running, they
+ * show how many peers they talk to.
+ */
+export function rowStatus(row: Row, waiting: boolean, queueWait: string | null = null): string {
+  if (row.kind === "torrent") {
+    if (row.state === "paused" && waiting) return row.has_meta ? "Waiting for you" : "Fetching file list…";
+    if (row.state === "probing") return row.has_meta ? "Checking files…" : "Fetching file list…";
+    if (row.state === "downloading" && row.torrent) {
+      const n = row.torrent.peers_connected;
+      return `Downloading · ${n} ${n === 1 ? "peer" : "peers"}`;
+    }
+  }
+  return statusLabel(row.state, row.pause_reason, queueWait);
 }

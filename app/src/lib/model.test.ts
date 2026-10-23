@@ -43,6 +43,7 @@ import {
   speedPresets,
   formatLimit,
   totalSpeed,
+  rowStatus,
 } from "./model";
 import type { Download, IntegrationStatus, StoreLinks, ToolsStatus } from "./types";
 
@@ -360,6 +361,7 @@ describe("CATEGORY_LABELS", () => {
       "Compressed",
       "Images",
       "Programs",
+      "Torrents",
       "Other",
     ]);
   });
@@ -743,4 +745,35 @@ describe("totalSpeed", () => {
     expect(totalSpeed(rows)).toBe(150);
   });
   it("is 0 with no rows", () => expect(totalSpeed(new Map())).toBe(0));
+});
+
+describe("torrent rows", () => {
+  const torrent = (patch: Partial<Download> = {}) =>
+    toRow(dl("t", { kind: "torrent", category: "torrent", info_hash: "ab".repeat(20), has_meta: true, ...patch }));
+
+  it("torrent_status_labels", () => {
+    expect(rowStatus(torrent({ state: "paused", has_meta: false, size: null }), true)).toBe("Fetching file list…");
+    expect(rowStatus(torrent({ state: "paused" }), true)).toBe("Waiting for you");
+    expect(rowStatus(torrent({ state: "paused" }), false)).toBe("Paused");
+    expect(rowStatus(torrent({ state: "probing", has_meta: false, size: null }), false)).toBe("Fetching file list…");
+    expect(rowStatus(torrent({ state: "probing" }), false)).toBe("Checking files…");
+    const live = { ...torrent({ state: "downloading" }), torrent: { peers_connected: 4, peers_seen: 30, up_bps: 0 } };
+    expect(rowStatus(live, false)).toBe("Downloading · 4 peers");
+    const one = { ...live, torrent: { peers_connected: 1, peers_seen: 1, up_bps: 0 } };
+    expect(rowStatus(one, false)).toBe("Downloading · 1 peer");
+    expect(rowStatus(torrent({ state: "completed" }), false)).toBe("Completed");
+  });
+
+  it("torrent_progress_reaches_the_row", () => {
+    const rows = replaceAll([dl("t", { kind: "torrent", state: "downloading" })]);
+    const r = applyEvent(rows, {
+      type: "progress_batch",
+      items: [{ id: "t", bytes: 10, total: 100, speed_bps: 5, eta_s: 18, chunks: [], torrent: { peers_connected: 2, peers_seen: 9, up_bps: 1 } }],
+    });
+    expect(r.rows.get("t")?.torrent).toEqual({ peers_connected: 2, peers_seen: 9, up_bps: 1 });
+  });
+
+  it("plain_rows_keep_plain_labels", () => {
+    expect(rowStatus(toRow(dl("a", { state: "probing" })), false)).toBe("Starting");
+  });
 });

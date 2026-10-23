@@ -533,6 +533,8 @@ pub async fn save_settings(
 ) -> Result<(Settings, Vec<String>), String> {
     s.validate()?;
     let warnings = s.clamp();
+    // "Restore defaults" brings back port 0; a port is always chosen before saving.
+    s.ensure_torrent_port();
     s.save(path)
         .map_err(|e| format!("Could not save settings: {e}"))?;
     apply_settings(m, &s).await?;

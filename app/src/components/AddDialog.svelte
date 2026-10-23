@@ -27,6 +27,8 @@
   let error = $state<string | null>(null);
 
   const validUrl = $derived(/^https?:\/\/[^/]/i.test(url.trim()));
+  /** A magnet link: added as a torrent; its files are chosen in the next window. */
+  const isMagnet = $derived(/^magnet:\?/i.test(url.trim()));
 
   // Fresh form every time the dialog opens.
   $effect(() => {
@@ -88,7 +90,26 @@
     await add(false);
   }
 
+  async function addTorrent(input: Parameters<typeof api.addTorrent>[0]) {
+    busy = true;
+    error = null;
+    try {
+      await api.addTorrent(input);
+      onclose();
+    } catch (err) {
+      error = api.errorText(err);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function pickTorrent() {
+    const path = await api.pickTorrentFile().catch(() => null);
+    if (path) await addTorrent({ kind: "file", path });
+  }
+
   async function add(startNow: boolean) {
+    if (isMagnet && !busy) return addTorrent({ kind: "magnet", text: url.trim() });
     if (!validUrl || busy || limitError) return;
     busy = true;
     error = null;
@@ -118,10 +139,12 @@
     <label class="field">
       <span>Address</span>
       <!-- svelte-ignore a11y_autofocus -->
-      <input type="url" bind:value={url} placeholder="https://example.com/file.zip" autofocus required />
+      <input type="url" bind:value={url} placeholder="https://example.com/file.zip or a magnet link" autofocus required />
     </label>
     <p class="hint">
-      {#if checking}
+      {#if isMagnet}
+        Magnet link · you choose which files to download next
+      {:else if checking}
         Checking the address…
       {:else if suggestion?.is_page}
         This page's video will be downloaded with yt-dlp.
@@ -137,6 +160,7 @@
       {/if}
     </p>
 
+    {#if !isMagnet}
     {#if suggestion?.is_stream && suggestion.variants.length > 0}
       <label class="field">
         <span>Quality</span>
@@ -166,7 +190,7 @@
         <span>Type</span>
         <select bind:value={category}>
           <option value="">Automatic{suggestion ? ` (${suggestion.category})` : ""}</option>
-          {#each CATEGORIES as c (c)}
+          {#each CATEGORIES.filter((c) => c !== "torrent") as c (c)}
             <option value={c}>{c}</option>
           {/each}
         </select>
@@ -185,17 +209,25 @@
       {/if}
     </div>
     {#if limitError}<p class="form-error" role="alert">{limitError}</p>{/if}
+    {/if}
 
     {#if error}<p class="form-error" role="alert">{error}</p>{/if}
 
     <div class="actions">
+      <button type="button" class="torrent-file" onclick={pickTorrent} disabled={busy}>Torrent file…</button>
       <button type="button" onclick={onclose}>Cancel</button>
-      {#if waits}
+      {#if waits && !isMagnet}
         <button type="button" disabled={!validUrl || busy || limitError !== null} onclick={() => add(true)}>Start now</button>
       {/if}
-      <button type="submit" class="primary" disabled={!validUrl || busy || limitError !== null}>
-        {addsPaused ? "Add paused" : waits ? "Add to queue" : "Start download"}
+      <button type="submit" class="primary" disabled={!(validUrl || isMagnet) || busy || (!isMagnet && limitError !== null)}>
+        {isMagnet ? "Add torrent" : addsPaused ? "Add paused" : waits ? "Add to queue" : "Start download"}
       </button>
     </div>
   </form>
 </Modal>
+
+<style>
+  .torrent-file {
+    margin-right: auto;
+  }
+</style>

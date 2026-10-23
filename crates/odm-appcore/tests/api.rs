@@ -661,6 +661,7 @@ async fn proxy_url_validation() {
         download_dir: data.path().to_string_lossy().into_owned(),
         proxy_mode: ProxyMode::Manual,
         proxy_url: "http://127.0.0.1:8080".into(),
+        torrent_port: 51000,
         ..Default::default()
     };
     api::save_settings(&m, &path, good.clone()).await.unwrap();

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type {
   AddArgs,
   BatchResult,
@@ -31,6 +32,15 @@ export const torrentFiles = (id: string) => invoke<TorrentFile[]>("torrent_files
 export const setTorrentFiles = (id: string, selected: number[]) =>
   invoke<void>("set_torrent_files", { id, selected });
 export const pickTorrentFile = () => invoke<string | null>("pick_torrent_file");
+
+/** Calls `cb` with the `.torrent` files dropped on the window. */
+export function onTorrentDrop(cb: (paths: string[]) => void): Promise<UnlistenFn> {
+  return getCurrentWebview().onDragDropEvent((e) => {
+    if (e.payload.type !== "drop") return;
+    const torrents = e.payload.paths.filter((p) => /\.torrent$/i.test(p));
+    if (torrents.length > 0) cb(torrents);
+  });
+}
 export const pause = (ids: string[]) => invoke<void>("pause", { ids });
 export const resume = (ids: string[]) => invoke<void>("resume", { ids });
 export const cancel = (ids: string[], deleteFile: boolean) => invoke<void>("cancel", { ids, deleteFile });

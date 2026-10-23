@@ -2,7 +2,7 @@ import type { Schedule, Settings } from "./types";
 
 /** The Settings page: its sections, rows, search, restore and inline checks. */
 
-export type SectionId = "general" | "downloads" | "speed" | "browser" | "video" | "network" | "updates" | "advanced";
+export type SectionId = "general" | "downloads" | "speed" | "browser" | "video" | "network" | "torrents" | "updates" | "advanced";
 
 /** Most-used first; advanced last. */
 export const SECTIONS: { id: SectionId; title: string }[] = [
@@ -12,6 +12,7 @@ export const SECTIONS: { id: SectionId; title: string }[] = [
   { id: "browser", title: "Browser" },
   { id: "video", title: "Video" },
   { id: "network", title: "Network" },
+  { id: "torrents", title: "Torrents" },
   { id: "updates", title: "Updates" },
   { id: "advanced", title: "Advanced" },
 ];
@@ -72,6 +73,11 @@ export const ROWS: RowDef[] = [
   row("network", "connect_timeout_s", "Connect timeout", "How long to wait for a server to answer.", ["connect_timeout_s"]),
   row("network", "read_timeout_s", "Read timeout", "How long a stalled connection waits before it retries.", ["read_timeout_s"]),
   row("network", "max_attempts", "Retries per part", "How often each part is retried before the download fails.", ["max_attempts"]),
+
+  row("torrents", "torrent_port", "Listen port", "Other computers reach ODM on this port. Random picks a new one.", ["torrent_port"]),
+  row("torrents", "torrent_upnp", "Open the port on the router", "Uses UPnP so more peers can reach ODM.", ["torrent_upnp"]),
+  row("torrents", "torrent_upload", "Upload while downloading", "Peers send faster to those who share back. ODM stops uploading when a torrent finishes.", ["torrent_upload_kbps"]),
+  row("torrents", "torrent_max_peers", "Peers per torrent", "More peers can be faster but use more connections.", ["torrent_max_peers"]),
 
   row("updates", "update_check", "Check for updates automatically", "ODM tells you when a new version is ready.", ["update_check"]),
   row("updates", "update_install", "When an update is ready", "Installing when you quit saves a step.", ["update_install"]),
@@ -282,4 +288,22 @@ export function toggleDay(s: Schedule, i: number): Schedule | null {
 export function switchSchedule(s: Schedule, on: boolean): Schedule {
   const days = on && !s.days.some(Boolean) ? s.days.map(() => true) : s.days;
   return { ...s, enabled: on, days };
+}
+
+/** A random listen port in the range Windows leaves to programs (49152–65535). */
+export function randomTorrentPort(): number {
+  return 49152 + Math.floor(Math.random() * (65535 - 49152 + 1));
+}
+
+/** The upload choice behind `torrent_upload_kbps`: null = unlimited, 0 = none. */
+export type UploadMode = "limit" | "unlimited" | "none";
+
+export function uploadMode(kbps: number | null): UploadMode {
+  return kbps === null ? "unlimited" : kbps === 0 ? "none" : "limit";
+}
+
+/** Torrents can use only a SOCKS5 proxy; any other manual proxy is bypassed. */
+export function torrentProxyNote(mode: string, url: string): string | null {
+  if (mode !== "manual" || !url.trim()) return null;
+  return /^socks5h?:\/\//i.test(url.trim()) ? null : "Torrents connect directly; only a SOCKS5 proxy can carry torrent traffic.";
 }

@@ -86,6 +86,7 @@ describe("sections", () => {
       "Browser",
       "Video",
       "Network",
+      "Torrents",
       "Updates",
       "Advanced",
     ]);
@@ -389,7 +390,7 @@ describe("page source", () => {
     expect(add).toContain("start_now: true");
     expect(add).toMatch(/waits = \$derived\(addsPaused \|\| queueSchedule\.wait !== null\)/);
     const table = (await import("../components/DownloadTable.svelte?raw")).default;
-    expect(table).toContain("statusLabel(row.state, row.pause_reason, queueSchedule.wait)");
+    expect(table).toContain("rowStatus(row, downloads.confirms.includes(row.id), queueSchedule.wait)");
     const toolbar = (await import("../components/Toolbar.svelte?raw")).default;
     expect(toolbar).toContain("canResume(r, queueSchedule.wait !== null)");
   });
@@ -425,5 +426,27 @@ describe("schedule days", () => {
     expect(switchSchedule(sched(none, false), true)).toEqual(sched([true, true, true, true, true, true, true]));
     expect(switchSchedule(sched(one, false), true)).toEqual(sched(one));
     expect(switchSchedule(sched(one), false)).toEqual(sched(one, false));
+  });
+});
+
+describe("torrent settings", async () => {
+  const { randomTorrentPort, uploadMode, torrentProxyNote } = await import("./settingsPage");
+  it("random_port_in_range", () => {
+    for (let i = 0; i < 500; i++) {
+      const p = randomTorrentPort();
+      expect(p >= 49152 && p <= 65535 && Number.isInteger(p)).toBe(true);
+    }
+  });
+  it("upload_mode", () => {
+    expect(uploadMode(null)).toBe("unlimited");
+    expect(uploadMode(0)).toBe("none");
+    expect(uploadMode(100)).toBe("limit");
+  });
+  it("proxy_note_only_for_non_socks_manual", () => {
+    expect(torrentProxyNote("manual", "http://h:8080")).toBe("Torrents connect directly; only a SOCKS5 proxy can carry torrent traffic.");
+    expect(torrentProxyNote("manual", "socks5://h:1080")).toBeNull();
+    expect(torrentProxyNote("manual", "SOCKS5H://h:1080")).toBeNull();
+    expect(torrentProxyNote("system", "http://h:8080")).toBeNull();
+    expect(torrentProxyNote("manual", "")).toBeNull();
   });
 });

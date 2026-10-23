@@ -2,11 +2,13 @@
   import * as api from "../lib/api";
   import { downloads } from "../lib/downloads.svelte";
   import { queueSchedule } from "../lib/queueSchedule.svelte";
-  import { formatBytes, formatEta, formatSpeed, joinPath, statusLabel } from "../lib/format";
-  import { canRefresh, canResume, isRiskyFile, needsVideoTools, progressPct } from "../lib/model";
+  import { formatBytes, formatEta, formatSpeed, joinPath } from "../lib/format";
+  import { canRefresh, canResume, isActive, isRiskyFile, needsVideoTools, progressPct, rowStatus } from "../lib/model";
   import { checkSpeed } from "../lib/settingsPage";
   import type { Detail } from "../lib/types";
   import ChunkMap from "./ChunkMap.svelte";
+  import PieceMap from "./PieceMap.svelte";
+  import TorrentFiles from "./TorrentFiles.svelte";
   import ToolsCard from "./ToolsCard.svelte";
 
   let {
@@ -27,6 +29,27 @@
   const pct = $derived(row && (row.segments || row.size) ? progressPct(row) : null);
   // A primitive, so progress ticks (which replace the row object) do not re-run the fetch.
   const rowState = $derived(row?.state);
+  const isTorrent = $derived(row?.kind === "torrent");
+  const fileVersion = $derived(id ? (downloads.fileLists[id] ?? 0) : 0);
+  /** A running torrent's piece map and file progress change all the time: re-read them. */
+  let tick = $state(0);
+  $effect(() => {
+    if (!isTorrent || !rowState || !isActive(rowState)) return;
+    const timer = setInterval(() => (tick += 1), 2000);
+    return () => clearInterval(timer);
+  });
+  let filesError = $state<string | null>(null);
+  const selectedFiles = $derived(new Set((detail?.torrent?.files ?? []).filter((f) => f.selected).map((f) => f.idx)));
+
+  async function changeFiles(next: Set<number>) {
+    if (!row) return;
+    filesError = null;
+    try {
+      await api.setTorrentFiles(row.id, [...next]);
+    } catch (e) {
+      filesError = api.errorText(e);
+    }
+  }
 
   // Show nothing stale when switching to another download.
   $effect(() => {
@@ -39,6 +62,8 @@
     const wanted = id;
     // Re-read when the download changes state, so stored chunks stay current.
     void rowState;
+    void fileVersion;
+    void tick;
     if (!wanted) return;
     let cancelled = false;
     api
@@ -115,7 +140,13 @@
       <button onclick={onclose} aria-label="Close details">Close</button>
     </header>
 
-    {#if row.kind !== "hls" && row.kind !== "site"}
+    {#if isTorrent}
+      {#if detail?.torrent?.pieces}
+        <section>
+          <PieceMap pieces={detail.torrent.pieces} />
+        </section>
+      {/if}
+    {:else if row.kind !== "hls" && row.kind !== "site"}
       <section>
         <ChunkMap {chunks} total={row.size} />
       </section>
@@ -123,7 +154,7 @@
 
     <dl>
       <dt>Status</dt>
-      <dd class:bad={row.state === "failed"}>{statusLabel(row.state, row.pause_reason, queueSchedule.wait)}</dd>
+      <dd class:bad={row.state === "failed"}>{rowStatus(row, downloads.confirms.includes(row.id), queueSchedule.wait)}</dd>
       {#if row.error_message}
         <dt>Problem</dt>
         <dd class="bad wrap">{row.error_message}</dd>
@@ -140,6 +171,12 @@
       <dd>{row.state === "downloading" ? formatSpeed(row.speed_bps) : "—"}</dd>
       <dt>Time left</dt>
       <dd>{row.state === "downloading" ? formatEta(row.eta_s) : "—"}</dd>
+      {#if isTorrent}
+        <dt>Peers</dt>
+        <dd>{row.torrent ? `${row.torrent.peers_connected} connected (${row.torrent.peers_seen} found)` : "—"}</dd>
+        <dt>Uploading</dt>
+        <dd>{row.torrent && row.state === "downloading" ? formatSpeed(row.torrent.up_bps) : "—"}</dd>
+      {/if}
       <dt>Saved to</dt>
       <dd class="wrap">{joinPath(row.save_dir, row.filename)}</dd>
       <dt>Address</dt>
@@ -151,6 +188,9 @@
       {#if row.kind === "site"}
         <dt>Method</dt>
         <dd>Downloaded with yt-dlp</dd>
+      {:else if isTorrent}
+        <dt>Info hash</dt>
+        <dd class="wrap">{row.info_hash}</dd>
       {:else}
         <dt>Connections</dt>
         <dd>Up to {row.max_connections}</dd>
@@ -185,6 +225,16 @@
         <dd class="wrap">{detail.header_names.join(", ")}</dd>
       {/if}
     </dl>
+
+    {#if isTorrent && detail?.torrent && detail.torrent.files.length > 0}
+      <section>
+        <h3>Files</h3>
+        <TorrentFiles files={detail.torrent.files} selected={selectedFiles} onchange={changeFiles} progress disabled={row.state === "cancelled"} />
+        {#if filesError}<p class="bad" role="alert">{filesError}</p>{/if}
+      </section>
+    {:else if isTorrent && !row.has_meta}
+      <p class="hint">Fetching file list…</p>
+    {/if}
 
     {#if needsVideoTools(row.error_message)}
       <section class="tools">

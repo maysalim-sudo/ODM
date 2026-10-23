@@ -259,3 +259,13 @@ async fn detail_has_torrent_section() {
     let list = api::list(m).await.unwrap();
     assert!(list.iter().all(|d| d.kind == "torrent"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn saving_port_zero_picks_one() {
+    let f = fixture().await;
+    let dir = tempfile::tempdir().unwrap();
+    let (saved, _) = api::save_settings(&f.ctx.manager, &dir.path().join("s.json"), Settings::default())
+        .await
+        .unwrap();
+    assert!((49152..=65535).contains(&saved.torrent_port), "{}", saved.torrent_port);
+}
