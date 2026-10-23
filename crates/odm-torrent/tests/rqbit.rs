@@ -321,3 +321,75 @@ async fn pieces_map_fills() {
     let set_bits: u32 = map.have.iter().map(|b| b.count_ones()).sum();
     assert_eq!(set_bits, 7);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn remove_before_session_start_forgets_it() {
+    let s = seed(&[("a.bin", 30_000)]).await;
+    let state = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let c = LibrqbitClient::new(settings(state.path(), vec![s.addr]));
+    c.start(start_req(&s, out.path(), None)).await.unwrap();
+    wait_finished(&c, &s.hash, 60).await;
+    c.shutdown().await;
+    drop(c);
+    // Next run: removed before anything started the session.
+    let c = LibrqbitClient::new(settings(state.path(), vec![s.addr]));
+    c.remove(&s.hash, false).await.unwrap();
+    c.shutdown().await;
+    drop(c);
+    let c = LibrqbitClient::new(settings(state.path(), vec![s.addr]));
+    c.restore().await.unwrap();
+    assert!(c.stats(&s.hash).is_none(), "removed torrent came back from the saved session");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn restored_torrent_uses_a_new_folder() {
+    let s = seed(&[("a.bin", 30_000)]).await;
+    let state = tempfile::tempdir().unwrap();
+    let (out1, out2) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let c = LibrqbitClient::new(settings(state.path(), vec![s.addr]));
+    c.start(start_req(&s, out1.path(), None)).await.unwrap();
+    wait_finished(&c, &s.hash, 60).await;
+    c.pause(&s.hash).await.unwrap();
+    c.shutdown().await;
+    drop(c);
+    let c = LibrqbitClient::new(settings(state.path(), vec![s.addr]));
+    c.restore().await.unwrap();
+    // Started again here first, so only the folder change can make it re-add.
+    c.start(start_req(&s, out1.path(), None)).await.unwrap();
+    wait_finished(&c, &s.hash, 60).await;
+    c.pause(&s.hash).await.unwrap();
+    c.start(start_req(&s, out2.path(), None)).await.unwrap();
+    wait_finished(&c, &s.hash, 60).await;
+    assert_eq!(on_disk(out2.path(), "a.bin").as_deref(), Some(data(&s, "a.bin")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn settings_change_keeps_a_metadata_fetch_alive() {
+    let state = tempfile::tempdir().unwrap();
+    let dead: SocketAddr = ([127, 0, 0, 1], 9).into();
+    let set = settings(state.path(), vec![dead]);
+    let c = LibrqbitClient::new(set.clone());
+    let cancel = CancellationToken::new();
+    let (c2, cancel2) = (c.clone(), cancel.clone());
+    let magnet = "magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01".to_string();
+    let fetch = tokio::spawn(async move { c2.fetch_metadata(&TorrentSource::Magnet(magnet), cancel2).await });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let before = c.active_port().expect("session up for the fetch");
+    let next = port::pick_port(0).unwrap();
+    c.apply_settings(TorrentSettings { listen_port: next, ..set }).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The session the fetch uses keeps running.
+    assert_eq!(c.active_port(), Some(before));
+    assert!(!fetch.is_finished());
+    cancel.cancel();
+    assert_eq!(fetch.await.unwrap(), Err(TorrentError::Cancelled));
+    // Idle again: the pending restart happens, and the next session uses the new port.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while c.active_port() == Some(before) {
+        assert!(tokio::time::Instant::now() < deadline, "restart never happened");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    c.restore().await.unwrap();
+    assert_eq!(c.active_port(), Some(next));
+}

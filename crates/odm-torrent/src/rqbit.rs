@@ -14,6 +14,7 @@ use librqbit::{
 use std::collections::HashSet;
 use std::num::NonZeroU32;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 pub struct LibrqbitClient {
@@ -23,6 +24,10 @@ pub struct LibrqbitClient {
     session: RwLock<Option<Arc<Session>>>,
     /// Torrents this client added (as opposed to ones restored from an earlier run).
     added: Mutex<HashSet<InfoHash>>,
+    /// Metadata fetches running now: they keep the session busy like a running torrent.
+    fetching: AtomicUsize,
+    /// Settings changed while busy: restart the session once it is idle.
+    restart_pending: AtomicBool,
 }
 
 fn session_err(e: impl std::fmt::Display) -> TorrentError {
@@ -75,6 +80,8 @@ impl LibrqbitClient {
             init: tokio::sync::Mutex::new(()),
             session: RwLock::new(None),
             added: Mutex::new(HashSet::new()),
+            fetching: AtomicUsize::new(0),
+            restart_pending: AtomicBool::new(false),
         })
     }
 
@@ -170,6 +177,33 @@ impl LibrqbitClient {
             .map_err(session_err)
     }
 
+    /// True while a torrent transfers or a metadata fetch runs.
+    fn busy(&self) -> bool {
+        if self.fetching.load(Ordering::SeqCst) > 0 {
+            return true;
+        }
+        let Some(session) = self.current() else {
+            return false;
+        };
+        session.with_torrents(|it| {
+            for (_, h) in it {
+                if !h.is_paused() {
+                    return true;
+                }
+            }
+            false
+        })
+    }
+
+    /// Restarts the session for changed settings once nothing uses it. The next call
+    /// that needs it starts it with the new settings.
+    async fn restart_if_idle(&self) {
+        if self.restart_pending.load(Ordering::SeqCst) && !self.busy() {
+            self.restart_pending.store(false, Ordering::SeqCst);
+            self.shutdown().await;
+        }
+    }
+
     fn initial_peers(&self) -> Option<Vec<std::net::SocketAddr>> {
         let p = self.settings().extra_peers;
         (!p.is_empty()).then_some(p)
@@ -178,7 +212,17 @@ impl LibrqbitClient {
 
 /// True when `trackers` or `peers` hold something the torrent in the session was added without.
 /// `added_here` says whether this client added it (a restored torrent never got `peers`).
-fn needs_readd(h: &ManagedTorrent, trackers: &[String], peers: &[std::net::SocketAddr], added_here: bool) -> bool {
+fn needs_readd(
+    h: &ManagedTorrent,
+    save_dir: &std::path::Path,
+    trackers: &[String],
+    peers: &[std::net::SocketAddr],
+    added_here: bool,
+) -> bool {
+    // A torrent restored from an earlier run keeps its old folder unless it is added again.
+    if h.output_folder() != save_dir {
+        return true;
+    }
     let shared = h.shared();
     let known: HashSet<String> = shared.trackers.iter().map(|u| u.to_string()).collect();
     let new_tracker = trackers.iter().any(|t| {
@@ -212,32 +256,39 @@ impl TorrentClient for LibrqbitClient {
             TorrentSource::Magnet(u) => u.clone(),
         };
         let session = self.session().await?;
-        let opts = AddTorrentOptions {
-            list_only: true,
-            initial_peers: self.initial_peers(),
-            ..Default::default()
-        };
-        let add = session.add_torrent(AddTorrent::from_url(uri), Some(opts));
-        let resp = tokio::select! {
-            _ = cancel.cancelled() => return Err(TorrentError::Cancelled),
-            r = add => r.map_err(session_err)?,
-        };
-        let meta = match resp {
-            AddTorrentResponse::ListOnly(r) => meta_from(&r.info, r.torrent_bytes),
-            AddTorrentResponse::AlreadyManaged(_, h) | AddTorrentResponse::Added(_, h) => h
-                .with_metadata(|m| meta_from(&m.info, m.torrent_bytes.clone()))
-                .map_err(session_err)?,
-        };
-        // A magnet's names are only known now; refuse the ones Windows cannot use.
-        check_names(&meta.files)?;
-        Ok(meta)
+        self.fetching.fetch_add(1, Ordering::SeqCst);
+        let result = async {
+            let opts = AddTorrentOptions {
+                list_only: true,
+                initial_peers: self.initial_peers(),
+                ..Default::default()
+            };
+            let add = session.add_torrent(AddTorrent::from_url(uri), Some(opts));
+            let resp = tokio::select! {
+                _ = cancel.cancelled() => return Err(TorrentError::Cancelled),
+                r = add => r.map_err(session_err)?,
+            };
+            let meta = match resp {
+                AddTorrentResponse::ListOnly(r) => meta_from(&r.info, r.torrent_bytes),
+                AddTorrentResponse::AlreadyManaged(_, h) | AddTorrentResponse::Added(_, h) => h
+                    .with_metadata(|m| meta_from(&m.info, m.torrent_bytes.clone()))
+                    .map_err(session_err)?,
+            };
+            // A magnet's names are only known now; refuse the ones Windows cannot use.
+            check_names(&meta.files)?;
+            Ok(meta)
+        }
+        .await;
+        self.fetching.fetch_sub(1, Ordering::SeqCst);
+        self.restart_if_idle().await;
+        result
     }
 
     async fn start(&self, req: StartTorrent) -> Result<(), TorrentError> {
         let session = self.session().await?;
         if let Some(h) = session.get(TorrentIdOrHash::Hash(id20(&req.info_hash))) {
             let added_here = self.added().contains(&req.info_hash);
-            if !needs_readd(&h, &req.trackers, &self.settings().extra_peers, added_here) {
+            if !needs_readd(&h, &req.save_dir, &req.trackers, &self.settings().extra_peers, added_here) {
                 if let Some(only) = &req.only_files {
                     h.wait_until_initialized().await.map_err(session_err)?;
                     let set: HashSet<usize> = only.iter().copied().collect();
@@ -304,13 +355,15 @@ impl TorrentClient for LibrqbitClient {
         if h.is_paused() {
             return Ok(());
         }
-        session.pause(&h).await.map_err(session_err)
+        session.pause(&h).await.map_err(session_err)?;
+        self.restart_if_idle().await;
+        Ok(())
     }
 
     async fn remove(&self, hash: &InfoHash, delete_files: bool) -> Result<(), TorrentError> {
-        let Some(session) = self.current() else {
-            return Ok(());
-        };
+        // Start the session if needed: a torrent saved by an earlier run must go too, or it
+        // comes back with every later session.
+        let session = self.session().await?;
         if self.handle(hash).is_none() {
             return Ok(());
         }
@@ -318,7 +371,9 @@ impl TorrentClient for LibrqbitClient {
         session
             .delete(TorrentIdOrHash::Hash(id20(hash)), delete_files)
             .await
-            .map_err(session_err)
+            .map_err(session_err)?;
+        self.restart_if_idle().await;
+        Ok(())
     }
 
     fn stats(&self, hash: &InfoHash) -> Option<TorrentStats> {
@@ -400,18 +455,9 @@ impl TorrentClient for LibrqbitClient {
         session.ratelimits.set_download_bps(nz(new.download_bps));
         session.ratelimits.set_upload_bps(nz(new.upload_bps));
         if session_key(&old) != session_key(&new) {
-            let busy = session.with_torrents(|it| {
-                for (_, h) in it {
-                    if !h.is_paused() {
-                        return true;
-                    }
-                }
-                false
-            });
-            // A busy session keeps running; the new port and proxy apply when it next starts.
-            if !busy {
-                self.shutdown().await;
-            }
+            // A busy session keeps running; it restarts with the new port and proxy once idle.
+            self.restart_pending.store(true, Ordering::SeqCst);
+            self.restart_if_idle().await;
         }
         Ok(())
     }
