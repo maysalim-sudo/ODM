@@ -1133,12 +1133,7 @@ impl Manager {
             // Not in the session (completed, or never started): delete what is on disk.
             if let Ok(files) = self.env.store.get_torrent_files(&rec.id).await {
                 let out = crate::torrent::run::output_dir(rec, &files);
-                for f in &files {
-                    let _ = std::fs::remove_file(out.join(&f.path));
-                }
-                if files.len() > 1 {
-                    let _ = std::fs::remove_dir_all(&out).or_else(|_| std::fs::remove_dir(&out));
-                }
+                crate::torrent::delete_files(&out, &files, files.len() > 1);
             }
         }
     }

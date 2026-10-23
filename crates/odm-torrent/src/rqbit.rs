@@ -222,12 +222,15 @@ impl TorrentClient for LibrqbitClient {
             _ = cancel.cancelled() => return Err(TorrentError::Cancelled),
             r = add => r.map_err(session_err)?,
         };
-        match resp {
-            AddTorrentResponse::ListOnly(r) => Ok(meta_from(&r.info, r.torrent_bytes)),
+        let meta = match resp {
+            AddTorrentResponse::ListOnly(r) => meta_from(&r.info, r.torrent_bytes),
             AddTorrentResponse::AlreadyManaged(_, h) | AddTorrentResponse::Added(_, h) => h
                 .with_metadata(|m| meta_from(&m.info, m.torrent_bytes.clone()))
-                .map_err(session_err),
-        }
+                .map_err(session_err)?,
+        };
+        // A magnet's names are only known now; refuse the ones Windows cannot use.
+        check_names(&meta.files)?;
+        Ok(meta)
     }
 
     async fn start(&self, req: StartTorrent) -> Result<(), TorrentError> {

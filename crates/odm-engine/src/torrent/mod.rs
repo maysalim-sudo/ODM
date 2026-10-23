@@ -100,3 +100,60 @@ pub(crate) async fn store_metadata(env: &DownloadEnv, id: &str, meta: &TorrentMe
     }
     let _ = env.events.send(EngineEvent::TorrentMetadata { id: id.to_string() });
 }
+
+/// `path` (a torrent's `/`-separated relative path) under `out`, or None unless every part
+/// is a plain name: no drive, root, `.` or `..` can take it outside `out`.
+pub(crate) fn inside(out: &Path, path: &str) -> Option<PathBuf> {
+    let mut p = out.to_path_buf();
+    for part in path.split('/') {
+        let mut c = Path::new(part).components();
+        match (c.next(), c.next()) {
+            (Some(std::path::Component::Normal(n)), None) => p.push(n),
+            _ => return None,
+        }
+    }
+    Some(p)
+}
+
+/// Deletes a torrent's own files under `out`, then the folders they leave empty, up to
+/// `out` itself when `own_folder` (it was made for this torrent). Anything else in those
+/// folders stays, and so do the folders that still hold it.
+pub(crate) fn delete_files(out: &Path, files: &[TorrentFileRecord], own_folder: bool) {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for f in files {
+        let Some(p) = inside(out, &f.path) else { continue };
+        let _ = std::fs::remove_file(&p);
+        let mut d = p.parent().map(Path::to_path_buf);
+        while let Some(dir) = d {
+            if dir == out || !dir.starts_with(out) {
+                break;
+            }
+            if !dirs.contains(&dir) {
+                dirs.push(dir.clone());
+            }
+            d = dir.parent().map(Path::to_path_buf);
+        }
+    }
+    // Deepest first; remove_dir only removes empty folders.
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    for d in dirs {
+        let _ = std::fs::remove_dir(d);
+    }
+    if own_folder {
+        let _ = std::fs::remove_dir(out);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inside_rejects_escapes() {
+        let out = Path::new("C:/dl/Foo");
+        assert_eq!(inside(out, "a/b.txt"), Some(out.join("a").join("b.txt")));
+        for bad in ["../x", "a/../../x", "/abs", "c:x", "C:/x", "a//b", ".", "a/./b"] {
+            assert_eq!(inside(out, bad), None, "{bad}");
+        }
+    }
+}

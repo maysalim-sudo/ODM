@@ -39,6 +39,42 @@ fn parse_magnet(uri: &str) -> Result<ParsedTorrent, TorrentError> {
     })
 }
 
+const RESERVED: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+
+/// Whether Windows can create a file or folder with this name inside the output folder.
+/// A drive-style name (`c:x`) would even lead outside it.
+fn windows_ok(name: &str) -> bool {
+    if name.is_empty() || name == "." || name == ".." || name.ends_with(['.', ' ']) {
+        return false;
+    }
+    if name
+        .chars()
+        .any(|c| c < ' ' || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'))
+    {
+        return false;
+    }
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end()
+        .to_ascii_uppercase();
+    let numbered = |p: &str| stem.len() == 4 && stem.starts_with(p) && stem.as_bytes()[3].is_ascii_digit();
+    !(RESERVED.contains(&stem.as_str()) || numbered("COM") || numbered("LPT"))
+}
+
+/// Refuses a torrent with a path part Windows cannot use. librqbit writes the names as
+/// they are, so such a torrent cannot be downloaded safely.
+pub fn check_names(files: &[TorrentFile]) -> Result<(), TorrentError> {
+    match files.iter().find(|f| !f.path.split('/').all(windows_ok)) {
+        Some(f) => Err(TorrentError::Invalid(format!(
+            "This torrent has a file name Windows can't use: {}",
+            f.path
+        ))),
+        None => Ok(()),
+    }
+}
+
 fn parse_bytes(bytes: &Bytes) -> Result<ParsedTorrent, TorrentError> {
     let t = torrent_from_bytes(bytes).map_err(|_| invalid())?;
     let trackers = t
@@ -56,7 +92,8 @@ fn parse_bytes(bytes: &Bytes) -> Result<ParsedTorrent, TorrentError> {
             path: d.filename.to_vec().join("/"),
             size: d.len,
         })
-        .collect();
+        .collect::<Vec<_>>();
+    check_names(&files)?;
     Ok(ParsedTorrent {
         info_hash: InfoHash::parse(&t.info_hash.as_string()).ok_or_else(invalid)?,
         name: name.clone(),
@@ -204,6 +241,56 @@ mod tests {
         let (bytes, _) = two_file_torrent();
         let b = Bytes::from(bytes);
         assert_eq!(with_trackers(&b, &[]).unwrap(), b);
+    }
+
+    /// A one-piece multi-file torrent with these path components, written by hand: a real
+    /// seeder on Windows can never produce names Windows cannot create.
+    fn torrent_with(paths: &[&[&str]]) -> Bytes {
+        let mut t = b"d4:infod5:filesl".to_vec();
+        for p in paths {
+            t.extend_from_slice(b"d6:lengthi1e4:pathl");
+            for c in *p {
+                t.extend_from_slice(format!("{}:{}", c.len(), c).as_bytes());
+            }
+            t.extend_from_slice(b"ee");
+        }
+        t.extend_from_slice(b"e4:name4:Pack12:piece lengthi16384e6:pieces20:");
+        t.extend_from_slice(&[7u8; 20]);
+        t.extend_from_slice(b"ee");
+        Bytes::from(t)
+    }
+
+    #[test]
+    fn names_windows_cannot_use_are_refused() {
+        for bad in [
+            &["c:x"][..],
+            &["C:version.dll"],
+            &["a:b"],
+            &["CON"],
+            &["sub", "aux.txt"],
+            &["nul.tar.gz"],
+            &["COM1"],
+            &["what?"],
+            &["trailing."],
+            &["trailing "],
+            &["tab	here"],
+        ] {
+            let r = parse(&TorrentSource::Bytes(torrent_with(&[&["ok.txt"], bad])));
+            match r {
+                Err(TorrentError::Invalid(m)) => {
+                    assert!(m.starts_with("This torrent has a file name Windows can't use: "), "{m}");
+                    assert!(m.contains(bad.last().unwrap().trim_end()), "{m}");
+                }
+                other => panic!("{bad:?} was accepted: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_names_are_fine() {
+        let ok = torrent_with(&[&["Season 1", "e01 - Pilot.mkv"], &["icon.txt"], &["CONSOLE.txt"], &["com10.log"], &["über ñ.txt"]]);
+        let files = parse(&TorrentSource::Bytes(ok)).unwrap().meta.unwrap().files;
+        assert_eq!(files.len(), 5);
     }
 
     #[test]

@@ -432,3 +432,21 @@ async fn pieces_come_from_the_client() {
     let p = m.pieces(&id).await.unwrap().unwrap();
     assert_eq!(p.piece_count, 8);
 }
+
+#[tokio::test]
+async fn cancel_deletes_only_the_torrents_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let (m, store, _fake, id) = running(dir.path(), FakeScript::default()).await;
+    wait_state(&store, &id, DownloadState::Downloading).await;
+    let out = Path::new(&row(&store, &id).await.save_dir).join("Foo");
+    std::fs::create_dir_all(out.join("sub")).unwrap();
+    std::fs::write(out.join("a.bin"), b"torrent").unwrap();
+    std::fs::write(out.join("sub").join("b.bin"), b"torrent").unwrap();
+    // The user's own file in a folder that happens to share the torrent's name.
+    std::fs::write(out.join("mine.txt"), b"keep me").unwrap();
+    m.cancel(&id, false).await.unwrap();
+    wait_state(&store, &id, DownloadState::Cancelled).await;
+    assert!(!out.join("a.bin").exists());
+    assert!(!out.join("sub").exists(), "emptied folders go");
+    assert_eq!(std::fs::read(out.join("mine.txt")).unwrap(), b"keep me");
+}

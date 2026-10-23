@@ -275,30 +275,36 @@ async fn remove_with_and_without_files() {
     assert!(!out.path().join("a.bin").exists(), "deleted files");
 }
 
+/// Names Windows cannot create are refused before librqbit sees them (parse.rs tests, with
+/// hand-written torrents a seeder could not make). Ordinary unusual names download fine.
 #[tokio::test(flavor = "multi_thread")]
-async fn reserved_names_download() {
-    let s = seed(&[("CON/aux.txt", 5_000), ("a_b.txt", 5_000)]).await;
+async fn spaces_and_accents_download() {
+    let s = seed(&[("Ünïcode dir/a b.txt", 5_000), ("ñ (1).txt", 5_000)]).await;
     let state = tempfile::tempdir().unwrap();
     let out = tempfile::tempdir().unwrap();
     let c = LibrqbitClient::new(settings(state.path(), vec![s.addr]));
     c.start(start_req(&s, out.path(), None)).await.unwrap();
     let st = wait_finished(&c, &s.hash, 60).await;
     assert_eq!(st.selected_done, 10_000);
-    let names: Vec<PathBuf> = walk(out.path());
-    println!("on-disk names: {names:?}");
-    assert_eq!(names.len(), 2, "{names:?}");
+    let mut names: Vec<PathBuf> = walk(out.path());
+    names.sort();
+    assert_eq!(names, vec![PathBuf::from("Ünïcode dir").join("a b.txt"), PathBuf::from("ñ (1).txt")]);
 }
 
-fn walk(dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    for e in std::fs::read_dir(dir).unwrap().flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            out.extend(walk(&p));
-        } else {
-            out.push(p.strip_prefix(dir).unwrap().to_path_buf());
+/// Every file under `root`, relative to it.
+fn walk(root: &Path) -> Vec<PathBuf> {
+    fn go(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                go(root, &p, out);
+            } else {
+                out.push(p.strip_prefix(root).unwrap().to_path_buf());
+            }
         }
     }
+    let mut out = Vec::new();
+    go(root, root, &mut out);
     out
 }
 
