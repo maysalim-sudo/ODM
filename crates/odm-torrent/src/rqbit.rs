@@ -233,6 +233,51 @@ fn needs_readd(
     new_tracker || new_peer
 }
 
+/// Creates the torrent's missing files as sparse files before librqbit opens them, so a file
+/// that is not downloaded (or not yet) takes no disk space. librqbit sizes every file to its
+/// full length and its own sparse marking does not take on Windows here.
+fn create_sparse(out: &std::path::Path, files: &[TorrentFile]) {
+    for f in files {
+        let mut p = out.to_path_buf();
+        for part in f.path.split('/') {
+            p.push(part);
+        }
+        if p.exists() {
+            continue;
+        }
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(file) = std::fs::OpenOptions::new().write(true).create_new(true).open(&p) {
+            mark_sparse(&file);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn mark_sparse(f: &std::fs::File) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::Ioctl::FSCTL_SET_SPARSE;
+    use windows_sys::Win32::System::IO::DeviceIoControl;
+    let mut returned = 0u32;
+    // SAFETY: a valid handle of an open file; no input or output buffers.
+    unsafe {
+        DeviceIoControl(
+            f.as_raw_handle() as _,
+            FSCTL_SET_SPARSE,
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn mark_sparse(_f: &std::fs::File) {}
+
 async fn pause_all(s: &Arc<Session>) {
     let live: Vec<_> = s.with_torrents(|it| {
         it.filter(|(_, h)| !h.is_paused()).map(|(_, h)| h.clone()).collect()
@@ -334,6 +379,11 @@ impl TorrentClient for LibrqbitClient {
             },
             ..Default::default()
         };
+        if let TorrentSource::Bytes(_) = &req.source {
+            if let Ok(Some(meta)) = parse(&req.source).map(|p| p.meta) {
+                create_sparse(&req.save_dir, &meta.files);
+            }
+        }
         session.add_torrent(add, Some(opts)).await.map_err(session_err)?;
         self.added().insert(req.info_hash);
         Ok(())

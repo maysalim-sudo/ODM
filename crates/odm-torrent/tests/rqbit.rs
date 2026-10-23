@@ -393,3 +393,31 @@ async fn settings_change_keeps_a_metadata_fetch_alive() {
     c.restore().await.unwrap();
     assert_eq!(c.active_port(), Some(next));
 }
+
+/// Bytes a file really takes on disk (less than its length when it is sparse).
+#[cfg(windows)]
+fn allocated(p: &Path) -> u64 {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetCompressedFileSizeW;
+    let wide: Vec<u16> = p.as_os_str().encode_wide().chain([0]).collect();
+    let mut hi = 0u32;
+    let lo = unsafe { GetCompressedFileSizeW(wide.as_ptr(), &mut hi) };
+    ((hi as u64) << 32) | lo as u64
+}
+
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn unticked_files_take_no_disk_space() {
+    let s = seed(&[("small.bin", 50_000), ("big.bin", 8_000_000)]).await;
+    let meta = parse(&TorrentSource::Bytes(s.torrent.clone())).unwrap().meta.unwrap();
+    let small = file_index(&s, &meta, "small.bin");
+    let state = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let c = LibrqbitClient::new(settings(state.path(), vec![s.addr]));
+    c.start(start_req(&s, out.path(), Some(vec![small]))).await.unwrap();
+    wait_finished(&c, &s.hash, 60).await;
+    let big = out.path().join("big.bin");
+    let used = if big.exists() { allocated(&big) } else { 0 };
+    assert!(used < 1_000_000, "the unticked 8 MB file takes {used} bytes on disk");
+    assert_eq!(on_disk(out.path(), "small.bin").as_deref(), Some(data(&s, "small.bin")));
+}

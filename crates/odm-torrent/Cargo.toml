@@ -20,6 +20,9 @@ fastrand.workspace = true
 anyhow = "1"
 url = "2"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Ioctl", "Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
 tempfile.workspace = true
 sha1 = "0.10"
