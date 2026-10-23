@@ -1,5 +1,5 @@
-; How Windows opens magnet links and .torrent files when the user chose ODM for them.
-!define ODM_OPEN_CMD '"$INSTDIR\${MAINBINARYNAME}.exe" "%1"'
+; The macros below expand where the template inserts them, after MAINBINARYNAME is defined,
+; so they name the exe directly (a !define here would expand too early).
 
 !macro NSIS_HOOK_POSTINSTALL
   ; Asked on a normal install only, and No by default. Silent, passive and update runs
@@ -11,10 +11,10 @@
       WriteRegStr HKCU "Software\Classes\magnet" "" "URL:Magnet link"
       WriteRegStr HKCU "Software\Classes\magnet" "URL Protocol" ""
       WriteRegStr HKCU "Software\Classes\magnet\DefaultIcon" "" "$INSTDIR\${MAINBINARYNAME}.exe,0"
-      WriteRegStr HKCU "Software\Classes\magnet\shell\open\command" "" '${ODM_OPEN_CMD}'
+      WriteRegStr HKCU "Software\Classes\magnet\shell\open\command" "" '"$INSTDIR\${MAINBINARYNAME}.exe" "%1"'
       WriteRegStr HKCU "Software\Classes\ODM.torrent" "" "Torrent file"
       WriteRegStr HKCU "Software\Classes\ODM.torrent\DefaultIcon" "" "$INSTDIR\${MAINBINARYNAME}.exe,0"
-      WriteRegStr HKCU "Software\Classes\ODM.torrent\shell\open\command" "" '${ODM_OPEN_CMD}'
+      WriteRegStr HKCU "Software\Classes\ODM.torrent\shell\open\command" "" '"$INSTDIR\${MAINBINARYNAME}.exe" "%1"'
       WriteRegStr HKCU "Software\Classes\.torrent" "" "ODM.torrent"
       WriteRegStr HKCU "Software\Classes\.torrent" "Content Type" "application/x-bittorrent"
       ; Tell Explorer the associations changed (SHCNE_ASSOCCHANGED).
@@ -39,7 +39,7 @@
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "ODM"
     ; Magnet links and .torrent files: only what still points to this ODM goes.
     ReadRegStr $0 HKCU "Software\Classes\magnet\shell\open\command" ""
-    ${If} $0 == '${ODM_OPEN_CMD}'
+    ${If} $0 == '"$INSTDIR\${MAINBINARYNAME}.exe" "%1"'
       DeleteRegKey HKCU "Software\Classes\magnet"
     ${EndIf}
     ReadRegStr $0 HKCU "Software\Classes\.torrent" ""
