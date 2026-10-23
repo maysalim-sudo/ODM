@@ -35,6 +35,8 @@ pub struct DownloadEnv {
     pub exists_overrides: Arc<Mutex<HashMap<String, ExistsPolicy>>>,
     /// The own speed limiter of each running file download, so its limit can change live.
     pub local_limits: Arc<Mutex<HashMap<String, Arc<SpeedLimiter>>>>,
+    /// The BitTorrent client, shared by every torrent download.
+    pub torrents: Arc<dyn odm_torrent::TorrentClient>,
 }
 
 impl DownloadEnv {
@@ -49,9 +51,10 @@ impl DownloadEnv {
             client: build_client(&config),
             limiter,
             events,
-            config,
             exists_overrides: Arc::default(),
             local_limits: Arc::default(),
+            torrents: odm_torrent::rqbit::LibrqbitClient::new(config.torrent.clone()),
+            config,
         }
     }
 

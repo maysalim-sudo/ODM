@@ -253,7 +253,7 @@ impl TorrentClient for LibrqbitClient {
                 .map_err(session_err)?;
         }
         let add = match &req.source {
-            TorrentSource::Bytes(b) => AddTorrent::from_bytes(b.clone()),
+            TorrentSource::Bytes(b) => AddTorrent::from_bytes(with_trackers(b, &req.trackers)?),
             TorrentSource::Magnet(uri) => {
                 let parsed = parse(&req.source)?;
                 let mut trackers = parsed.trackers;

@@ -70,6 +70,10 @@ pub enum EngineEvent {
     /// The queue ran at least one download to completion and now has nothing left
     /// to run (nothing queued, active or waiting for an answer).
     QueueDone,
+    /// A torrent's file list is now known (`ManagerHandle::torrent_files`).
+    TorrentMetadata {
+        id: String,
+    },
 }
 
 #[cfg(test)]
@@ -137,6 +141,10 @@ mod tests {
         assert_eq!(
             json(&EngineEvent::Removed { id: "a1".into() }),
             r#"{"type":"removed","id":"a1"}"#
+        );
+        assert_eq!(
+            json(&EngineEvent::TorrentMetadata { id: "t1".into() }),
+            r#"{"type":"torrent_metadata","id":"t1"}"#
         );
         assert_eq!(
             json(&EngineEvent::ExistsPrompt {

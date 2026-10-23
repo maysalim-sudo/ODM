@@ -15,6 +15,8 @@ pub struct FakeScript {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FakeCall {
     Fetch(InfoHash),
+    /// A metadata fetch ended because its token was cancelled.
+    FetchCancelled(InfoHash),
     Start { hash: InfoHash, only_files: Option<Vec<usize>> },
     SetFiles(InfoHash, Vec<usize>),
     Pause(InfoHash),
@@ -104,13 +106,18 @@ impl TorrentClient for FakeTorrentClient {
             st.calls.push(FakeCall::Fetch(hash.clone()));
             st.torrents.get(&hash).map(|e| e.script.clone()).unwrap_or_default()
         };
-        let Some(after) = script.metadata_after else {
-            cancel.cancelled().await;
-            return Err(TorrentError::Cancelled);
+        let wait = async {
+            match script.metadata_after {
+                Some(after) => tokio::time::sleep(after).await,
+                None => std::future::pending().await,
+            }
         };
         tokio::select! {
-            _ = cancel.cancelled() => Err(TorrentError::Cancelled),
-            _ = tokio::time::sleep(after) => script.meta.ok_or_else(|| TorrentError::Invalid("no metadata scripted".into())),
+            _ = cancel.cancelled() => {
+                self.lock().calls.push(FakeCall::FetchCancelled(hash));
+                Err(TorrentError::Cancelled)
+            }
+            _ = wait => script.meta.ok_or_else(|| TorrentError::Invalid("no metadata scripted".into())),
         }
     }
 

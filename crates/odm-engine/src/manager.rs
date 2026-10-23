@@ -14,6 +14,11 @@ use crate::download::{
 use crate::hls::run::{run_hls, temp_dir};
 use crate::schedule::{Clock, LocalNow, SystemClock};
 use crate::site::{run_site, temp_dir as site_temp_dir};
+use crate::torrent::{
+    client_settings, file_records, stored_torrent, write_torrent, TorrentAdded, TorrentRequest,
+};
+use odm_store::{TorrentFileRecord, TorrentMetaRecord};
+use odm_torrent::{TorrentClient, TorrentError, TorrentMeta, TorrentSource};
 use crate::{EngineConfig, EngineEvent, ExistsChoice, ExistsPolicy, SpeedLimiter};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
@@ -98,6 +103,9 @@ enum Cmd {
     Add(AddRequest, oneshot::Sender<Result<String, OdmError>>),
     AddStream(StreamRequest, oneshot::Sender<Result<String, OdmError>>),
     AddSite(SiteRequest, oneshot::Sender<Result<String, OdmError>>),
+    AddTorrent(TorrentRequest, oneshot::Sender<Result<TorrentAdded, OdmError>>),
+    /// A torrent's metadata arrived from peers.
+    Metadata(String, TorrentMeta),
     Pause(String),
     Resume(String),
     Cancel(String, bool),
@@ -157,6 +165,8 @@ struct Manager {
     last_prune: Option<i64>,
     /// A download completed since the queue last reported itself done.
     ran: bool,
+    /// Metadata fetches of torrents waiting for their file list, by download id.
+    fetchers: HashMap<String, CancellationToken>,
 }
 
 #[derive(Clone)]
@@ -211,17 +221,38 @@ impl ManagerHandle {
         Self::start_with_clock(config, store, Arc::new(SystemClock)).await
     }
 
+    /// Like `start`, with this torrent client instead of librqbit.
+    pub async fn start_with_torrents(
+        config: EngineConfig,
+        store: Store,
+        torrents: Arc<dyn TorrentClient>,
+    ) -> Result<ManagerHandle, OdmError> {
+        Self::start_inner(config, store, Arc::new(SystemClock), Some(torrents)).await
+    }
+
     /// Like `start`, reading the schedules and the history age from `clock`.
     pub async fn start_with_clock(
         config: EngineConfig,
         store: Store,
         clock: Arc<dyn Clock>,
     ) -> Result<ManagerHandle, OdmError> {
+        Self::start_inner(config, store, clock, None).await
+    }
+
+    async fn start_inner(
+        config: EngineConfig,
+        store: Store,
+        clock: Arc<dyn Clock>,
+        torrents: Option<Arc<dyn TorrentClient>>,
+    ) -> Result<ManagerHandle, OdmError> {
         let config = config.sanitized();
         store.reset_interrupted().await.map_err(store_err)?;
         let (events, _) = broadcast::channel(4096);
         let limiter = Arc::new(SpeedLimiter::new(config.limit_at(clock.now())));
-        let env = DownloadEnv::new(store.clone(), config.clone(), limiter, events.clone());
+        let mut env = DownloadEnv::new(store.clone(), config.clone(), limiter, events.clone());
+        if let Some(t) = torrents {
+            env.torrents = t;
+        }
         let (tx, rx) = mpsc::channel(256);
         let manager = Manager {
             env,
@@ -237,6 +268,7 @@ impl ManagerHandle {
             bypass: HashSet::new(),
             last_prune: None,
             ran: false,
+            fetchers: HashMap::new(),
         };
         let timer = tx.clone();
         let every = config.timer_interval;
@@ -275,6 +307,17 @@ impl ManagerHandle {
         self.send(Cmd::AddSite(req, tx)).await?;
         rx.await.map_err(|_| closed())?
     }
+    pub async fn add_torrent(&self, req: TorrentRequest) -> Result<TorrentAdded, OdmError> {
+        let (tx, rx) = oneshot::channel();
+        self.send(Cmd::AddTorrent(req, tx)).await?;
+        rx.await.map_err(|_| closed())?
+    }
+
+    /// A torrent's files, by librqbit index. Empty until its metadata is known.
+    pub async fn torrent_files(&self, id: &str) -> Result<Vec<TorrentFileRecord>, OdmError> {
+        self.store.get_torrent_files(id).await.map_err(store_err)
+    }
+
     pub async fn pause(&self, id: &str) -> Result<(), OdmError> {
         self.send(Cmd::Pause(id.into())).await
     }
@@ -416,6 +459,7 @@ impl ManagerHandle {
 
 impl Manager {
     async fn run(mut self, mut rx: mpsc::Receiver<Cmd>) {
+        self.refetch_metadata().await;
         self.tick().await;
         self.schedule().await;
         while let Some(cmd) = rx.recv().await {
@@ -428,6 +472,11 @@ impl Manager {
                     let r = self.add_site(req).await;
                     let _ = reply.send(r);
                 }
+                Cmd::AddTorrent(req, reply) => {
+                    let r = self.add_torrent(req).await;
+                    let _ = reply.send(r);
+                }
+                Cmd::Metadata(id, meta) => self.metadata(id, meta).await,
                 Cmd::AddStream(req, reply) => {
                     let r = self.add_stream(req).await;
                     let _ = reply.send(r);
@@ -475,6 +524,7 @@ impl Manager {
                     self.env
                         .limiter
                         .set_rate(self.env.config.limit_at(self.clock.now()));
+                    self.apply_torrent_settings().await;
                 }
                 Cmd::SetMaxConcurrent(n) => {
                     self.max_concurrent = n.clamp(1, 10);
@@ -489,6 +539,7 @@ impl Manager {
                     self.env.client = build_client(&cfg);
                     self.max_concurrent = cfg.max_concurrent;
                     self.env.config = cfg;
+                    self.apply_torrent_settings().await;
                     self.tick().await;
                     self.schedule().await;
                 }
@@ -711,6 +762,164 @@ impl Manager {
         Ok(id)
     }
 
+    async fn add_torrent(&mut self, req: TorrentRequest) -> Result<TorrentAdded, OdmError> {
+        let parsed = self
+            .env
+            .torrents
+            .parse(&req.source)
+            .map_err(|e| OdmError::new(ErrorKind::Other, e.to_string()))?;
+        let hash = parsed.info_hash.as_str().to_string();
+        let store = &self.env.store;
+        if let Some(existing) = store.find_by_info_hash(&hash).await.map_err(store_err)? {
+            store
+                .merge_trackers(&existing.id, parsed.trackers)
+                .await
+                .map_err(store_err)?;
+            return Ok(TorrentAdded {
+                id: existing.id,
+                existing: true,
+            });
+        }
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let name = parsed
+            .meta
+            .as_ref()
+            .map(|m| m.name.clone())
+            .or(parsed.name.clone())
+            .unwrap_or_else(|| hash.clone());
+        let dir = req
+            .save_dir
+            .clone()
+            .unwrap_or_else(|| self.env.config.save_dir_for("torrent"));
+        let mut rec = DownloadRecord::new_torrent(
+            &id,
+            &hash,
+            &filename::sanitize(&name),
+            &dir.to_string_lossy(),
+        );
+        rec.state = DownloadState::Paused;
+        let source = match &req.source {
+            TorrentSource::Magnet(uri) => uri.clone(),
+            TorrentSource::Bytes(b) => {
+                let path = stored_torrent(&self.env.config, &hash);
+                write_torrent(&path, b).map_err(|e| OdmError::new(ErrorKind::Io, e.to_string()))?;
+                path.to_string_lossy().into_owned()
+            }
+        };
+        store.insert_download(rec).await.map_err(store_err)?;
+        store
+            .put_torrent_meta(TorrentMetaRecord {
+                download_id: id.clone(),
+                source,
+                trackers: parsed.trackers,
+                has_meta: false,
+            })
+            .await
+            .map_err(store_err)?;
+        if let Some(meta) = &parsed.meta {
+            store
+                .replace_torrent_files(&id, file_records(meta))
+                .await
+                .map_err(store_err)?;
+        }
+        let _ = self.env.events.send(EngineEvent::Added { id: id.clone() });
+        if parsed.meta.is_none() {
+            self.fetch_metadata(&id, req.source);
+        }
+        Ok(TorrentAdded {
+            id,
+            existing: false,
+        })
+    }
+
+    /// Fetches the file list of a magnet that waits for the user's choice. It runs outside
+    /// the queue: metadata is small.
+    fn fetch_metadata(&mut self, id: &str, source: TorrentSource) {
+        let cancel = CancellationToken::new();
+        self.fetchers.insert(id.to_string(), cancel.clone());
+        let torrents = self.env.torrents.clone();
+        let tx = self.tx.clone();
+        let id = id.to_string();
+        tokio::spawn(async move {
+            match torrents.fetch_metadata(&source, cancel).await {
+                Ok(meta) => {
+                    let _ = tx.send(Cmd::Metadata(id, meta)).await;
+                }
+                Err(TorrentError::Cancelled) => {}
+                Err(e) => tracing::warn!(id = %id, "torrent metadata: {e}"),
+            }
+        });
+    }
+
+    fn stop_fetch(&mut self, id: &str) {
+        if let Some(c) = self.fetchers.remove(id) {
+            c.cancel();
+        }
+    }
+
+    /// After a restart, magnets still waiting for their file list fetch it again.
+    async fn refetch_metadata(&mut self) {
+        let Ok(rows) = self.env.store.list_by_state(DownloadState::Paused).await else {
+            return;
+        };
+        for r in rows.into_iter().filter(|r| r.kind == "torrent") {
+            if let Ok(Some(m)) = self.env.store.get_torrent_meta(&r.id).await {
+                if !m.has_meta && m.source.starts_with("magnet:") {
+                    self.fetch_metadata(&r.id, TorrentSource::Magnet(m.source));
+                }
+            }
+        }
+    }
+
+    async fn metadata(&mut self, id: String, meta: TorrentMeta) {
+        self.fetchers.remove(&id);
+        let store = self.env.store.clone();
+        let (Ok(Some(rec)), Ok(Some(tm))) = (
+            store.get_download(&id).await,
+            store.get_torrent_meta(&id).await,
+        ) else {
+            return;
+        };
+        if tm.has_meta {
+            return;
+        }
+        let Some(hash) = rec.info_hash.clone() else {
+            return;
+        };
+        // Kept as a .torrent so the download does not ask peers for it again.
+        let path = stored_torrent(&self.env.config, &hash);
+        let source = match write_torrent(&path, &meta.torrent_bytes) {
+            Ok(()) => path.to_string_lossy().into_owned(),
+            Err(e) => {
+                tracing::warn!(id = %id, "saving torrent metadata: {e}");
+                tm.source.clone()
+            }
+        };
+        let _ = store
+            .put_torrent_meta(TorrentMetaRecord { source, ..tm })
+            .await;
+        if store
+            .replace_torrent_files(&id, file_records(&meta))
+            .await
+            .is_err()
+        {
+            return;
+        }
+        let name = filename::sanitize(&meta.name);
+        if !rec.filename_locked && rec.filename != name {
+            let _ = store.set_filename(&id, name).await;
+        }
+        let _ = self.env.events.send(EngineEvent::TorrentMetadata { id });
+    }
+
+    async fn apply_torrent_settings(&self) {
+        let rate = self.env.config.limit_at(self.clock.now());
+        let s = client_settings(&self.env.config, rate);
+        if let Err(e) = self.env.torrents.apply_settings(s).await {
+            tracing::warn!("torrent settings: {e}");
+        }
+    }
+
     async fn refresh_url(
         &mut self,
         id: &str,
@@ -844,6 +1053,7 @@ impl Manager {
     /// A cancelled download can never be resumed, so its part file always goes.
     /// `_delete_file` only matters for a completed file, which cancel never touches.
     async fn cancel(&mut self, id: &str, _delete_file: bool) {
+        self.stop_fetch(id);
         self.resume_after.remove(id);
         self.bypass.remove(id);
         self.drop_staged(id);
@@ -861,6 +1071,7 @@ impl Manager {
     }
 
     async fn remove(&mut self, id: &str, delete: bool) {
+        self.stop_fetch(id);
         self.resume_after.remove(id);
         self.bypass.remove(id);
         self.drop_staged(id);
@@ -1120,6 +1331,7 @@ impl Manager {
         let rate = self.env.config.limit_at(now);
         if self.env.limiter.rate() != rate {
             self.env.limiter.set_rate(rate);
+            self.apply_torrent_settings().await;
         }
         let open = self.env.config.queue_open_at(now);
         if open != self.queue_open {

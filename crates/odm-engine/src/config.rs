@@ -110,6 +110,8 @@ pub struct EngineConfig {
     pub history_days: u32,
     /// How often the manager checks the schedules and the history.
     pub timer_interval: Duration,
+    /// BitTorrent settings. Its `download_bps` is ignored: the global limit applies.
+    pub torrent: odm_torrent::TorrentSettings,
 }
 
 impl Default for EngineConfig {
@@ -147,6 +149,7 @@ impl Default for EngineConfig {
             queue_window: None,
             history_days: 0,
             timer_interval: Duration::from_secs(30),
+            torrent: odm_torrent::TorrentSettings::default(),
         }
     }
 }

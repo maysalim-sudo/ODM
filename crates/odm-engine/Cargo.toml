@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 odm-core.workspace = true
 odm-store.workspace = true
+odm-torrent.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 reqwest.workspace = true
@@ -26,6 +27,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 windows-sys.workspace = true
 
 [dev-dependencies]
+odm-torrent = { workspace = true, features = ["fake"] }
 serde_json.workspace = true
 odm-testserver.workspace = true
 tempfile.workspace = true

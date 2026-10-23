@@ -7,7 +7,7 @@ pub mod rqbit;
 pub mod fake;
 mod types;
 
-pub use parse::{magnet_info_hash, parse};
+pub use parse::{magnet_info_hash, parse, with_trackers};
 pub use types::*;
 
 use async_trait::async_trait;

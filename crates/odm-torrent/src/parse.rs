@@ -69,6 +69,46 @@ fn parse_bytes(bytes: &Bytes) -> Result<ParsedTorrent, TorrentError> {
     })
 }
 
+/// `.torrent` bytes whose tracker list also holds `extra`. The info dict is kept byte for
+/// byte, so the info hash does not change.
+pub fn with_trackers(torrent: &Bytes, extra: &[String]) -> Result<Bytes, TorrentError> {
+    let t = torrent_from_bytes(torrent).map_err(|_| invalid())?;
+    let mut list: Vec<String> = t
+        .iter_announce()
+        .map(|a| String::from_utf8_lossy(a.as_ref()).into_owned())
+        .collect();
+    let before = list.len();
+    for e in extra {
+        if !list.contains(e) {
+            list.push(e.clone());
+        }
+    }
+    if list.len() == before {
+        return Ok(torrent.clone());
+    }
+    fn bstr(out: &mut Vec<u8>, s: &[u8]) {
+        out.extend_from_slice(s.len().to_string().as_bytes());
+        out.push(b':');
+        out.extend_from_slice(s);
+    }
+    // Keys in sorted order, as bencode requires. Other top-level keys (comment, dates) go.
+    let mut out = b"d".to_vec();
+    bstr(&mut out, b"announce");
+    bstr(&mut out, list[0].as_bytes());
+    bstr(&mut out, b"announce-list");
+    out.push(b'l');
+    for tr in &list {
+        out.push(b'l');
+        bstr(&mut out, tr.as_bytes());
+        out.push(b'e');
+    }
+    out.push(b'e');
+    bstr(&mut out, b"info");
+    out.extend_from_slice(t.info.raw_bytes.as_ref());
+    out.push(b'e');
+    Ok(Bytes::from(out))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,6 +182,28 @@ mod tests {
         let files: Vec<_> = meta.files.iter().map(|f| (f.idx, f.path.as_str(), f.size)).collect();
         assert_eq!(files, vec![(0, "a/x.txt", 3), (2, "y.bin", 5)]);
         assert_eq!(meta.torrent_bytes.as_ref(), bytes.as_slice());
+    }
+
+    #[test]
+    fn with_trackers_keeps_hash_and_adds_trackers() {
+        let (bytes, _) = two_file_torrent();
+        let before = parse(&TorrentSource::Bytes(Bytes::from(bytes.clone()))).unwrap();
+        let extra = vec!["udp://b.example:81".to_string(), "udp://t.example:80".to_string()];
+        let out = with_trackers(&Bytes::from(bytes), &extra).unwrap();
+        let after = parse(&TorrentSource::Bytes(out)).unwrap();
+        assert_eq!(after.info_hash, before.info_hash);
+        assert_eq!(
+            after.trackers,
+            vec!["udp://t.example:80".to_string(), "udp://b.example:81".to_string()]
+        );
+        assert_eq!(after.meta.unwrap().files, before.meta.unwrap().files);
+    }
+
+    #[test]
+    fn with_no_extra_trackers_is_unchanged() {
+        let (bytes, _) = two_file_torrent();
+        let b = Bytes::from(bytes);
+        assert_eq!(with_trackers(&b, &[]).unwrap(), b);
     }
 
     #[test]

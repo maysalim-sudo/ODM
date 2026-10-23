@@ -22,4 +22,6 @@ pub mod hls;
 pub mod manager;
 pub mod site;
 pub mod toolfind;
+pub mod torrent;
+pub use torrent::{TorrentAdded, TorrentRequest};
 pub use manager::{AddRequest, ManagerHandle, SiteRequest, StreamRequest};
