@@ -1,6 +1,7 @@
 //! BitTorrent for ODM. The only crate that uses librqbit; everything else talks to
 //! [`TorrentClient`].
 pub mod parse;
+pub mod port;
 mod types;
 
 pub use parse::{magnet_info_hash, parse};
