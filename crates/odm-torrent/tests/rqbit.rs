@@ -81,6 +81,15 @@ async fn seed(files: &[(&str, usize)]) -> Seeder {
     }
 }
 
+/// A peer that takes the connection and never says anything. A closed port is no stand-in:
+/// Linux refuses it at once, and the fetch would end before it is cancelled. Keep the listener
+/// alive for the test; connections wait in its backlog.
+fn silent_peer() -> (std::net::TcpListener, SocketAddr) {
+    let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let addr = l.local_addr().unwrap();
+    (l, addr)
+}
+
 fn settings(state: &Path, peers: Vec<SocketAddr>) -> TorrentSettings {
     TorrentSettings {
         listen_port: 0,
@@ -171,8 +180,8 @@ async fn magnet_fetches_metadata() {
 #[tokio::test(flavor = "multi_thread")]
 async fn fetch_cancel_returns_cancelled() {
     let state = tempfile::tempdir().unwrap();
-    // A peer that never answers: the fetch waits until cancelled.
-    let dead: SocketAddr = ([127, 0, 0, 1], 9).into();
+    // The fetch waits until cancelled.
+    let (_listener, dead) = silent_peer();
     let c = LibrqbitClient::new(settings(state.path(), vec![dead]));
     let cancel = CancellationToken::new();
     let c2 = cancel.clone();
@@ -445,7 +454,7 @@ async fn restored_torrent_uses_a_new_folder() {
 #[tokio::test(flavor = "multi_thread")]
 async fn settings_change_keeps_a_metadata_fetch_alive() {
     let state = tempfile::tempdir().unwrap();
-    let dead: SocketAddr = ([127, 0, 0, 1], 9).into();
+    let (_listener, dead) = silent_peer();
     let set = settings(state.path(), vec![dead]);
     let c = LibrqbitClient::new(set.clone());
     let cancel = CancellationToken::new();

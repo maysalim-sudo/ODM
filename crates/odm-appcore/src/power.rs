@@ -27,7 +27,7 @@ pub fn pending_text(action: AfterQueue) -> &'static str {
     }
 }
 
-/// The side effects. The real one is `SystemPower` (Windows only, plus the app's quit).
+/// The side effects. The real one is `SystemPower` (Windows and Linux, plus the app's quit).
 pub trait PowerActions: Send + Sync + 'static {
     /// Keep the PC from sleeping (on) or let it sleep again (off).
     fn keep_awake(&self, on: bool);
@@ -284,10 +284,13 @@ pub async fn run_with_delay<P, F>(
     power.set_activity(0, false);
 }
 
-/// The real side effects on Windows. `quit` does nothing here: the app quits itself.
+/// The real side effects on Windows and Linux. `quit` does nothing here: the app quits itself.
 pub struct SystemPower {
     #[cfg(windows)]
     awake: std::sync::mpsc::Sender<bool>,
+    /// Linux: the `systemd-inhibit` child holding a sleep/idle lock while it runs.
+    #[cfg(unix)]
+    inhibitor: Mutex<Option<std::process::Child>>,
 }
 
 impl Default for SystemPower {
@@ -315,8 +318,46 @@ impl SystemPower {
             }
             Self { awake: tx }
         }
-        #[cfg(not(windows))]
-        Self {}
+        #[cfg(unix)]
+        Self {
+            inhibitor: Mutex::new(None),
+        }
+    }
+}
+
+/// Linux: blocks sleep and idle while the child runs. The child (`tail --pid`) also ends when
+/// ODM does, so a crash never leaves the lock behind. None if systemd-inhibit is missing.
+#[cfg(unix)]
+fn start_inhibitor() -> Option<std::process::Child> {
+    use std::process::{Command, Stdio};
+    let child = Command::new("systemd-inhibit")
+        .args([
+            "--what=sleep:idle",
+            "--who=ODM",
+            "--why=Downloading",
+            "--mode=block",
+            "tail",
+            &format!("--pid={}", std::process::id()),
+            "-f",
+            "/dev/null",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+    match child {
+        Ok(c) => Some(c),
+        Err(e) => {
+            tracing::warn!("could not keep the PC awake (systemd-inhibit): {e}");
+            None
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for SystemPower {
+    fn drop(&mut self) {
+        self.keep_awake(false);
     }
 }
 
@@ -324,21 +365,54 @@ impl PowerActions for SystemPower {
     fn keep_awake(&self, on: bool) {
         #[cfg(windows)]
         let _ = self.awake.send(on);
-        #[cfg(not(windows))]
-        let _ = on;
+        #[cfg(unix)]
+        {
+            let mut held = self.inhibitor.lock().unwrap_or_else(|e| e.into_inner());
+            // A child that exited on its own (systemd-inhibit refused) no longer holds a lock.
+            if held
+                .as_mut()
+                .is_some_and(|c| !matches!(c.try_wait(), Ok(None)))
+            {
+                *held = None;
+            }
+            match (on, held.take()) {
+                (true, None) => *held = start_inhibitor(),
+                (true, Some(c)) => *held = Some(c),
+                (false, Some(mut c)) => {
+                    let _ = c.kill();
+                    let _ = c.wait();
+                }
+                (false, None) => {}
+            }
+        }
     }
 
     fn sleep(&self) {
         #[cfg(windows)]
         win::sleep();
+        #[cfg(unix)]
+        if let Err(e) = run_quiet("systemctl", &["suspend"]) {
+            tracing::warn!("{e}");
+        }
     }
 
     fn shutdown(&self) -> Result<(), String> {
-        run_shutdown(&["/s", "/t", &SHUTDOWN_DELAY_S.to_string()])
+        #[cfg(windows)]
+        let args = ["/s".to_string(), "/t".into(), SHUTDOWN_DELAY_S.to_string()];
+        #[cfg(unix)]
+        let args = [
+            "-P".to_string(),
+            format!("+{}", SHUTDOWN_DELAY_S.div_ceil(60)),
+        ];
+        run_shutdown(&args.iter().map(String::as_str).collect::<Vec<_>>())
     }
 
     fn cancel_shutdown(&self) {
-        if let Err(e) = run_shutdown(&["/a"]) {
+        #[cfg(windows)]
+        let args = ["/a"];
+        #[cfg(unix)]
+        let args = ["-c"];
+        if let Err(e) = run_shutdown(&args) {
             tracing::warn!("{e}");
         }
     }
@@ -346,10 +420,17 @@ impl PowerActions for SystemPower {
     fn quit(&self) {}
 }
 
-/// Runs Windows' `shutdown` tool without a console window.
+/// Runs the system's `shutdown` tool (without a console window on Windows).
 fn run_shutdown(args: &[&str]) -> Result<(), String> {
-    let mut cmd = std::process::Command::new("shutdown");
+    run_quiet("shutdown", args)
+}
+
+fn run_quiet(program: &str, args: &[&str]) -> Result<(), String> {
+    let mut cmd = std::process::Command::new(program);
     cmd.args(args);
+    #[cfg(unix)]
+    cmd.stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -358,8 +439,8 @@ fn run_shutdown(args: &[&str]) -> Result<(), String> {
     }
     match cmd.status() {
         Ok(s) if s.success() => Ok(()),
-        Ok(s) => Err(format!("shutdown {args:?} exited with {s}")),
-        Err(e) => Err(format!("could not run shutdown {args:?}: {e}")),
+        Ok(s) => Err(format!("{program} {args:?} exited with {s}")),
+        Err(e) => Err(format!("could not run {program} {args:?}: {e}")),
     }
 }
 

@@ -85,8 +85,15 @@ pub fn ensure_registered(host_exe: &Path, app_exe: &Path) {
     }
 }
 
-#[cfg(not(windows))]
-pub fn ensure_registered(_host_exe: &Path, _app_exe: &Path) {}
+/// Linux: registers at every start, so the manifests follow an AppImage that moved and cover
+/// browsers installed since.
+#[cfg(unix)]
+pub fn ensure_registered(host_exe: &Path, app_exe: &Path) {
+    match crate::integration::repair(host_exe, app_exe) {
+        Ok(()) => tracing::info!("browser integration registered"),
+        Err(e) => tracing::warn!("browser registration failed: {e}"),
+    }
+}
 
 #[cfg(test)]
 mod tests {

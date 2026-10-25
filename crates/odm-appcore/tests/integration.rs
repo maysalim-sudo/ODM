@@ -1,5 +1,3 @@
-#![cfg(windows)]
-
 use odm_appcore::confirm::Pending;
 use odm_appcore::integration::{self_test, Contact};
 use odm_appcore::ipc::IpcContext;
@@ -13,10 +11,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 
-/// `target/<profile>/odm-host.exe`, next to the `deps` folder this test runs from.
+/// `target/<profile>/odm-host(.exe)`, next to the `deps` folder this test runs from.
 fn built_host() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let p = exe.parent()?.parent()?.join("odm-host.exe");
+    let p = exe
+        .parent()?
+        .parent()?
+        .join(format!("odm-host{}", std::env::consts::EXE_SUFFIX));
     p.exists().then_some(p)
 }
 
@@ -48,7 +49,13 @@ async fn self_test_goes_through_the_real_host_and_pipe() {
         on_confirm: Box::new(|_| {}),
         contact: contact.clone(),
     });
+    #[cfg(windows)]
     let name = format!(r"\\.\pipe\odm-test-{}", uuid::Uuid::new_v4());
+    #[cfg(unix)]
+    let name = std::env::temp_dir()
+        .join(format!("odm-test-{}.sock", uuid::Uuid::new_v4()))
+        .to_string_lossy()
+        .into_owned();
     let stop = CancellationToken::new();
     serve(name.clone(), ctx, stop.clone()).await.unwrap();
     // No other test in this binary spawns children, so setting the variable here is safe.

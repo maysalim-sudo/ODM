@@ -24,10 +24,11 @@ pub struct BrowserCheck {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct IntegrationStatus {
-    /// odm-host.exe exists next to the app exe.
+    /// odm-host(.exe) exists next to the app.
     pub host_found: bool,
     pub pipe_running: bool,
-    /// In this order: Chrome, Edge, Brave, Vivaldi, Opera, Chromium, Firefox and Floorp.
+    /// In this order: Chrome, Edge, Brave, Vivaldi, Opera, Chromium, Firefox and Floorp (one row
+    /// for both on Windows, where they share a key; two on Linux).
     pub browsers: Vec<BrowserCheck>,
     /// Epoch ms of the last IPC request from a browser.
     pub last_contact_ms: Option<u64>,
@@ -36,6 +37,7 @@ pub struct IntegrationStatus {
 
 /// Registry keys (under HKCU) whose `\com.odm.host` default value is the manifest path.
 /// Copied from odm-host's `register.rs` (`CHROMIUM_KEYS` and `MOZILLA_KEY`); appcore does not depend on odm-host.
+#[cfg(windows)]
 pub const BROWSER_KEYS: [(&str, &str); 7] = [
     ("Chrome", r"Software\Google\Chrome\NativeMessagingHosts"),
     ("Edge", r"Software\Microsoft\Edge\NativeMessagingHosts"),
@@ -52,7 +54,10 @@ pub const BROWSER_KEYS: [(&str, &str); 7] = [
     ),
 ];
 
+#[cfg(windows)]
 const MISSING_HOST: &str = "The browser helper (odm-host.exe) is missing next to ODM.";
+#[cfg(unix)]
+const MISSING_HOST: &str = "The browser helper (odm-host) is missing next to ODM.";
 
 fn canon(s: &str) -> String {
     s.replace('/', "\\").to_lowercase()
@@ -130,6 +135,45 @@ pub fn status(host_exe: &Path, pipe_running: bool, contact: &Contact) -> Integra
             )
         })
         .collect();
+    status_from(host_exe, pipe_running, contact, browsers)
+}
+
+/// Linux: each installed browser's manifest file, where `odm-host --register` writes it.
+/// Browsers that are not installed (no folder of their own) are left out.
+#[cfg(unix)]
+pub fn status(host_exe: &Path, pipe_running: bool, contact: &Contact) -> IntegrationStatus {
+    use odm_core::ids::{host_manifest_file, LINUX_HOST_DIRS};
+    let Some(home) = odm_core::ids::home_dir() else {
+        return status_from(host_exe, pipe_running, contact, Vec::new());
+    };
+    let browsers = LINUX_HOST_DIRS
+        .iter()
+        .filter(|(_, dir, _)| {
+            Path::new(dir)
+                .parent()
+                .is_some_and(|browser| home.join(browser).is_dir())
+        })
+        .map(|(name, dir, _)| {
+            let manifest = Some(home.join(dir).join(host_manifest_file()))
+                .filter(|p| p.exists())
+                .map(|p| p.to_string_lossy().into_owned());
+            check_browser(
+                name,
+                manifest,
+                |p| std::fs::read_to_string(p).ok(),
+                host_exe,
+            )
+        })
+        .collect();
+    status_from(host_exe, pipe_running, contact, browsers)
+}
+
+fn status_from(
+    host_exe: &Path,
+    pipe_running: bool,
+    contact: &Contact,
+    browsers: Vec<BrowserCheck>,
+) -> IntegrationStatus {
     let last = contact.get();
     IntegrationStatus {
         host_found: host_exe.exists(),
@@ -316,10 +360,7 @@ mod tests {
     #[test]
     fn self_test_reports_a_missing_helper() {
         let r = self_test(Path::new(r"C:\definitely\not\here\odm-host.exe"));
-        assert_eq!(
-            r,
-            Err("The browser helper (odm-host.exe) is missing next to ODM.".to_string())
-        );
+        assert_eq!(r, Err(MISSING_HOST.to_string()));
     }
 
     #[test]
@@ -328,9 +369,6 @@ mod tests {
             Path::new(r"C:\definitely\not\here\odm-host.exe"),
             Path::new(r"C:\x\odm.exe"),
         );
-        assert_eq!(
-            r,
-            Err("The browser helper (odm-host.exe) is missing next to ODM.".to_string())
-        );
+        assert_eq!(r, Err(MISSING_HOST.to_string()));
     }
 }

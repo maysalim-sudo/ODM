@@ -3,10 +3,20 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(windows)]
 use tokio::net::windows::named_pipe::ServerOptions;
 
+#[cfg(windows)]
 fn unique_name() -> String {
     format!(r"\\.\pipe\odm-test-{}", uuid::Uuid::new_v4())
+}
+
+#[cfg(unix)]
+fn unique_name() -> String {
+    std::env::temp_dir()
+        .join(format!("odm-test-{}.sock", uuid::Uuid::new_v4()))
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn frame(body: &[u8]) -> Vec<u8> {
@@ -15,8 +25,47 @@ fn frame(body: &[u8]) -> Vec<u8> {
     v
 }
 
+/// Answers one framed request on `s` with `{"echo": <cmd>}`, then waits for the client to close.
+async fn echo_one<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(s: &mut S) {
+    let mut h = [0u8; 4];
+    s.read_exact(&mut h).await.unwrap();
+    let mut b = vec![0u8; u32::from_le_bytes(h) as usize];
+    s.read_exact(&mut b).await.unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+    let r = serde_json::json!({"id": v["id"], "ok": true, "payload": {"echo": v["cmd"]}});
+    let rb = serde_json::to_vec(&r).unwrap();
+    s.write_all(&(rb.len() as u32).to_le_bytes()).await.unwrap();
+    s.write_all(&rb).await.unwrap();
+    s.flush().await.unwrap();
+    let _ = s.read(&mut [0u8; 1]).await; // wait for the client to close
+}
+
+/// Echo server for `n` connections. The socket is bound before returning, so a client
+/// connecting right after this call always finds it.
+#[cfg(unix)]
+fn start_server(name: String, n: usize) -> std::thread::JoinHandle<()> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let listener = {
+        let _g = rt.enter();
+        tokio::net::UnixListener::bind(&name).unwrap()
+    };
+    std::thread::spawn(move || {
+        rt.block_on(async move {
+            for _ in 0..n {
+                let (mut s, _) = listener.accept().await.unwrap();
+                echo_one(&mut s).await;
+            }
+        });
+        let _ = std::fs::remove_file(&name);
+    })
+}
+
 /// Echo server for `n` connections. The first pipe instance is created before returning,
 /// so a client opening the pipe right after this call always finds it.
+#[cfg(windows)]
 fn start_server(name: String, n: usize) -> std::thread::JoinHandle<()> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -38,18 +87,7 @@ fn start_server(name: String, n: usize) -> std::thread::JoinHandle<()> {
                     None => ServerOptions::new().create(&name).unwrap(),
                 };
                 s.connect().await.unwrap();
-                let mut h = [0u8; 4];
-                s.read_exact(&mut h).await.unwrap();
-                let mut b = vec![0u8; u32::from_le_bytes(h) as usize];
-                s.read_exact(&mut b).await.unwrap();
-                let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
-                let r =
-                    serde_json::json!({"id": v["id"], "ok": true, "payload": {"echo": v["cmd"]}});
-                let rb = serde_json::to_vec(&r).unwrap();
-                s.write_all(&(rb.len() as u32).to_le_bytes()).await.unwrap();
-                s.write_all(&rb).await.unwrap();
-                s.flush().await.unwrap();
-                let _ = s.read(&mut [0u8; 1]).await; // wait for the client to close
+                echo_one(&mut s).await;
             }
         })
     })
@@ -145,10 +183,14 @@ fn missing_app_path_replies_start_failed() {
 #[test]
 fn starts_app_then_waits_for_pipe() {
     let name = unique_name();
+    // Any program that exits at once stands in for ODM; the test server plays its pipe.
+    #[cfg(windows)]
     let whoami = format!(
         r"{}\System32\whoami.exe",
         std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into())
     );
+    #[cfg(unix)]
+    let whoami = String::from("/usr/bin/true");
     let n2 = name.clone();
     let t = Instant::now();
     let starter = std::thread::spawn(move || {

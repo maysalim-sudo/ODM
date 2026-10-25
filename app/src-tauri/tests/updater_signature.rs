@@ -61,14 +61,14 @@ fn serve(files: impl FnOnce(&str) -> Files) -> String {
     base
 }
 
+/// One entry, listed for each platform the tests run on.
 fn manifest(base: &str, payload: &str, signature: &str) -> Vec<u8> {
+    let entry = json!({ "signature": signature, "url": format!("{base}/{payload}") });
     json!({
         "version": "0.1.1",
         "notes": "Fixes.",
         "pub_date": "2026-10-10T08:00:00Z",
-        "platforms": {
-            "windows-x86_64": { "signature": signature, "url": format!("{base}/{payload}") }
-        }
+        "platforms": { "windows-x86_64": entry, "linux-x86_64": entry }
     })
     .to_string()
     .into_bytes()

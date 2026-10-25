@@ -64,6 +64,20 @@ pub fn candidate_paths(spec: &LaunchSpec, roots: &[PathBuf]) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Linux: the commands each browser installs, most common first.
+pub fn linux_commands(browser: &str) -> &'static [&'static str] {
+    match browser {
+        "Chrome" => &["google-chrome", "google-chrome-stable"],
+        "Edge" => &["microsoft-edge", "microsoft-edge-stable"],
+        "Brave" => &["brave-browser", "brave"],
+        "Vivaldi" => &["vivaldi", "vivaldi-stable"],
+        "Opera" => &["opera"],
+        "Firefox" => &["firefox"],
+        "Floorp" => &["floorp"],
+        _ => &[],
+    }
+}
+
 #[cfg(windows)]
 fn registered_exe(exe: &str) -> Option<PathBuf> {
     use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
@@ -78,12 +92,8 @@ fn registered_exe(exe: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-#[cfg(not(windows))]
-fn registered_exe(_exe: &str) -> Option<PathBuf> {
-    None
-}
-
-fn find_exe(spec: &LaunchSpec) -> Option<PathBuf> {
+#[cfg(windows)]
+fn find_exe(_browser: &str, spec: &LaunchSpec) -> Option<PathBuf> {
     if let Some(p) = registered_exe(spec.exe) {
         return Some(p);
     }
@@ -95,6 +105,16 @@ fn find_exe(spec: &LaunchSpec) -> Option<PathBuf> {
     candidate_paths(spec, &roots)
         .into_iter()
         .find(|p| p.is_file())
+}
+
+#[cfg(unix)]
+fn find_exe(browser: &str, _spec: &LaunchSpec) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    linux_commands(browser).iter().find_map(|cmd| {
+        std::env::split_paths(&path)
+            .map(|dir| dir.join(cmd))
+            .find(|p| p.is_file())
+    })
 }
 
 /// Store pages ODM may open on the user's behalf.
@@ -115,7 +135,7 @@ fn launch(browser: &str, url: &str) -> Result<(), String> {
             "ODM could not find {browser} on this PC. Open its extensions page yourself and follow the steps."
         )
     };
-    let exe = find_exe(&spec).ok_or_else(not_found)?;
+    let exe = find_exe(browser, &spec).ok_or_else(not_found)?;
     let mut cmd = std::process::Command::new(exe);
     cmd.arg(url);
     #[cfg(windows)]
@@ -123,6 +143,15 @@ fn launch(browser: &str, url: &str) -> Result<(), String> {
         use std::os::windows::process::CommandExt;
         // DETACHED_PROCESS: the browser must not die with ODM or share its console.
         cmd.creation_flags(0x0000_0008);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Its own process group: the browser must not die with ODM.
+        cmd.process_group(0)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
     }
     cmd.spawn().map(|_| ()).map_err(|_| not_found())
 }
@@ -201,6 +230,16 @@ mod tests {
     }
 
     #[test]
+    fn every_offered_browser_has_linux_commands() {
+        for name in [
+            "Chrome", "Edge", "Brave", "Vivaldi", "Opera", "Firefox", "Floorp",
+        ] {
+            assert!(!linux_commands(name).is_empty(), "{name}");
+        }
+        assert!(linux_commands("Netscape").is_empty());
+    }
+
+    #[test]
     fn app_paths_key_names_the_exe() {
         assert_eq!(
             app_paths_key("chrome.exe"),
@@ -208,6 +247,8 @@ mod tests {
         );
     }
 
+    // Windows install folders, joined with `\`.
+    #[cfg(windows)]
     #[test]
     fn candidates_cover_each_root_and_folder() {
         let spec = launch_spec("Chrome").unwrap();
@@ -225,6 +266,7 @@ mod tests {
         assert!(candidate_paths(&spec, &[]).is_empty());
     }
 
+    #[cfg(windows)]
     #[test]
     fn opera_lives_under_local_programs() {
         let spec = launch_spec("Opera").unwrap();

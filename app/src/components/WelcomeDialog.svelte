@@ -2,6 +2,7 @@
   import * as api from "../lib/api";
   import { integration } from "../lib/integration.svelte";
   import { WELCOME_BROWSERS, browserConnected, extensionsPageFor, storeLinkFor } from "../lib/model";
+  import { IS_LINUX } from "../lib/platform";
   import type { StoreLinks, ToolsStatus } from "../lib/types";
   import Modal from "./Modal.svelte";
   import ToolsCard from "./ToolsCard.svelte";
@@ -121,7 +122,7 @@
       <p class="hint">Skipped. You can get them any time in Settings.</p>
       <button onclick={() => (toolsSkipped = false)}>Get video tools</button>
     {:else}
-      <p class="hint">FFmpeg and yt-dlp let ODM save YouTube and other site videos. About 150 MB.</p>
+      <p class="hint">FFmpeg and yt-dlp let ODM save YouTube and other site videos.{IS_LINUX ? "" : " About 150 MB."}</p>
       <div class="buttons">
         <ToolsCard compact oninstalled={toolsInstalled} />
         <button class="link" onclick={() => (toolsSkipped = true)}>Skip for now</button>

@@ -252,6 +252,8 @@ async fn file(State(s): State<Arc<Inner>>, h: HeaderMap) -> Response<Body> {
     let is_probe = h
         .get(header::RANGE)
         .is_some_and(|v| v.as_bytes() == b"bytes=0-0");
+    // `fetch_update` is renamed `try_update` in Rust 1.99; keep the old name for older toolchains.
+    #[allow(deprecated)]
     let cur = match f.max_parallel {
         // Reserve a slot atomically; a refused request is never counted.
         Some(limit) if !is_probe => {

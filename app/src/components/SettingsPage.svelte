@@ -22,6 +22,8 @@
     restoreSection,
     sectionHasRestore,
     springEase,
+    START_WITH_SYSTEM,
+    SYSTEM_PROXY,
     toKbps,
     undoRestore,
     visibleRows,
@@ -341,7 +343,7 @@
                     <div class="card">
                       {#if show("start_with_windows")}
                         <SettingRow id="start_with_windows">
-                          <Switch label="Start ODM with Windows" describedby="set-start_with_windows-desc" checked={s.start_with_windows} onchange={(v) => set("start_with_windows", v)} />
+                          <Switch label={START_WITH_SYSTEM} describedby="set-start_with_windows-desc" checked={s.start_with_windows} onchange={(v) => set("start_with_windows", v)} />
                         </SettingRow>
                       {/if}
                       {#if show("start_minimized")}
@@ -703,7 +705,7 @@
                               onchange={applyProxyUrl}
                             />
                             {#if proxyError}<p class="field-error" role="alert">{proxyError}</p>
-                            {:else if !s?.proxy_url}<p class="field-hint">Until you enter an address, ODM uses the Windows proxy settings.</p>{/if}
+                            {:else if !s?.proxy_url}<p class="field-hint">Until you enter an address, ODM uses the {SYSTEM_PROXY}.</p>{/if}
                           {/if}
                         {/snippet}
                       </SettingRow>

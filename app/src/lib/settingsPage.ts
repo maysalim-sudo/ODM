@@ -1,3 +1,4 @@
+import { IS_LINUX } from "./platform";
 import type { Schedule, Settings } from "./types";
 
 /** The Settings page: its sections, rows, search, restore and inline checks. */
@@ -34,11 +35,17 @@ const row = (section: SectionId, id: string, label: string, description: string,
   fields,
 });
 
+/** The "start when you sign in" switch's label. */
+export const START_WITH_SYSTEM = IS_LINUX ? "Start ODM when you sign in" : "Start ODM with Windows";
+
+/** Where "System" proxy mode takes the proxy from. */
+export const SYSTEM_PROXY = IS_LINUX ? "proxy set in your environment (http_proxy, https_proxy)" : "Windows proxy settings";
+
 export const ROWS: RowDef[] = [
-  row("general", "start_with_windows", "Start ODM with Windows", "ODM starts in the tray when you sign in.", ["start_with_windows"]),
+  row("general", "start_with_windows", START_WITH_SYSTEM, "ODM starts in the tray when you sign in.", ["start_with_windows"]),
   row("general", "start_minimized", "Start minimized to the tray", "The window stays hidden until you open it from the tray.", ["start_minimized"]),
   row("general", "close_to_tray", "Keep running in the tray when closed", "Closing the window keeps downloads going.", ["close_to_tray"]),
-  row("general", "notify_complete", "Notify when a download finishes", "Shows a Windows notification with the file name.", ["notify_complete"]),
+  row("general", "notify_complete", "Notify when a download finishes", IS_LINUX ? "Shows a notification with the file name." : "Shows a Windows notification with the file name.", ["notify_complete"]),
   row("general", "notify_failed", "Notify when a download fails", "So you can retry it or see what went wrong.", ["notify_failed"]),
   row("general", "prevent_sleep", "Prevent sleep while downloading", "The PC stays awake until every download is done.", ["prevent_sleep"]),
 
@@ -69,7 +76,7 @@ export const ROWS: RowDef[] = [
   row("video", "video_subtitles", "Download subtitles when available", "Subtitles are embedded in the video file.", ["video_subtitles"]),
   row("video", "ytdlp_auto_update", "Keep yt-dlp up to date automatically", "Video sites change often. ODM checks once a week.", ["ytdlp_auto_update"]),
 
-  row("network", "proxy", "Proxy", "System uses the Windows proxy settings.", ["proxy_mode", "proxy_url"]),
+  row("network", "proxy", "Proxy", `System uses the ${SYSTEM_PROXY}.`, ["proxy_mode", "proxy_url"]),
   row("network", "connect_timeout_s", "Connect timeout", "How long to wait for a server to answer.", ["connect_timeout_s"]),
   row("network", "read_timeout_s", "Read timeout", "How long a stalled connection waits before it retries.", ["read_timeout_s"]),
   row("network", "max_attempts", "Retries per part", "How often each part is retried before the download fails.", ["max_attempts"]),

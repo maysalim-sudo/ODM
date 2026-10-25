@@ -88,13 +88,18 @@ pub fn find_ytdlp(cfg: &EngineConfig) -> Option<PathBuf> {
     )
 }
 
-/// The JavaScript runtime yt-dlp uses to solve YouTube's signature challenges: Deno from ODM's
-/// tools folder when present, else Node.js.
+/// The JavaScript runtime yt-dlp uses to solve YouTube's signature challenges: Deno when found,
+/// else Node.js.
 pub fn find_js_runtime(tools_dir: Option<&Path>) -> Option<PathBuf> {
-    tools_dir
-        .map(|d| d.join(DENO_EXE))
-        .filter(|p| p.is_file())
-        .or_else(find_node)
+    find_deno(tools_dir).or_else(find_node)
+}
+
+/// Deno from ODM's tools folder; on Linux, where ODM keeps no tools, from `PATH`.
+pub fn find_deno(tools_dir: Option<&Path>) -> Option<PathBuf> {
+    let own = tools_dir.map(|d| d.join(DENO_EXE)).filter(|p| p.is_file());
+    #[cfg(unix)]
+    let own = own.or_else(|| on_path(DENO_EXE));
+    own
 }
 
 /// Node.js.

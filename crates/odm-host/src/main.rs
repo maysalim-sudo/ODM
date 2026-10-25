@@ -2,7 +2,7 @@ use odm_host::register::{register, unregister, RegisterOptions};
 use odm_host::{run, HostConfig};
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: odm-host --register --app <path-to-odm.exe> | --unregister";
+const USAGE: &str = "usage: odm-host --register --app <path-to-odm> | --unregister";
 
 fn options(app_exe: PathBuf) -> std::io::Result<RegisterOptions> {
     Ok(RegisterOptions {
@@ -12,7 +12,11 @@ fn options(app_exe: PathBuf) -> std::io::Result<RegisterOptions> {
             .iter()
             .map(|s| s.to_string())
             .collect(),
+        #[cfg(windows)]
         hkcu_prefix: String::new(),
+        #[cfg(unix)]
+        home: odm_core::ids::home_dir()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "HOME is not set"))?,
     })
 }
 

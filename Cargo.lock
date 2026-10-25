@@ -3740,6 +3740,7 @@ dependencies = [
  "axum",
  "bytes",
  "futures-util",
+ "libc",
  "odm-core",
  "odm-engine",
  "odm-store",
@@ -3779,6 +3780,7 @@ dependencies = [
 name = "odm-core"
 version = "0.2.0"
 dependencies = [
+ "libc",
  "percent-encoding",
  "serde",
  "serde_json",
@@ -3818,6 +3820,7 @@ version = "0.2.0"
 dependencies = [
  "odm-core",
  "serde_json",
+ "tempfile",
  "tokio",
  "uuid",
  "winreg",

@@ -43,10 +43,11 @@ fn fail(kind: ErrorKind, msg: impl Into<String>) -> ChunkFailure {
     OdmError::new(kind, msg).into()
 }
 
-pub fn write_at(file: &std::fs::File, mut offset: u64, mut buf: &[u8]) -> std::io::Result<()> {
+pub fn write_at(file: &std::fs::File, offset: u64, buf: &[u8]) -> std::io::Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::FileExt;
+        let (mut offset, mut buf) = (offset, buf);
         while !buf.is_empty() {
             let n = file.seek_write(buf, offset)?;
             if n == 0 {

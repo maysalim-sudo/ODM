@@ -167,17 +167,15 @@ mod tests {
     fn inside_rejects_escapes() {
         let out = Path::new("C:/dl/Foo");
         assert_eq!(inside(out, "a/b.txt"), Some(out.join("a").join("b.txt")));
-        for bad in [
-            "../x",
-            "a/../../x",
-            "/abs",
-            "c:x",
-            "C:/x",
-            "a//b",
-            ".",
-            "a/./b",
-        ] {
+        for bad in ["../x", "a/../../x", "/abs", "a//b", ".", "a/./b"] {
             assert_eq!(inside(out, bad), None, "{bad}");
         }
+        // Drives exist only on Windows; elsewhere `c:x` is a plain name and stays inside.
+        #[cfg(windows)]
+        for bad in ["c:x", "C:/x"] {
+            assert_eq!(inside(out, bad), None, "{bad}");
+        }
+        #[cfg(unix)]
+        assert_eq!(inside(out, "c:x"), Some(out.join("c:x")));
     }
 }

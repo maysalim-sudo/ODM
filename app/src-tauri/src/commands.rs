@@ -404,7 +404,7 @@ pub async fn refresh_url(state: State<'_, AppState>, id: String, url: String) ->
 /// ODM and the browser helper that sits next to it.
 fn exe_paths() -> Res<(PathBuf, PathBuf)> {
     let app = std::env::current_exe().map_err(|_| "ODM could not find its own location.")?;
-    let host = app.with_file_name("odm-host.exe");
+    let host = app.with_file_name(odm_core::ids::host_exe_name());
     Ok((app, host))
 }
 
@@ -498,6 +498,10 @@ pub async fn tools_status(state: State<'_, AppState>) -> Res<ToolsStatus> {
 /// `UiEvent::ToolsProgress`. Resolves with the versions found afterwards.
 #[tauri::command]
 pub async fn tools_install(app: AppHandle, state: State<'_, AppState>) -> Res<ToolsStatus> {
+    // The downloads are Windows builds; Linux gets the tools from its package manager.
+    if !cfg!(windows) {
+        return Err("Install FFmpeg and yt-dlp with your package manager.".into());
+    }
     if state.tools_busy.swap(true, Ordering::SeqCst) {
         return Err("The video tools are already being downloaded.".into());
     }

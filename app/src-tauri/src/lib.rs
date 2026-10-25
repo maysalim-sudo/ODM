@@ -10,7 +10,6 @@ use odm_appcore::dto::{CompletionTracker, UiEvent};
 use odm_appcore::integration::Contact;
 use odm_appcore::ipc::IpcContext;
 use odm_appcore::offers::Offers;
-#[cfg(windows)]
 use odm_appcore::pipe;
 use odm_appcore::power::{Power, SystemPower};
 use odm_appcore::{bridge, logging, registration, summary, AppPaths, Settings};
@@ -241,7 +240,7 @@ pub fn run() {
                 odm_appcore::tools::update_ytdlp_if_stale(&tools_dir, &now).await;
             });
             if let Ok(app_exe) = std::env::current_exe() {
-                let host_exe = app_exe.with_file_name("odm-host.exe");
+                let host_exe = app_exe.with_file_name(odm_core::ids::host_exe_name());
                 std::thread::spawn(move || registration::ensure_registered(&host_exe, &app_exe));
             }
 

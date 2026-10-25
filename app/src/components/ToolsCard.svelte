@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import * as api from "../lib/api";
   import { toolsProgressText, toolsSummary } from "../lib/model";
+  import { IS_LINUX } from "../lib/platform";
   import type { ToolsStatus } from "../lib/types";
 
   let {
@@ -42,6 +43,22 @@
     };
   });
 
+  /** Linux: the tools come from the package manager, so this only looks again. */
+  async function recheck() {
+    if (busy) return;
+    busy = true;
+    error = null;
+    try {
+      status = await api.toolsStatus();
+      if (status.ffmpeg && status.ytdlp) oninstalled?.(status);
+      else error = "FFmpeg or yt-dlp is still missing.";
+    } catch (e) {
+      error = api.errorText(e);
+    } finally {
+      busy = false;
+    }
+  }
+
   async function install() {
     if (busy) return;
     busy = true;
@@ -60,8 +77,15 @@
 </script>
 
 <div class="card">
-  {#if !compact}
+  {#if IS_LINUX}
+    <p class="lead">
+      FFmpeg joins video streams, yt-dlp downloads videos from sites like YouTube. Install them with your package manager, for example
+      <code>sudo apt install ffmpeg yt-dlp</code>. ODM finds them on your <code>PATH</code>.
+    </p>
+  {:else if !compact}
     <p class="lead">FFmpeg joins video streams, yt-dlp and Deno download videos from sites like YouTube. ODM keeps its own copy, so you don't have to install anything.</p>
+  {/if}
+  {#if !compact}
     {#if summary}
       <ul>
         {#each summary.lines as line (line)}
@@ -71,12 +95,16 @@
     {/if}
   {/if}
   <div class="controls">
-    <button class="primary" onclick={install} disabled={busy}>
-      {busy ? "Downloading…" : summary?.own ? "Update video tools" : "Get video tools"}
-    </button>
-    {#if !compact && !busy}<span class="hint">About 150 MB.</span>{/if}
+    {#if IS_LINUX}
+      <button class="primary" onclick={recheck} disabled={busy}>{busy ? "Checking…" : "Check again"}</button>
+    {:else}
+      <button class="primary" onclick={install} disabled={busy}>
+        {busy ? "Downloading…" : summary?.own ? "Update video tools" : "Get video tools"}
+      </button>
+      {#if !compact && !busy}<span class="hint">About 150 MB.</span>{/if}
+    {/if}
   </div>
-  {#if busy}
+  {#if busy && !IS_LINUX}
     <div
       class="bar"
       role="progressbar"

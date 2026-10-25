@@ -1,3 +1,6 @@
+//! Windows: registry round trip. Linux: see `register_unix.rs`.
+#![cfg(windows)]
+
 use odm_host::register::{
     register, unregister, RegisterOptions, CHROMIUM_KEYS, MOZILLA_KEY, ODM_KEY,
 };

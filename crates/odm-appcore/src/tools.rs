@@ -101,7 +101,6 @@ pub fn is_stale(modified: SystemTime, now: SystemTime, max_age: Duration) -> boo
 }
 
 const YTDLP_EXE: &str = "yt-dlp.exe";
-const DENO_EXE: &str = "deno.exe";
 
 /// Runs `exe args` and returns its stdout, giving up (and killing it) after `timeout`.
 fn run_with_timeout(exe: &Path, args: &[&str], timeout: Duration) -> Option<String> {
@@ -160,7 +159,7 @@ pub fn source_of(path: &Path, configured: Option<&Path>, tools_dir: Option<&Path
 
 /// The tools the engine would use with `cfg` (configured path, ODM's folder, `PATH`, WinGet), with
 /// their versions. Each is run with a 5 second limit; a missing or broken tool is `None`. Deno is
-/// only looked for in ODM's folder, because that is the only place the engine looks for it.
+/// looked for where the engine looks for it: ODM's folder, and on Linux `PATH`.
 pub fn status(cfg: &EngineConfig) -> ToolsStatus {
     let timeout = Duration::from_secs(5);
     let tools_dir = cfg.tools_dir.as_deref();
@@ -184,7 +183,7 @@ pub fn status(cfg: &EngineConfig) -> ToolsStatus {
             cfg.ytdlp_path.as_deref(),
         ),
         deno: probe(
-            tools_dir.map(|d| d.join(DENO_EXE)).filter(|p| p.is_file()),
+            odm_engine::site::find_deno(tools_dir),
             "deno",
             "--version",
             None,

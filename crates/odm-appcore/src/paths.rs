@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-/// Where the app keeps its files. `%APPDATA%\ODM` in production.
+/// Where the app keeps its files. `%APPDATA%\ODM` (Windows) or `~/.local/share/ODM` (Linux) in
+/// production.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppPaths {
     pub data_dir: PathBuf,
@@ -35,6 +36,7 @@ impl AppPaths {
         }
     }
 
+    #[cfg(windows)]
     pub fn default_location() -> Self {
         let base = std::env::var_os("APPDATA")
             .map(PathBuf::from)
@@ -46,6 +48,18 @@ impl AppPaths {
                 .join("tools");
         }
         paths
+    }
+
+    /// `$XDG_DATA_HOME/ODM`, else `~/.local/share/ODM`. Video tools come from `PATH` on Linux, so
+    /// the tools folder stays unused.
+    #[cfg(unix)]
+    pub fn default_location() -> Self {
+        let base = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .or_else(|| odm_core::ids::home_dir().map(|h| h.join(".local").join("share")))
+            .unwrap_or_else(|| PathBuf::from("."));
+        Self::at(base.join(odm_core::ids::APP_DIR_NAME))
     }
 
     pub fn ensure(&self) -> std::io::Result<()> {

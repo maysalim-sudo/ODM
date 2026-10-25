@@ -61,6 +61,11 @@ pub fn store_links() -> StoreLinks {
     )
 }
 
+/// The browser helper's file name, next to the app: `odm-host.exe` on Windows, `odm-host` elsewhere.
+pub fn host_exe_name() -> String {
+    format!("odm-host{}", std::env::consts::EXE_SUFFIX)
+}
+
 /// Named pipe path for the given Windows user name.
 pub fn pipe_name(user: &str) -> String {
     format!(r"\\.\pipe\odm-{user}")
@@ -72,6 +77,121 @@ pub fn pipe_name_for(override_name: Option<String>, user: Option<String>) -> Str
         Some(n) if !n.is_empty() => n,
         _ => pipe_name(user.as_deref().unwrap_or("user")),
     }
+}
+
+/// Unix socket path: `<runtime dir>/odm.sock` when the runtime dir is set and absolute, else
+/// `/tmp/odm-<uid>.sock`.
+pub fn socket_path(runtime_dir: Option<&std::path::Path>, uid: u32) -> std::path::PathBuf {
+    match runtime_dir {
+        Some(d) if d.is_absolute() => d.join("odm.sock"),
+        _ => std::path::PathBuf::from(format!("/tmp/odm-{uid}.sock")),
+    }
+}
+
+/// The pipe (Windows) or socket (Unix) ODM listens on: `ODM_PIPE_NAME` when set and non-empty,
+/// else `\\.\pipe\odm-<USERNAME>` on Windows and [`socket_path`] on Unix.
+pub fn pipe_name_from_env() -> String {
+    #[cfg(windows)]
+    {
+        pipe_name_for(
+            std::env::var("ODM_PIPE_NAME").ok(),
+            std::env::var("USERNAME").ok(),
+        )
+    }
+    #[cfg(unix)]
+    {
+        match std::env::var("ODM_PIPE_NAME") {
+            Ok(n) if !n.is_empty() => n,
+            _ => {
+                let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from);
+                // SAFETY: getuid has no preconditions and cannot fail.
+                let uid = unsafe { libc::getuid() };
+                socket_path(runtime.as_deref(), uid)
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        }
+    }
+}
+
+/// Which manifest a native-messaging folder takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManifestKind {
+    /// `allowed_origins` with the Chromium extension IDs.
+    Chromium,
+    /// `allowed_extensions` with the Firefox add-on ID.
+    Mozilla,
+}
+
+/// Linux: each browser's user-level native-messaging folder, relative to `$HOME`.
+/// The manifest in each is [`host_manifest_file`].
+pub const LINUX_HOST_DIRS: [(&str, &str, ManifestKind); 8] = [
+    (
+        "Chrome",
+        ".config/google-chrome/NativeMessagingHosts",
+        ManifestKind::Chromium,
+    ),
+    (
+        "Edge",
+        ".config/microsoft-edge/NativeMessagingHosts",
+        ManifestKind::Chromium,
+    ),
+    (
+        "Brave",
+        ".config/BraveSoftware/Brave-Browser/NativeMessagingHosts",
+        ManifestKind::Chromium,
+    ),
+    (
+        "Vivaldi",
+        ".config/vivaldi/NativeMessagingHosts",
+        ManifestKind::Chromium,
+    ),
+    (
+        "Opera",
+        ".config/opera/NativeMessagingHosts",
+        ManifestKind::Chromium,
+    ),
+    (
+        "Chromium",
+        ".config/chromium/NativeMessagingHosts",
+        ManifestKind::Chromium,
+    ),
+    (
+        "Firefox",
+        ".mozilla/native-messaging-hosts",
+        ManifestKind::Mozilla,
+    ),
+    (
+        "Floorp",
+        ".floorp/native-messaging-hosts",
+        ManifestKind::Mozilla,
+    ),
+];
+
+/// `com.odm.host.json`: browsers on Linux find the host by this file name.
+pub fn host_manifest_file() -> String {
+    format!("{HOST_NAME}.json")
+}
+
+/// Linux stand-in for `HKCU\Software\ODM`: `{"HostPath": …, "AppPath": …}`.
+pub fn registration_file(home: &std::path::Path) -> std::path::PathBuf {
+    home.join(".config")
+        .join(APP_DIR_NAME)
+        .join("registration.json")
+}
+
+/// One value from the registration file, or None if the file or the value is missing.
+pub fn read_registration(home: &std::path::Path, key: &str) -> Option<String> {
+    let text = std::fs::read_to_string(registration_file(home)).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    v.get(key)?.as_str().map(str::to_string)
+}
+
+/// `$HOME` when set and not empty.
+pub fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .map(std::path::PathBuf::from)
 }
 
 #[cfg(test)]
@@ -129,6 +249,58 @@ mod tests {
             super::parse_store_links("junk", "junk"),
             super::StoreLinks::default()
         );
+    }
+
+    // Unix only: Windows never uses the socket, and "/run/user/1000" is not absolute there.
+    #[cfg(unix)]
+    #[test]
+    fn socket_path_uses_the_runtime_dir_when_absolute() {
+        use std::path::{Path, PathBuf};
+        assert_eq!(
+            super::socket_path(Some(Path::new("/run/user/1000")), 1000),
+            PathBuf::from("/run/user/1000/odm.sock")
+        );
+        assert_eq!(
+            super::socket_path(Some(Path::new("relative")), 7),
+            PathBuf::from("/tmp/odm-7.sock")
+        );
+        assert_eq!(
+            super::socket_path(None, 7),
+            PathBuf::from("/tmp/odm-7.sock")
+        );
+    }
+
+    #[test]
+    fn linux_host_dirs_cover_every_browser_once() {
+        use super::ManifestKind::Mozilla;
+        let names: Vec<_> = super::LINUX_HOST_DIRS.iter().map(|(n, _, _)| *n).collect();
+        assert_eq!(
+            names,
+            ["Chrome", "Edge", "Brave", "Vivaldi", "Opera", "Chromium", "Firefox", "Floorp"]
+        );
+        for (name, dir, kind) in super::LINUX_HOST_DIRS {
+            assert!(!dir.starts_with('/'), "{name}");
+            let mozilla = dir.ends_with("native-messaging-hosts");
+            assert_eq!(kind == Mozilla, mozilla, "{name}");
+            assert!(mozilla || dir.ends_with("NativeMessagingHosts"), "{name}");
+        }
+        assert_eq!(super::host_manifest_file(), "com.odm.host.json");
+    }
+
+    #[test]
+    fn registration_file_round_trip() {
+        let home = std::env::temp_dir().join(format!("odm-core-reg-{}", std::process::id()));
+        let file = super::registration_file(&home);
+        assert!(file.ends_with(".config/ODM/registration.json"));
+        assert_eq!(super::read_registration(&home, "AppPath"), None);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, r#"{"AppPath":"/usr/bin/odm-app","HostPath":7}"#).unwrap();
+        assert_eq!(
+            super::read_registration(&home, "AppPath").as_deref(),
+            Some("/usr/bin/odm-app")
+        );
+        assert_eq!(super::read_registration(&home, "HostPath"), None);
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
