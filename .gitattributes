@@ -1,0 +1,3 @@
+# Run on Linux from this same checkout (shared disk): keep LF even in a Windows working copy.
+*.sh text eol=lf
+*.desktop text eol=lf
