@@ -122,7 +122,7 @@
       <p class="hint">Skipped. You can get them any time in Settings.</p>
       <button onclick={() => (toolsSkipped = false)}>Get video tools</button>
     {:else}
-      <p class="hint">FFmpeg and yt-dlp let ODM save YouTube and other site videos.{IS_LINUX ? "" : " About 150 MB."}</p>
+      <p class="hint">FFmpeg and yt-dlp let ODM save YouTube and other site videos.{IS_LINUX ? " About 35 MB, plus FFmpeg from your package manager." : " About 150 MB."}</p>
       <div class="buttons">
         <ToolsCard compact oninstalled={toolsInstalled} />
         <button class="link" onclick={() => (toolsSkipped = true)}>Skip for now</button>

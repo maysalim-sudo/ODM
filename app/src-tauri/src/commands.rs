@@ -494,14 +494,10 @@ pub async fn tools_status(state: State<'_, AppState>) -> Res<ToolsStatus> {
         .map_err(|e| e.to_string())
 }
 
-/// Downloads FFmpeg, yt-dlp and Deno into ODM's tools folder, reporting progress as
+/// Downloads FFmpeg, yt-dlp and Deno (Linux: yt-dlp) into ODM's tools folder, reporting progress as
 /// `UiEvent::ToolsProgress`. Resolves with the versions found afterwards.
 #[tauri::command]
 pub async fn tools_install(app: AppHandle, state: State<'_, AppState>) -> Res<ToolsStatus> {
-    // The downloads are Windows builds; Linux gets the tools from its package manager.
-    if !cfg!(windows) {
-        return Err("Install FFmpeg and yt-dlp with your package manager.".into());
-    }
     if state.tools_busy.swap(true, Ordering::SeqCst) {
         return Err("The video tools are already being downloaded.".into());
     }

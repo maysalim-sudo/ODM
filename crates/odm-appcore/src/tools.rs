@@ -1,6 +1,7 @@
 //! The video tools ODM manages itself: yt-dlp, FFmpeg (with ffprobe) and Deno (YouTube's JS
-//! runtime). They live in `AppPaths::tools_dir`; `install` fetches them over HTTPS and checks each
-//! download against its published SHA-256 before anything is replaced.
+//! runtime) on Windows; yt-dlp only on Linux, where FFmpeg comes from the package manager. They
+//! live in `AppPaths::tools_dir`; `install` fetches them over HTTPS and checks each download
+//! against its published SHA-256 before anything is replaced.
 use odm_engine::EngineConfig;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -27,7 +28,7 @@ pub struct ToolsStatus {
     pub deno: Option<ToolInfo>,
 }
 
-/// Where each tool and its checksum list are downloaded from.
+/// Where each tool and its checksum list are downloaded from. Linux uses only the yt-dlp pair.
 #[derive(Debug, Clone)]
 pub struct ToolSources {
     pub ytdlp_url: String,
@@ -44,13 +45,25 @@ impl Default for ToolSources {
         let ffmpeg = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest";
         let deno = "https://github.com/denoland/deno/releases/latest/download";
         Self {
-            ytdlp_url: format!("{ytdlp}/yt-dlp.exe"),
+            ytdlp_url: format!("{ytdlp}/{}", ytdlp_asset()),
             ytdlp_sums_url: format!("{ytdlp}/SHA2-256SUMS"),
             ffmpeg_url: format!("{ffmpeg}/ffmpeg-master-latest-win64-gpl.zip"),
             ffmpeg_sums_url: format!("{ffmpeg}/checksums.sha256"),
             deno_url: format!("{deno}/deno-x86_64-pc-windows-msvc.zip"),
             deno_sums_url: format!("{deno}/deno-x86_64-pc-windows-msvc.zip.sha256sum"),
         }
+    }
+}
+
+/// yt-dlp's release file for this system. The Linux builds are standalone: they carry the
+/// YouTube challenge solver that distribution packages leave out.
+pub fn ytdlp_asset() -> &'static str {
+    if cfg!(windows) {
+        "yt-dlp.exe"
+    } else if cfg!(target_arch = "aarch64") {
+        "yt-dlp_linux_aarch64"
+    } else {
+        "yt-dlp_linux"
     }
 }
 
@@ -100,7 +113,10 @@ pub fn is_stale(modified: SystemTime, now: SystemTime, max_age: Duration) -> boo
     now.duration_since(modified).is_ok_and(|age| age > max_age)
 }
 
+#[cfg(windows)]
 const YTDLP_EXE: &str = "yt-dlp.exe";
+#[cfg(unix)]
+const YTDLP_EXE: &str = "yt-dlp";
 
 /// Runs `exe args` and returns its stdout, giving up (and killing it) after `timeout`.
 fn run_with_timeout(exe: &Path, args: &[&str], timeout: Duration) -> Option<String> {
@@ -281,6 +297,7 @@ async fn download_verified(
 /// Copies the zip entries whose path ends with one of `wanted` (`"bin/ffmpeg.exe"`) to
 /// `<dir>/<file name>.part`, pushing each `.part` path to `scratch`; returns the (part, final)
 /// pairs. Every wanted entry must exist.
+#[cfg(windows)]
 fn extract(
     archive: &Path,
     wanted: &[&str],
@@ -310,7 +327,7 @@ fn extract(
     Ok(out)
 }
 
-/// Downloads yt-dlp, FFmpeg (+ ffprobe) and Deno into `dir`.
+/// Downloads yt-dlp, FFmpeg (+ ffprobe) and Deno into `dir` (Windows), or yt-dlp (Linux).
 ///
 /// Everything is downloaded and checked first; only then are the files moved into place, so a
 /// failure leaves the tools that were already there untouched. `on_progress(stage, done, total)`
@@ -330,6 +347,7 @@ pub async fn install(
     result
 }
 
+#[cfg(windows)]
 async fn install_inner(
     dir: &Path,
     client: &reqwest::Client,
@@ -382,13 +400,42 @@ async fn install_inner(
     Ok(())
 }
 
+#[cfg(unix)]
+async fn install_inner(
+    dir: &Path,
+    client: &reqwest::Client,
+    sources: &ToolSources,
+    on_progress: Progress<'_>,
+    scratch: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let part = dir.join(format!("{}.part", file_name_of(&sources.ytdlp_url)));
+    scratch.push(part.clone());
+    download_verified(
+        client,
+        &sources.ytdlp_url,
+        &sources.ytdlp_sums_url,
+        &part,
+        "yt-dlp",
+        on_progress,
+    )
+    .await?;
+    on_progress("Installing", 0, 0);
+    std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755)).map_err(other)?;
+    let dest = dir.join(YTDLP_EXE);
+    std::fs::rename(&part, &dest)
+        .map_err(|e| other(format!("{} can't be replaced ({e})", dest.display())))?;
+    on_progress("Installing", 1, 1);
+    Ok(())
+}
+
 /// Whether the weekly yt-dlp update is due: the switch is on and the file is over 7 days old.
 pub fn should_update_ytdlp(enabled: bool, modified: SystemTime, now: SystemTime) -> bool {
     enabled && is_stale(modified, now, Duration::from_secs(7 * 86_400))
 }
 
 /// yt-dlp changes often. At app start, if "Keep yt-dlp up to date" is on and the managed
-/// `yt-dlp.exe` is more than 7 days old, run its own updater (`-U`, through the proxy the
+/// yt-dlp is more than 7 days old, run its own updater (`-U`, through the proxy the
 /// settings name) and log the outcome. A missing file does nothing.
 pub async fn update_ytdlp_if_stale(dir: &Path, s: &crate::Settings) {
     let exe = dir.join(YTDLP_EXE);

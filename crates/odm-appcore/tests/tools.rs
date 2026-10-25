@@ -1,4 +1,6 @@
 //! `tools::install` against a local file server. Nothing here touches the real network.
+//! Windows: the three tools. Linux: see `tools_linux.rs`.
+#![cfg(windows)]
 use odm_appcore::tools::{self, ToolSources, CHECKSUM_FAILED, DOWNLOAD_FAILED};
 use odm_engine::config::ProxyConfig;
 use odm_testserver::files::FileServer;

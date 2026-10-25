@@ -173,6 +173,7 @@ pub fn open_store_page(browser: &str, url: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
     use std::path::PathBuf;
 
     #[test]

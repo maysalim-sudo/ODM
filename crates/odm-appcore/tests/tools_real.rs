@@ -1,5 +1,6 @@
 //! Downloads the real video tools from GitHub (about 200 MB) into a temp folder and checks that
 //! each one runs. Opt-in: `ODM_REAL_TOOLS=1 cargo test -p odm-appcore --test tools_real -- --ignored`.
+#![cfg(windows)]
 use odm_appcore::tools::{self, ToolSources};
 use odm_engine::EngineConfig;
 

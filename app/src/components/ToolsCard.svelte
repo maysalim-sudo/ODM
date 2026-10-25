@@ -16,6 +16,7 @@
 
   let status = $state<ToolsStatus | null>(null);
   let busy = $state(false);
+  let checking = $state(false);
   let error = $state<string | null>(null);
   let progress = $state<{ stage: string; done: number; total: number } | null>(null);
 
@@ -43,10 +44,10 @@
     };
   });
 
-  /** Linux: the tools come from the package manager, so this only looks again. */
+  /** Linux: FFmpeg comes from the package manager, so this only looks again. */
   async function recheck() {
-    if (busy) return;
-    busy = true;
+    if (busy || checking) return;
+    checking = true;
     error = null;
     try {
       status = await api.toolsStatus();
@@ -55,7 +56,7 @@
     } catch (e) {
       error = api.errorText(e);
     } finally {
-      busy = false;
+      checking = false;
     }
   }
 
@@ -79,8 +80,8 @@
 <div class="card">
   {#if IS_LINUX}
     <p class="lead">
-      FFmpeg joins video streams, yt-dlp downloads videos from sites like YouTube. Install them with your package manager, for example
-      <code>sudo apt install ffmpeg yt-dlp</code>. ODM finds them on your <code>PATH</code>.
+      yt-dlp downloads videos from sites like YouTube; ODM keeps its own copy up to date. FFmpeg joins video streams: install it with your package
+      manager, for example <code>sudo apt install ffmpeg</code>.
     </p>
   {:else if !compact}
     <p class="lead">FFmpeg joins video streams, yt-dlp and Deno download videos from sites like YouTube. ODM keeps its own copy, so you don't have to install anything.</p>
@@ -96,7 +97,11 @@
   {/if}
   <div class="controls">
     {#if IS_LINUX}
-      <button class="primary" onclick={recheck} disabled={busy}>{busy ? "Checking…" : "Check again"}</button>
+      <button class="primary" onclick={install} disabled={busy}>
+        {busy ? "Downloading…" : summary?.own ? "Update yt-dlp" : "Get yt-dlp"}
+      </button>
+      {#if !busy && status && !status.ffmpeg}<button onclick={recheck} disabled={checking}>{checking ? "Checking…" : "Check again"}</button>{/if}
+      {#if !compact && !busy}<span class="hint">About 35 MB.</span>{/if}
     {:else}
       <button class="primary" onclick={install} disabled={busy}>
         {busy ? "Downloading…" : summary?.own ? "Update video tools" : "Get video tools"}
@@ -104,7 +109,7 @@
       {#if !compact && !busy}<span class="hint">About 150 MB.</span>{/if}
     {/if}
   </div>
-  {#if busy && !IS_LINUX}
+  {#if busy}
     <div
       class="bar"
       role="progressbar"
