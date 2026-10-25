@@ -10,7 +10,7 @@ ODM 0.2.0 adds torrent downloads. ODM stays a downloader: a torrent stops sharin
 
 ## Install or update
 
-- **Already have ODM?** It offers this update on its own. Choose **Update**.
+- **Already have ODM 0.1.0?** Install this version by hand once: download **ODM-setup.exe** below and run it; your downloads and settings stay. ODM's update signing key changed with this release, so 0.1.0 can't install it by itself. From 0.2.0 on, updates arrive in the app again.
 - **New install:** download **ODM-setup.exe** below and run it. It installs for your user only, with no admin rights needed. The installer isn't code-signed yet, so Windows SmartScreen may show "Windows protected your PC". Choose **More info → Run anyway**.
 - The installer asks whether to open magnet links and `.torrent` files with ODM. The answer is No unless you choose Yes; you can change it later in Windows Settings → Apps → Default apps.
 

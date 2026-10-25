@@ -5,7 +5,9 @@
 
 ## What changed
 
-ODM **0.2.0** adds **torrent downloads**. It is published as the GitHub release `v0.2.0`; the stable download URLs the page already uses keep working and now serve 0.2.0. Installed 0.1.0 copies are offered the update automatically.
+ODM **0.2.0** adds **torrent downloads**. It is published as the GitHub release `v0.2.0`; the stable download URLs the page already uses keep working and now serve 0.2.0.
+
+**Important:** the update signing key changed with 0.2.0, so installed **0.1.0 copies can't update themselves** this one time. 0.1.0 users must download and run the new installer once (downloads and settings are kept); from 0.2.0 on, in-app updates work again.
 
 The GitHub repository moved from `salimmay/ODM` to **`maysalim-sudo/ODM`**. Old `salimmay/ODM` links redirect, but use the new address for new links.
 
@@ -46,7 +48,7 @@ Add:
 - **"Does ODM seed torrents?"** No. It uploads a little while it downloads (peers share faster with those who share back; you can cap it or turn it off in Settings → Torrents), and stops sharing as soon as your files are complete.
 - **"Can I download only some files from a torrent?"** Yes. ODM shows the file list before it starts (for a magnet, as soon as peers send it), and you can tick or untick files later in the details panel.
 
-Update **"How do updates work?"** to mention that 0.1.0 users get 0.2.0 offered automatically.
+Update **"How do updates work?"**: add "If you have 0.1.0, download and run the 0.2.0 installer once (your downloads and settings stay); updates from 0.2.0 on arrive in the app." Consider a short line under the v0.2.0 banner saying the same.
 
 ### 7. Footer links
 
