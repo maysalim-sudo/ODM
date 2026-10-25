@@ -91,13 +91,11 @@ Choose a password. This writes the private key to `%USERPROFILE%\.tauri\odm-upda
 
 1. Raise `version` in `app\src-tauri\tauri.conf.json` (and in `Cargo.toml` and `app\package.json`).
 2. In `CHANGELOG.md`, turn "Unreleased" into a section for that version, like `## [0.2.0] - 2026-10-20`. Its text becomes the "What's new" of the update.
-3. Build, in `cmd`:
+3. Build, in PowerShell:
 
-       set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\odm-updater.key
-       set TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<your password>
-       node scripts\release.mjs --publish-ready
+       powershell -NoProfile -ExecutionPolicy Bypass -File scripts\sign-release.ps1
 
-   It refuses to start without both variables or without the `.pub` file, runs every check and test first, and stops at the first failure. Then it builds the signed installer and writes `target\release-assets\`: `latest.json`, `ODM_<version>_x64-setup.exe`, its `.sig`, and `ODM-setup.exe` (the same installer under the stable name the website links to).
+   It asks for the key password (hidden), checks it against the key in a few seconds (3 tries), and only then runs `node scripts\release.mjs --publish-ready` with the key and password set for that build alone. Setting `TAURI_SIGNING_PRIVATE_KEY_PATH` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` yourself and running `release.mjs --publish-ready` directly also works. The release script refuses to start without both variables or without the `.pub` file, runs every check and test first, and stops at the first failure. Then it builds the signed installer and writes `target\release-assets\`: `latest.json`, `ODM_<version>_x64-setup.exe`, its `.sig`, and `ODM-setup.exe` (the same installer under the stable name the website links to).
 4. Create the GitHub release `v<version>` and upload those four files. Installed copies read the `latest.json` of the latest release (the updater `endpoints` in `app/src-tauri/tauri.conf.json`), so the update reaches them once the release is published (not as a draft or a pre-release).
 
 To test an update locally, set `ODM_UPDATE_ENDPOINT` to another `latest.json` before starting ODM. It accepts an https address, or plain http on this PC (`localhost`, `127.0.0.1`); the signature is still required.
