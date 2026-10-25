@@ -239,10 +239,11 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 odm_appcore::tools::update_ytdlp_if_stale(&tools_dir, &now).await;
             });
-            if let Ok(app_exe) = std::env::current_exe() {
-                let host_exe = app_exe.with_file_name(odm_core::ids::host_exe_name());
-                std::thread::spawn(move || registration::ensure_registered(&host_exe, &app_exe));
-            }
+            let data_dir = app.state::<AppState>().paths.data_dir.clone();
+            std::thread::spawn(move || match registration::current_paths(&data_dir) {
+                Ok((app_exe, host_exe)) => registration::ensure_registered(&host_exe, &app_exe),
+                Err(e) => tracing::warn!("browser integration: cannot find ODM's paths: {e}"),
+            });
 
             // ODM started by opening a magnet link or .torrent file.
             if let Some(input) = torrent_arg::torrent_arg(&std::env::args().collect::<Vec<_>>()) {

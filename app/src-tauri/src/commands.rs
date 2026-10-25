@@ -401,11 +401,11 @@ pub async fn refresh_url(state: State<'_, AppState>, id: String, url: String) ->
     api::refresh_url(&state.manager, &id, &url).await
 }
 
-/// ODM and the browser helper that sits next to it.
-fn exe_paths() -> Res<(PathBuf, PathBuf)> {
-    let app = std::env::current_exe().map_err(|_| "ODM could not find its own location.")?;
-    let host = app.with_file_name(odm_core::ids::host_exe_name());
-    Ok((app, host))
+/// ODM and its browser helper, as registered (an AppImage's lasting paths, see
+/// `registration::stable_paths`).
+fn exe_paths(state: &AppState) -> Res<(PathBuf, PathBuf)> {
+    odm_appcore::registration::current_paths(&state.paths.data_dir)
+        .map_err(|_| "ODM could not find its own location.".into())
 }
 
 fn current_status(state: &AppState, host: &std::path::Path) -> IntegrationStatus {
@@ -418,13 +418,13 @@ fn current_status(state: &AppState, host: &std::path::Path) -> IntegrationStatus
 
 #[tauri::command]
 pub fn integration_status(state: State<'_, AppState>) -> Res<IntegrationStatus> {
-    let (_, host) = exe_paths()?;
+    let (_, host) = exe_paths(&state)?;
     Ok(current_status(&state, &host))
 }
 
 #[tauri::command]
-pub async fn integration_test() -> Res<String> {
-    let (_, host) = exe_paths()?;
+pub async fn integration_test(state: State<'_, AppState>) -> Res<String> {
+    let (_, host) = exe_paths(&state)?;
     tauri::async_runtime::spawn_blocking(move || integration::self_test(&host))
         .await
         .map_err(|e| e.to_string())?
@@ -432,7 +432,7 @@ pub async fn integration_test() -> Res<String> {
 
 #[tauri::command]
 pub async fn integration_repair(state: State<'_, AppState>) -> Res<IntegrationStatus> {
-    let (app, host) = exe_paths()?;
+    let (app, host) = exe_paths(&state)?;
     let h = host.clone();
     tauri::async_runtime::spawn_blocking(move || integration::repair(&h, &app))
         .await
