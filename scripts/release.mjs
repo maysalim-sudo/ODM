@@ -1,4 +1,9 @@
-// Builds the ODM installer. Run from the repo root: node scripts/release.mjs
+// Builds the ODM installers. Run from the repo root: node scripts/release.mjs
+//
+// On Windows: the NSIS installer. On Linux: .deb, .rpm and .AppImage, copied to
+// target/release-assets-linux/ as ODM-amd64.deb, ODM-x86_64.rpm and ODM-x86_64.AppImage.
+// --updater-pubkey <file> compiles that public key in without signing (Linux builds use it so
+// they can verify later updates; the private key stays where the signed Windows build runs).
 //
 // --publish-ready also runs every gate first, signs the build for the updater and writes
 // target/release-assets/ (latest.json, the versioned installer and ODM-setup.exe). It needs
@@ -12,7 +17,11 @@ import { buildLatestJson, staleReleaseFiles } from "./latest-json.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const shell = process.platform === "win32";
+const isWindows = process.platform === "win32";
+const isLinux = process.platform === "linux";
 const publishReady = process.argv.includes("--publish-ready");
+const pubkeyArg = process.argv.indexOf("--updater-pubkey");
+const pubkeyOnlyPath = pubkeyArg > 0 ? process.argv[pubkeyArg + 1] : undefined;
 
 function fail(step, detail) {
   console.error(`\nrelease failed at: ${step}${detail ? `\n${detail}` : ""}`);
@@ -25,6 +34,16 @@ function run(step, cmd, args, cwd = root, env = process.env) {
   if (r.error) fail(step, String(r.error));
   if (r.status !== 0) fail(step, `exit code ${r.status}`);
 }
+
+if (!isWindows && !isLinux) fail("platform", `ODM builds on Windows and Linux, not ${process.platform}.`);
+if (isLinux && publishReady) {
+  fail(
+    "--publish-ready",
+    "Signed releases are built on Windows. On Linux, build with --updater-pubkey <file.pub> so the\n" +
+      "packages can verify later updates, then add them to the release made on Windows.",
+  );
+}
+if (pubkeyArg > 0 && !pubkeyOnlyPath) fail("--updater-pubkey", "Give the path of the .pub file after it.");
 
 /** The signing key and its public half, or a refusal that says what is missing. */
 function signingKey() {
@@ -47,10 +66,25 @@ function signingKey() {
   }
   const pubkey = readFileSync(pubPath, "utf8").trim();
   if (!pubkey) fail("signing key", `${pubPath} is empty.`);
+  // The repo carries the public key for builds that only verify updates (Linux, --updater-pubkey).
+  // It must be the half of the key that signs, or those builds would refuse every update.
+  const repoPub = join(root, "app", "src-tauri", "odm-updater.pub");
+  if (existsSync(repoPub) && readFileSync(repoPub, "utf8").trim() !== pubkey) {
+    fail("signing key", `${repoPub} is not the public half of ${keyPath}. Copy ${pubPath} over it and commit.`);
+  }
   return { keyPath, password, pubkey };
 }
 
 const key = publishReady ? signingKey() : null;
+/** A public key compiled in without signing (--updater-pubkey). */
+function pubkeyOnly() {
+  if (!pubkeyOnlyPath) return null;
+  if (!existsSync(pubkeyOnlyPath)) fail("--updater-pubkey", `No public key at ${pubkeyOnlyPath}.`);
+  const pubkey = readFileSync(pubkeyOnlyPath, "utf8").trim();
+  if (!pubkey) fail("--updater-pubkey", `${pubkeyOnlyPath} is empty.`);
+  return pubkey;
+}
+const pubkeyAlone = key ? null : pubkeyOnly();
 const version = JSON.parse(readFileSync(join(root, "app", "src-tauri", "tauri.conf.json"), "utf8")).version;
 const changelog = publishReady ? readFileSync(join(root, "CHANGELOG.md"), "utf8") : "";
 if (publishReady) {
@@ -72,7 +106,8 @@ if (!triple) fail("rustc -vV", "no host line in the output");
 const binDir = join(root, "app", "src-tauri", "binaries");
 mkdirSync(binDir, { recursive: true });
 try {
-  copyFileSync(join(root, "target", "release", "odm-host.exe"), join(binDir, `odm-host-${triple}.exe`));
+  const exe = isWindows ? ".exe" : "";
+  copyFileSync(join(root, "target", "release", `odm-host${exe}`), join(binDir, `odm-host-${triple}${exe}`));
 } catch (e) {
   fail("copy odm-host", String(e));
 }
@@ -93,6 +128,40 @@ if (publishReady) {
   run("gate: extension test", "pnpm", ["test"], ext);
   run("gate: app check", "pnpm", ["check"], app);
   run("gate: app test", "pnpm", ["test"], app);
+}
+
+if (isLinux) {
+  const linuxAssets = join(root, "target", "release-assets-linux");
+  mkdirSync(linuxAssets, { recursive: true });
+  const args = ["tauri", "build", "--bundles", "deb,rpm,appimage"];
+  if (pubkeyAlone) {
+    const overlay = join(linuxAssets, "updater-config.json");
+    writeFileSync(overlay, JSON.stringify({ plugins: { updater: { pubkey: pubkeyAlone } } }, null, 2));
+    args.push("--config", overlay);
+  }
+  run(`app: pnpm tauri build (deb, rpm, AppImage${pubkeyAlone ? ", with the update key" : ""})`, "pnpm", args, app);
+  const bundle = join(root, "target", "release", "bundle");
+  const pick = (dir, suffix) => {
+    let found = [];
+    try {
+      found = readdirSync(join(bundle, dir)).filter((f) => f.endsWith(suffix) && f.includes(version));
+    } catch {
+      // reported below
+    }
+    if (found.length !== 1) fail(`find the ${suffix} package`, `expected one ${version} file in ${join(bundle, dir)}, found ${found.length}`);
+    return join(bundle, dir, found[0]);
+  };
+  const outputs = [
+    [pick("deb", ".deb"), "ODM-amd64.deb"],
+    [pick("rpm", ".rpm"), "ODM-x86_64.rpm"],
+    [pick("appimage", ".AppImage"), "ODM-x86_64.AppImage"],
+  ];
+  for (const [from, name] of outputs) copyFileSync(from, join(linuxAssets, name));
+  console.log("\nDone.");
+  for (const [from, name] of outputs) console.log(`${name}  <-  ${from}`);
+  console.log(`Linux packages: ${linuxAssets}`);
+  console.log(pubkeyAlone ? "Update key: compiled in." : "Update key: none (update checks are off in this build).");
+  process.exit(0);
 }
 
 const assets = join(root, "target", "release-assets");
