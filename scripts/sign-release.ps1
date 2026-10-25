@@ -25,7 +25,8 @@ for ($try = 1; $try -le 3 -and -not $ok; $try++) {
     }
     Write-Host ("  (that was {0} characters)" -f $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD.Length)
     Push-Location app
-    pnpm tauri signer sign --private-key-path $key $probe *> $null
+    # Through cmd: Windows PowerShell treats pnpm's stderr chatter as a terminating error.
+    cmd /c "pnpm tauri signer sign --private-key-path `"$key`" `"$probe`" >nul 2>nul"
     $ok = ($LASTEXITCODE -eq 0)
     Pop-Location
     Remove-Item "$probe.sig" -ErrorAction SilentlyContinue
