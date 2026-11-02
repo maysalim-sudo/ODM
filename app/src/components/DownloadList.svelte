@@ -15,6 +15,7 @@
   } from "../lib/home";
   import type { Row } from "../lib/model";
   import DownloadCard from "./DownloadCard.svelte";
+  import ProblemCard from "./ProblemCard.svelte";
 
   let {
     onaction,
@@ -153,7 +154,9 @@
     </p>
   {:else if flat}
     <ul>
-      {#each shown as row (row.id)}{@render card(row)}{/each}
+      {#each shown as row (row.id)}
+        {#if status === "failed"}<ProblemCard {row} onaction={(a) => onaction(row, a)} />{:else}{@render card(row)}{/if}
+      {/each}
     </ul>
   {:else}
     {#each groups as g (g.key)}

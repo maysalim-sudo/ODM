@@ -1,8 +1,8 @@
 <script lang="ts">
   import { downloads } from "../lib/downloads.svelte";
   import { formatSpeed } from "../lib/format";
-  import { ACTION_LABELS, rowActions, rowSummary, type RowAction } from "../lib/home";
-  import { isActive, progressPct, type Row } from "../lib/model";
+  import { ACTION_LABELS, FIX_LABELS, rowActions, rowSummary, type RowAction } from "../lib/home";
+  import { isActive, problemInfo, progressPct, type Row } from "../lib/model";
   import { queueSchedule } from "../lib/queueSchedule.svelte";
   import Icon from "./Icon.svelte";
   import ProgressBar from "./ProgressBar.svelte";
@@ -50,6 +50,7 @@
   const showBar = $derived(running || (row.bytes > 0 && !failed && row.state !== "completed" && row.state !== "cancelled"));
   const pct = $derived(row.segments || row.size ? progressPct(row) : null);
   const iconOnly = (a: RowAction) => a === "pause" || a === "open-folder";
+  const label = (a: RowAction) => (a === "fix" ? FIX_LABELS[problemInfo(row).action] : ACTION_LABELS[a]);
 
   function click(e: MouseEvent) {
     if (e.shiftKey) onselect("range");
@@ -115,11 +116,11 @@
         <button
           class:primary={a === "fix" || a === "choose-files"}
           class:icon={iconOnly(a)}
-          title={ACTION_LABELS[a]}
-          aria-label={`${ACTION_LABELS[a]} ${row.filename}`}
+          title={label(a)}
+          aria-label={`${label(a)} ${row.filename}`}
           onclick={(e) => act(e, a)}
         >
-          {#if a === "pause"}<Icon name="pause" />{:else if a === "open-folder"}<Icon name="folder" />{:else}{ACTION_LABELS[a]}{/if}
+          {#if a === "pause"}<Icon name="pause" />{:else if a === "open-folder"}<Icon name="folder" />{:else}{label(a)}{/if}
         </button>
       {/if}
     {/each}

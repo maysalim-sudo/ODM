@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupRows, lineLabel, moveInQueue, queueOrder, remaining, remainingLabel, rowActions, rowSummary, sortQueueBySize } from "./home";
+import { FIX_LABELS, groupRows, lineLabel, moveInQueue, queueOrder, remaining, remainingLabel, rowActions, rowSummary, sortQueueBySize } from "./home";
 import { formatDate } from "./format";
 import { toRow, type Row } from "./model";
 import type { Download } from "./types";
@@ -178,6 +178,11 @@ describe("rowSummary", () => {
     expect(s).toBe(`2.0 GB · ${formatDate(at)}`);
   });
 
+  it("gives a failed row its plain summary, not the raw message", () => {
+    const r = row("a", { state: "failed", error_code: "link_expired", error_message: "HTTP 403", size: 100, bytes: 38 });
+    expect(rowSummary(r, false, null)).toBe("The link expired at 38%. Your progress is safe.");
+  });
+
   it("says cancelled", () => expect(rowSummary(row("a", { state: "cancelled" }), false, null)).toBe("Cancelled"));
 });
 
@@ -253,6 +258,10 @@ describe("rowActions", () => {
   });
 
   it("failed offers its fix", () => expect(primary(row("a", { state: "failed" }))).toBe("fix"));
+
+  it("names each fix", () => {
+    expect(FIX_LABELS).toEqual({ "new-link": "Paste new link", tools: "Install", retry: "Try again" });
+  });
 
   it("completed opens, with the folder beside it", () => {
     const a = rowActions(row("a", { state: "completed" }), false);

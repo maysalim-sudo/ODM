@@ -45,6 +45,7 @@ import {
   totalSpeed,
   rowStatus,
   pastedAddress,
+  problemInfo,
 } from "./model";
 import type { StatusFilter } from "./model";
 import type { Download, IntegrationStatus, StoreLinks, ToolsStatus } from "./types";
@@ -256,6 +257,63 @@ describe("filters and counts", () => {
     expect(visible(r, all, "created_at", "desc").map((x) => x.id)).toEqual(["a", "b"]);
     expect(visible(r, all, "filename", "asc").map((x) => x.id)).toEqual(["a", "b"]);
     expect(visible(r, all, "filename", "desc").map((x) => x.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("problemInfo", () => {
+  const failed = (error_code: string | null, error_message: string | null = "raw", patch: Partial<Download> = {}) =>
+    toRow(dl("p", { state: "failed", error_code, error_message, size: 100, bytes: 38, ...patch }));
+
+  it.each([
+    ["link_expired", "The download link expired", "new-link"],
+    ["disk_full", "Not enough disk space", "retry"],
+    ["permission_denied", "ODM can't save to this folder", "retry"],
+    ["timeout", "The server stopped responding", "retry"],
+    ["connection", "The server stopped responding", "retry"],
+    ["dns", "The server stopped responding", "retry"],
+    ["http_408", "The server stopped responding", "retry"],
+    ["http_429", "The server stopped responding", "retry"],
+    ["http_500", "The server stopped responding", "retry"],
+    ["http_503", "The server stopped responding", "retry"],
+    ["http_403", "The server refused this download", "new-link"],
+    ["http_404", "The server refused this download", "new-link"],
+    ["file_changed", "The file changed on the server", "new-link"],
+    ["checksum_mismatch", "The file arrived damaged", "retry"],
+    ["range_ignored", "The download stopped", "retry"],
+    ["io", "The download stopped", "retry"],
+    ["other", "The download stopped", "retry"],
+    [null, "The download stopped", "retry"],
+    ["a_future_code", "The download stopped", "retry"],
+  ] as const)("%s", (code, title, action) => {
+    const info = problemInfo(failed(code));
+    expect([info.title, info.action]).toEqual([title, action]);
+    expect(info.summary).not.toBe("");
+    expect(info.body).not.toBe("");
+  });
+
+  it("checks for missing video tools first", () => {
+    for (const message of ["FFmpeg not found.", "yt-dlp not found."]) {
+      const info = problemInfo(failed("other", message));
+      expect([info.title, info.action]).toEqual(["This video needs the video tools", "tools"]);
+    }
+  });
+
+  it("promises safe progress only for an expired link", () => {
+    expect(problemInfo(failed("link_expired")).summary).toContain("Your progress is safe");
+    expect(problemInfo(failed("link_expired")).summary).toContain("38%");
+    for (const code of ["disk_full", "http_404", "file_changed", "timeout", "io", "unknown"]) {
+      const info = problemInfo(failed(code));
+      expect(`${info.summary} ${info.body}`).not.toContain("Your progress is safe");
+    }
+  });
+
+  it("leaves the raw message out: it belongs under Technical details", () => {
+    const info = problemInfo(failed("a_future_code", "E_WEIRD 42"));
+    expect(`${info.title} ${info.summary} ${info.body}`).not.toContain("E_WEIRD");
+  });
+
+  it("never treats a null message as missing tools", () => {
+    expect(problemInfo(failed(null, null)).action).toBe("retry");
   });
 });
 

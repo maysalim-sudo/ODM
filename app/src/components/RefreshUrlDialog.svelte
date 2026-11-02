@@ -34,7 +34,7 @@
   }
 </script>
 
-<Modal {open} title="Refresh the link" {onclose} width={480}>
+<Modal {open} title="Paste new link" {onclose} width={480}>
   <form onsubmit={submit}>
     <label class="field">
       <span>New link</span>

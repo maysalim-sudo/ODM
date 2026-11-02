@@ -1,5 +1,5 @@
 import { formatBytes, formatDate, formatEta } from "./format";
-import { canCancel, canRefresh, canResume, isActive, progressPct, rowStatus, type Row } from "./model";
+import { canCancel, canRefresh, canResume, isActive, problemInfo, progressPct, rowStatus, type ProblemFix, type Row } from "./model";
 
 export type GroupKey = "needs" | "active" | "next" | "done";
 
@@ -36,6 +36,12 @@ export const ACTION_LABELS: Record<RowAction, string> = {
   "move-top": "Move to top",
   "move-up": "Move up",
   "move-down": "Move down",
+};
+
+export const FIX_LABELS: Record<ProblemFix, string> = {
+  "new-link": "Paste new link",
+  tools: "Install",
+  retry: "Try again",
 };
 
 const GIB = 1024 ** 3;
@@ -100,6 +106,11 @@ export function remainingLabel(r: { bytes: number; unknown: number }): string | 
   return parts.length > 0 ? `${parts.join(" + ")} left` : null;
 }
 
+/** "stopped at 38% of 2.3 GB" for a failed row with a known size. */
+export function stoppedAt(row: Row): string | null {
+  return row.size === null ? null : `stopped at ${Math.floor(progressPct(row))}% of ${shortBytes(row.size)}`;
+}
+
 /** The list with `id` moved. `to` is a place, or a final index for a drop. Unknown ids change nothing. */
 export function moveInQueue(ids: string[], id: string, to: "top" | "up" | "down" | number): string[] {
   const from = ids.indexOf(id);
@@ -133,7 +144,7 @@ export function rowSummary(row: Row, waiting: boolean, queueWait: string | null,
       if (status !== "Paused") return status;
       return row.size || row.segments ? `Paused at ${Math.floor(progressPct(row))}%` : status;
     case "failed":
-      return row.error_message ?? status;
+      return problemInfo(row).summary;
     case "completed":
       return [row.size === null ? null : shortBytes(row.size), row.finished_at === null ? null : formatDate(row.finished_at)]
         .filter(Boolean)

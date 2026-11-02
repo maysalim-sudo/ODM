@@ -26,7 +26,7 @@
   import { queueSchedule } from "./lib/queueSchedule.svelte";
   import { SECTIONS, type SectionId } from "./lib/settingsPage";
   import type { RowAction } from "./lib/home";
-  import { isRiskyFile, type Row } from "./lib/model";
+  import { isRiskyFile, problemInfo, type Row } from "./lib/model";
   import type { ListView } from "./lib/types";
   import { updates } from "./lib/updates.svelte";
 
@@ -102,9 +102,14 @@
         break;
       case "resume":
       case "start-now":
-      case "fix":
         void downloads.run(() => api.resume([row.id]));
         break;
+      case "fix": {
+        const fix = problemInfo(row).action;
+        if (fix === "retry") void downloads.run(() => api.resume([row.id]));
+        else rowAction(row, fix === "tools" ? "details" : "new-link");
+        break;
+      }
       case "choose-files":
         downloads.chooseFiles(row.id);
         break;

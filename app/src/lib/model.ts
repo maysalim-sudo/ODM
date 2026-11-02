@@ -445,6 +445,94 @@ export function needsVideoTools(message: string | null): boolean {
   return message !== null && /^(yt-dlp|FFmpeg) not found/.test(message);
 }
 
+export type ProblemFix = "new-link" | "tools" | "retry";
+
+export interface ProblemInfo {
+  title: string;
+  /** One line for the row. */
+  summary: string;
+  /** A sentence or two on what happened and what to do. */
+  body: string;
+  action: ProblemFix;
+}
+
+const STOPPED: ProblemInfo = {
+  title: "The download stopped",
+  summary: "The download stopped.",
+  body: "Something went wrong while downloading. Try again, and see Technical details in the details panel if it keeps happening.",
+  action: "retry",
+};
+
+const SERVER_DOWN: ProblemInfo = {
+  title: "The server stopped responding",
+  summary: "The server stopped responding.",
+  body: "ODM tried several times, then stopped so it would not waste your connection. It usually works again in a few minutes.",
+  action: "retry",
+};
+
+const PROBLEMS: Record<string, ProblemInfo> = {
+  disk_full: {
+    title: "Not enough disk space",
+    summary: "The disk is full.",
+    body: "Free some space on this drive, then try again.",
+    action: "retry",
+  },
+  permission_denied: {
+    title: "ODM can't save to this folder",
+    summary: "ODM can't save to this folder.",
+    body: "Your system or another program is blocking the folder. Check that you can write to it, then try again.",
+    action: "retry",
+  },
+  timeout: SERVER_DOWN,
+  connection: SERVER_DOWN,
+  dns: SERVER_DOWN,
+  http_408: SERVER_DOWN,
+  http_429: SERVER_DOWN,
+  file_changed: {
+    title: "The file changed on the server",
+    summary: "The file changed on the server.",
+    body: "The site replaced this file after the download started. Get the link again from the site and paste it here.",
+    action: "new-link",
+  },
+  checksum_mismatch: {
+    title: "The file arrived damaged",
+    summary: "The file arrived damaged.",
+    body: "The finished file doesn't match its checksum, so something went wrong on the way. Try again.",
+    action: "retry",
+  },
+};
+
+/** What went wrong with a failed row, in plain words, and the fix to offer. The raw message stays in the details. */
+export function problemInfo(row: Row): ProblemInfo {
+  if (needsVideoTools(row.error_message)) {
+    return {
+      title: "This video needs the video tools",
+      summary: "This video needs the video tools.",
+      body: "FFmpeg and yt-dlp save videos from sites. They are free and only need installing once.",
+      action: "tools",
+    };
+  }
+  const code = row.error_code ?? "";
+  if (code === "link_expired") {
+    return {
+      title: "The download link expired",
+      summary: `The link expired at ${Math.floor(progressPct(row))}%. Your progress is safe.`,
+      body: "Sites often hand out links that only last a while. Start the download again in your browser and paste the new link here. ODM picks up where it stopped.",
+      action: "new-link",
+    };
+  }
+  if (/^http_5\d\d$/.test(code)) return SERVER_DOWN;
+  if (!Object.hasOwn(PROBLEMS, code) && code.startsWith("http_")) {
+    return {
+      title: "The server refused this download",
+      summary: "The server refused this download.",
+      body: "The link may have changed, or the site wants you to open it in your browser first. Get the link again and paste it here.",
+      action: "new-link",
+    };
+  }
+  return Object.hasOwn(PROBLEMS, code) ? PROBLEMS[code] : STOPPED;
+}
+
 /** The browsers the welcome screen offers (names match the native command's list). */
 export const WELCOME_BROWSERS = ["Chrome", "Edge", "Brave", "Vivaldi", "Opera", "Firefox", "Floorp"] as const;
 
