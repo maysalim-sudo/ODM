@@ -10,13 +10,23 @@
 
   let {
     row,
-    note = null,
+    line = null,
+    moves = [],
+    grip,
+    dragging = false,
+    dropEdge = null,
     onaction,
     onselect,
   }: {
     row: Row;
-    /** Added to the summary, for example "2nd in line". */
-    note?: string | null;
+    /** Its place in the queue, such as "2nd in line"; only rows in Up next have one. */
+    line?: string | null;
+    /** Up next: the moves that apply to this row, for the menu and Alt+Up and Alt+Down. */
+    moves?: RowAction[];
+    /** Up next: pressing the handle starts a drag. */
+    grip?: (e: PointerEvent) => void;
+    dragging?: boolean;
+    dropEdge?: "top" | "bottom" | null;
     onaction: (a: RowAction) => void;
     onselect: (mode: "toggle" | "range") => void;
   } = $props();
@@ -36,7 +46,7 @@
   const actions = $derived(rowActions(row, closed, waiting));
   const failed = $derived(row.state === "failed");
   const running = $derived(isActive(row.state));
-  const summary = $derived([rowSummary(row, waiting, queueSchedule.wait), note].filter(Boolean).join(" · "));
+  const summary = $derived(rowSummary(row, waiting, queueSchedule.wait, line));
   const showBar = $derived(running || (row.bytes > 0 && !failed && row.state !== "completed" && row.state !== "cancelled"));
   const pct = $derived(row.segments || row.size ? progressPct(row) : null);
   const iconOnly = (a: RowAction) => a === "pause" || a === "open-folder";
@@ -49,6 +59,12 @@
 
   function key(e: KeyboardEvent) {
     if (e.target !== e.currentTarget) return;
+    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      const move = e.key === "ArrowUp" ? "move-up" : "move-down";
+      if (moves.includes(move)) onaction(move);
+      return;
+    }
     if (e.key === "Enter") onaction("details");
     if (e.key === " ") {
       e.preventDefault();
@@ -69,11 +85,21 @@
   class="card"
   class:selected={downloads.selected.has(row.id)}
   class:bad={failed}
+  class:dragging
+  class:drop-top={dropEdge === "top"}
+  class:drop-bottom={dropEdge === "bottom"}
+  data-row={row.id}
   tabindex="0"
   aria-label={`${row.filename}. ${summary}`}
   onclick={click}
   onkeydown={key}
 >
+  {#if grip}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <span class="grip" title="Drag to change the order" onpointerdown={grip} onclick={(e) => e.stopPropagation()}>
+      <Icon name="grip" />
+    </span>
+  {/if}
   <span class="tile" class:live={running} class:bad={failed} aria-hidden="true">
     <Icon name={failed ? "alert" : (TILES[row.category] ?? "doc")} size={20} />
   </span>
@@ -97,7 +123,7 @@
         </button>
       {/if}
     {/each}
-    <RowMenu actions={actions.menu} name={row.filename} onchoose={onaction} />
+    <RowMenu actions={[...moves, ...actions.menu]} name={row.filename} onchoose={onaction} />
   </div>
 </li>
 
@@ -116,6 +142,25 @@
   }
   .card.bad {
     border-color: var(--error);
+  }
+  .card.dragging {
+    opacity: 0.5;
+  }
+  .card.drop-top {
+    box-shadow: 0 -2px 0 var(--accent);
+  }
+  .card.drop-bottom {
+    box-shadow: 0 2px 0 var(--accent);
+  }
+  .grip {
+    display: grid;
+    place-items: center;
+    flex: none;
+    margin: -10px -8px -10px -6px;
+    padding: 10px 2px;
+    color: var(--muted);
+    cursor: grab;
+    touch-action: none;
   }
   .card.selected {
     background: var(--selected);

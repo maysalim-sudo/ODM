@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupRows, lineLabel, queueOrder, remaining, remainingLabel, rowActions, rowSummary } from "./home";
+import { groupRows, lineLabel, moveInQueue, queueOrder, remaining, remainingLabel, rowActions, rowSummary, sortQueueBySize } from "./home";
 import { formatDate } from "./format";
 import { toRow, type Row } from "./model";
 import type { Download } from "./types";
@@ -179,6 +179,54 @@ describe("rowSummary", () => {
   });
 
   it("says cancelled", () => expect(rowSummary(row("a", { state: "cancelled" }), false, null)).toBe("Cancelled"));
+});
+
+describe("rowSummary in the queue", () => {
+  it("says where a queued row stands", () => {
+    expect(rowSummary(row("a", { size: GB * 2 }), false, null, "2nd in line")).toBe("2.0 GB · 2nd in line");
+    expect(rowSummary(row("a", { size: null }), false, null, "1st in line")).toBe("1st in line");
+  });
+
+  it("keeps the schedule's wait, which says more", () => {
+    expect(rowSummary(row("a"), false, "Waiting for the schedule (starts 01:00)", "2nd in line")).toBe(
+      "Waiting for the schedule (starts 01:00) · 2nd in line",
+    );
+  });
+
+  it("adds the place to a paused row", () => {
+    expect(rowSummary(row("a", { state: "paused", size: 100, bytes: 38 }), false, null, "3rd in line")).toBe("Paused at 38% · 3rd in line");
+  });
+});
+
+describe("moveInQueue", () => {
+  const ids = ["a", "b", "c", "d"];
+
+  it("moves to the top", () => expect(moveInQueue(ids, "c", "top")).toEqual(["c", "a", "b", "d"]));
+  it("moves up one", () => expect(moveInQueue(ids, "c", "up")).toEqual(["a", "c", "b", "d"]));
+  it("moves down one", () => expect(moveInQueue(ids, "b", "down")).toEqual(["a", "c", "b", "d"]));
+  it("stays put going up from the first row", () => expect(moveInQueue(ids, "a", "up")).toEqual(ids));
+  it("stays put going down from the last row", () => expect(moveInQueue(ids, "d", "down")).toEqual(ids));
+  it("drops at an index", () => expect(moveInQueue(ids, "a", 2)).toEqual(["b", "c", "a", "d"]));
+  it("clamps a drop past the end", () => expect(moveInQueue(ids, "a", 9)).toEqual(["b", "c", "d", "a"]));
+  it("clamps a drop before the start", () => expect(moveInQueue(ids, "c", -1)).toEqual(["c", "a", "b", "d"]));
+  it("leaves the list alone when the row has gone", () => expect(moveInQueue(ids, "z", "top")).toEqual(ids));
+  it("does not change the list it was given", () => {
+    const list = [...ids];
+    moveInQueue(list, "c", "top");
+    expect(list).toEqual(ids);
+  });
+});
+
+describe("sortQueueBySize", () => {
+  const rows = [row("big", { size: 9 }), row("none", { size: null }), row("small", { size: 1 }), row("mid", { size: 5 })];
+
+  it("goes smallest first", () => expect(sortQueueBySize(rows, "asc")).toEqual(["small", "mid", "big", "none"]));
+  it("goes largest first", () => expect(sortQueueBySize(rows, "desc")).toEqual(["big", "mid", "small", "none"]));
+
+  it("keeps rows with no size in their order, last", () => {
+    const list = [row("x", { size: null }), row("a", { size: 2 }), row("y", { size: null })];
+    expect(sortQueueBySize(list, "desc")).toEqual(["a", "x", "y"]);
+  });
 });
 
 describe("rowActions", () => {

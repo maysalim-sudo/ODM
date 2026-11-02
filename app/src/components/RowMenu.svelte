@@ -16,6 +16,9 @@
     "new-link": "refresh",
     cancel: "x",
     remove: "trash",
+    "move-top": "top",
+    "move-up": "up",
+    "move-down": "down",
   };
   const MENU_W = 220;
 
@@ -24,6 +27,7 @@
   let menu = $state<HTMLDivElement>();
   let pos = $state({ top: 0, left: 0 });
 
+  const isMove = (a: RowAction) => a.startsWith("move-");
   const items = () => [...(menu?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
 
   async function toggle(e: MouseEvent) {
@@ -108,7 +112,8 @@
     style:width={`${MENU_W}px`}
     onkeydown={onkey}
   >
-    {#each actions as a (a)}
+    {#each actions as a, i (a)}
+      {#if i > 0 && isMove(actions[i - 1]) && !isMove(a)}<hr />{/if}
       <button role="menuitem" tabindex="-1" class:danger={a === "remove"} onclick={(e) => choose(e, a)}>
         <Icon name={ICONS[a] ?? "more"} />
         {ACTION_LABELS[a]}
@@ -161,5 +166,10 @@
   }
   .danger {
     color: var(--error);
+  }
+  hr {
+    margin: 4px 6px;
+    border: 0;
+    border-top: 1px solid var(--border);
   }
 </style>

@@ -233,6 +233,23 @@ class DownloadsStore {
     }
   }
 
+  /**
+   * Set the queue order, top first. It shows at once; a failed save reloads the real order and
+   * keeps the error on screen.
+   */
+  async reorder(ids: string[]): Promise<void> {
+    const next = new Map(this.rows);
+    ids.forEach((id, i) => {
+      const row = next.get(id);
+      if (row) next.set(id, { ...row, priority: ids.length - i });
+    });
+    this.rows = next;
+    if (await this.run(() => api.reorderQueue(ids))) return;
+    const message = this.error;
+    await this.reload();
+    this.error = message;
+  }
+
   /** Run a command and surface its error message in the UI. */
   async run(action: () => Promise<unknown>): Promise<boolean> {
     try {

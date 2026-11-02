@@ -15,7 +15,10 @@ export type RowAction =
   | "copy-link"
   | "new-link"
   | "cancel"
-  | "remove";
+  | "remove"
+  | "move-top"
+  | "move-up"
+  | "move-down";
 
 export const ACTION_LABELS: Record<RowAction, string> = {
   pause: "Pause",
@@ -30,6 +33,9 @@ export const ACTION_LABELS: Record<RowAction, string> = {
   "new-link": "Paste new link",
   cancel: "Cancel download",
   remove: "Remove from list",
+  "move-top": "Move to top",
+  "move-up": "Move up",
+  "move-down": "Move down",
 };
 
 const GIB = 1024 ** 3;
@@ -94,8 +100,29 @@ export function remainingLabel(r: { bytes: number; unknown: number }): string | 
   return parts.length > 0 ? `${parts.join(" + ")} left` : null;
 }
 
-/** The line under a card's name. */
-export function rowSummary(row: Row, waiting: boolean, queueWait: string | null): string {
+/** The list with `id` moved. `to` is a place, or a final index for a drop. Unknown ids change nothing. */
+export function moveInQueue(ids: string[], id: string, to: "top" | "up" | "down" | number): string[] {
+  const from = ids.indexOf(id);
+  if (from === -1) return ids;
+  const place = to === "top" ? 0 : to === "up" ? from - 1 : to === "down" ? from + 1 : to;
+  const rest = ids.filter((x) => x !== id);
+  rest.splice(Math.min(rest.length, Math.max(0, place)), 0, id);
+  return rest;
+}
+
+/** The queue by size, smallest or largest first. Rows with no known size stay last, in their order. */
+export function sortQueueBySize(rows: Row[], dir: "asc" | "desc"): string[] {
+  const sign = dir === "asc" ? 1 : -1;
+  const known = rows.filter((r) => r.size !== null).sort((a, b) => sign * ((a.size as number) - (b.size as number)));
+  return [...known, ...rows.filter((r) => r.size === null)].map((r) => r.id);
+}
+
+/** The line under a card's name. `line` is its place in the queue, such as "2nd in line". */
+export function rowSummary(row: Row, waiting: boolean, queueWait: string | null, line: string | null = null): string {
+  if (line !== null && isWaiting(row)) {
+    const size = row.state === "queued" && !queueWait ? (row.size === null ? null : shortBytes(row.size)) : rowSummary(row, waiting, queueWait);
+    return [size, line].filter(Boolean).join(" · ");
+  }
   const status = rowStatus(row, waiting, queueWait);
   switch (row.state) {
     case "downloading": {

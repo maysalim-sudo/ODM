@@ -1,7 +1,18 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import * as api from "../lib/api";
   import { downloads } from "../lib/downloads.svelte";
-  import { groupRows, remaining, remainingLabel, type GroupKey, type RowAction } from "../lib/home";
+  import {
+    groupRows,
+    lineLabel,
+    moveInQueue,
+    queueOrder,
+    remaining,
+    remainingLabel,
+    sortQueueBySize,
+    type GroupKey,
+    type RowAction,
+  } from "../lib/home";
   import type { Row } from "../lib/model";
   import DownloadCard from "./DownloadCard.svelte";
 
@@ -15,11 +26,98 @@
 
   const NAMES: Record<GroupKey, string> = { needs: "Needs you", active: "Downloading", next: "Up next", done: "Finished" };
 
-  const flat = $derived(downloads.filter.status !== "all");
+  const status = $derived(downloads.filter.status);
+  const flat = $derived(status === "active" || status === "completed" || status === "failed");
   const waiting = $derived(downloads.visible.filter((r) => downloads.waitsForChoice(r.id)).map((r) => r.id));
   const groups = $derived(flat ? [] : groupRows(downloads.visible, waiting));
   const shown = $derived(flat ? downloads.visible : groups.flatMap((g) => g.rows));
   const order = $derived(shown.map((r) => r.id));
+
+  /** The whole queue, whatever the type filter hides: the order is saved for all of it. */
+  const queue = $derived(queueOrder([...downloads.rows.values()]));
+  const queueIds = $derived(queue.map((r) => r.id));
+  /** Up next as shown, which a type filter can make shorter than the queue. */
+  const nextRows = $derived(groups.find((g) => g.key === "next")?.rows ?? []);
+
+  let sizeDir = $state<"asc" | "desc" | null>(null);
+  let dragId = $state<string | null>(null);
+  let dropAt = $state<number | null>(null);
+  let listEl = $state<HTMLDivElement>();
+
+  function movesFor(i: number): RowAction[] {
+    const out: RowAction[] = [];
+    if (i > 0) out.push("move-top", "move-up");
+    if (i < nextRows.length - 1) out.push("move-down");
+    return out;
+  }
+
+  /** The queue index for showing a row at `i` of the rows on screen. */
+  function queueIndex(i: number): number {
+    const target = nextRows[Math.min(i, nextRows.length - 1)];
+    return target ? queueIds.indexOf(target.id) : queueIds.length - 1;
+  }
+
+  async function move(id: string, to: "top" | number, refocus = false) {
+    sizeDir = null;
+    await downloads.reorder(moveInQueue(queueIds, id, to));
+    if (refocus) {
+      await tick();
+      listEl?.querySelector<HTMLElement>(`[data-row="${CSS.escape(id)}"]`)?.focus();
+    }
+  }
+
+  function act(row: Row, a: RowAction, i: number) {
+    if (a === "move-top") void move(row.id, "top");
+    else if (a === "move-up") void move(row.id, queueIndex(i - 1), true);
+    else if (a === "move-down") void move(row.id, queueIndex(i + 1), true);
+    else onaction(row, a);
+  }
+
+  function sortBySize() {
+    const dir = sizeDir === "asc" ? "desc" : "asc";
+    void downloads.reorder(sortQueueBySize(queue, dir)).then(() => (sizeDir = dir));
+  }
+
+  /** The gap the pointer is nearest to: 0 is above the first row, length is below the last. */
+  function gapAt(y: number): number {
+    const cards = nextRows.map((r) => listEl?.querySelector(`[data-row="${CSS.escape(r.id)}"]`));
+    const i = cards.findIndex((c) => {
+      const b = c?.getBoundingClientRect();
+      return b !== undefined && y < b.top + b.height / 2;
+    });
+    return i === -1 ? nextRows.length : i;
+  }
+
+  function startDrag(e: PointerEvent, id: string) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragId = id;
+    dropAt = gapAt(e.clientY);
+    const moved = (ev: PointerEvent) => (dropAt = gapAt(ev.clientY));
+    const finish = (commit: boolean) => {
+      window.removeEventListener("pointermove", moved);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("keydown", key);
+      const gap = dropAt;
+      dragId = null;
+      dropAt = null;
+      if (!commit || gap === null) return;
+      const from = nextRows.findIndex((r) => r.id === id);
+      if (from === -1 || gap === from || gap === from + 1) return;
+      void move(id, queueIndex(gap > from ? gap - 1 : gap));
+    };
+    const up = () => finish(true);
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") {
+        ev.stopPropagation();
+        finish(false);
+      }
+    };
+    window.addEventListener("pointermove", moved);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("keydown", key, true);
+  }
 
   function clearFinished(rows: Row[]) {
     downloads.selected = new Set(rows.map((r) => r.id));
@@ -35,7 +133,20 @@
   />
 {/snippet}
 
-<div class="list">
+{#snippet queued(row: Row, i: number)}
+  <DownloadCard
+    {row}
+    line={lineLabel(queueIds.indexOf(row.id))}
+    moves={movesFor(i)}
+    grip={(e) => startDrag(e, row.id)}
+    dragging={dragId === row.id}
+    dropEdge={dropAt === i ? "top" : dropAt === i + 1 && i === nextRows.length - 1 ? "bottom" : null}
+    onaction={(a) => act(row, a, i)}
+    onselect={(mode) => downloads.select(row.id, mode, order)}
+  />
+{/snippet}
+
+<div class="list" bind:this={listEl}>
   {#if shown.length === 0}
     <p class="empty">
       {downloads.rows.size === 0 ? "No downloads yet. Paste a link to start one." : "Nothing here right now."}
@@ -54,12 +165,18 @@
           {#if left}<span class="n">· {left}</span>{/if}
           {#if g.key === "active"}
             <button class="link" onclick={() => downloads.run(api.pauseAll)}>Pause all</button>
+          {:else if g.key === "next" && g.rows.length > 1}
+            <button class="link" onclick={sortBySize}>
+              Sort by size{sizeDir === "asc" ? " ↑" : sizeDir === "desc" ? " ↓" : ""}
+            </button>
           {:else if g.key === "done"}
             <button class="link" onclick={() => clearFinished(g.rows)}>Clear</button>
           {/if}
         </h2>
         <ul>
-          {#each g.rows as row (row.id)}{@render card(row)}{/each}
+          {#each g.rows as row, i (row.id)}
+            {#if g.key === "next"}{@render queued(row, i)}{:else}{@render card(row)}{/if}
+          {/each}
         </ul>
       </section>
     {/each}
