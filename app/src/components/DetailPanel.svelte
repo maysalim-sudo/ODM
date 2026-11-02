@@ -421,6 +421,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+    margin-top: 0;
   }
   .actions button {
     display: inline-flex;

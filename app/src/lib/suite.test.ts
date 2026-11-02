@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import appSvelte from "../App.svelte?raw";
 import problemCard from "../components/ProblemCard.svelte?raw";
+import detailPanel from "../components/DetailPanel.svelte?raw";
+import downloadCard from "../components/DownloadCard.svelte?raw";
 import downloadList from "../components/DownloadList.svelte?raw";
 
 describe("the details drawer covers the paste bar", () => {
@@ -10,6 +12,14 @@ describe("the details drawer covers the paste bar", () => {
 
   it("Ctrl+N closes it first, so focus can reach the bar", () => {
     expect(appSvelte).toMatch(/key\.toLowerCase\(\) === "n"\) \{\s*e\.preventDefault\(\);\s*detailId = null;\s*addPanel\?\.focus\(\);/);
+  });
+});
+
+describe("row buttons stay centred", () => {
+  it("cancels the shared .actions margin on cards and in the drawer", () => {
+    for (const src of [downloadCard, detailPanel]) {
+      expect(src).toMatch(/\.actions \{[^}]*margin-top: 0;/);
+    }
   });
 });
 

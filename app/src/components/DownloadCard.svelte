@@ -223,6 +223,7 @@
     align-items: center;
     flex: none;
     gap: 6px;
+    margin-top: 0;
   }
   .actions button.icon {
     display: grid;
