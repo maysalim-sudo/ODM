@@ -186,3 +186,14 @@ export function toVideoFilePayload(
     ...(format ? { format } : {}),
   };
 }
+
+/** The word on a video's button: MP4 for what ODM merges, a plain file's real type otherwise. */
+export function videoLabel(kind: StreamKind | "page", url: string): string {
+  if (kind !== "file") return "MP4";
+  try {
+    const ext = /\.([a-z0-9]{2,5})$/i.exec(new URL(url).pathname)?.[1];
+    return ext ? ext.toUpperCase() : "Video";
+  } catch {
+    return "Video";
+  }
+}

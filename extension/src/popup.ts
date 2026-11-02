@@ -1,9 +1,9 @@
 import { ext, send, sendDetailed } from "./lib/browser";
 import { STORAGE_KEY, detectionView, normalizeSettings, setSiteOff, type DetectionSettings } from "./lib/detection";
 import { statusLine } from "./lib/format";
-import { errorText, type SendFailure } from "./lib/protocol";
+import { errorText, type SendFailure, type VideoFormat } from "./lib/protocol";
 import { isSitePage, visibleStreams } from "./lib/sites";
-import type { Stream } from "./lib/streams";
+import { videoLabel, type Stream } from "./lib/streams";
 
 const FAILURE_TEXT: Record<SendFailure, string> = {
   missing_host: "ODM's browser helper is not installed. Open ODM once to set it up.",
@@ -68,6 +68,35 @@ async function loadSettings(): Promise<DetectionSettings> {
   return normalizeSettings(stored[STORAGE_KEY]);
 }
 
+/** The video and MP3 buttons of one list row. `message` says what to send to the background. */
+function formatButtons(li: HTMLElement, line: HTMLElement, label: string, message: object): void {
+  const note = el(li, "p", "note");
+  note.hidden = true;
+  const buttons: HTMLButtonElement[] = [];
+  const choices: [VideoFormat, string][] = [
+    ["video", label],
+    ["mp3", "MP3"],
+  ];
+  for (const [format, text] of choices) {
+    const button = el(line, "button", undefined, text) as HTMLButtonElement;
+    button.type = "button";
+    button.title = `Save with ODM as ${text}`;
+    buttons.push(button);
+    button.addEventListener("click", async () => {
+      for (const b of buttons) b.disabled = true;
+      note.textContent = "Sending...";
+      note.hidden = false;
+      try {
+        const r = (await ext.runtime.sendMessage({ ...message, format })) as { ok: boolean; message: string } | undefined;
+        note.textContent = r?.message ?? "ODM did not answer.";
+      } catch {
+        note.textContent = "ODM did not answer.";
+      }
+      for (const b of buttons) b.disabled = false;
+    });
+  }
+}
+
 async function showVideos(): Promise<void> {
   const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
   if (tab?.id === undefined) return;
@@ -92,24 +121,7 @@ async function showVideos(): Promise<void> {
     const line = el(li, "div", "line");
     const name = el(line, "span", "name", "Download this page's video");
     name.title = pageUrl;
-    const note = el(li, "p", "note");
-    note.hidden = true;
-    const button = el(line, "button", undefined, "Download") as HTMLButtonElement;
-    button.type = "button";
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      note.textContent = "Sending...";
-      note.hidden = false;
-      try {
-        const r = (await ext.runtime.sendMessage({ type: "odm-add-page", url: pageUrl, tabId })) as
-          | { ok: boolean; message: string }
-          | undefined;
-        note.textContent = r?.message ?? "ODM did not answer.";
-      } catch {
-        note.textContent = "ODM did not answer.";
-      }
-      button.disabled = false;
-    });
+    formatButtons(li, line, videoLabel("page", pageUrl), { type: "odm-add-page", url: pageUrl, tabId });
   }
   for (const s of list) {
     const li = el(ul, "li");
@@ -120,24 +132,7 @@ async function showVideos(): Promise<void> {
       el(line, "span", "muted", "(DASH, not supported yet)");
       continue;
     }
-    const note = el(li, "p", "note");
-    note.hidden = true;
-    const button = el(line, "button", undefined, "Download") as HTMLButtonElement;
-    button.type = "button";
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      note.textContent = "Sending...";
-      note.hidden = false;
-      try {
-        const r = (await ext.runtime.sendMessage({ type: "odm-add-stream", url: s.url, tabId })) as
-          | { ok: boolean; message: string }
-          | undefined;
-        note.textContent = r?.message ?? "ODM did not answer.";
-      } catch {
-        note.textContent = "ODM did not answer.";
-      }
-      button.disabled = false;
-    });
+    formatButtons(li, line, videoLabel(s.kind, s.url), { type: "odm-add-stream", url: s.url, tabId });
   }
   $("videos").hidden = false;
 }

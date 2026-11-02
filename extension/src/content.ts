@@ -1,5 +1,7 @@
 import { BAR_DEFAULT, BAR_KEY, clampBar, nudgeBar, readBar } from "./lib/barPosition";
+import type { VideoFormat } from "./lib/protocol";
 import { isSitePage, pageAddress, visibleStreams } from "./lib/sites";
+import { videoLabel, type StreamKind } from "./lib/streams";
 import { THEME } from "./lib/theme";
 import { isMagnet } from "./lib/torrent";
 
@@ -59,11 +61,12 @@ const detectionHooks: Array<(on: boolean) => void> = [];
 
 // In-page "ODM · N videos" button. Nothing is shown unless the background reports a supported stream,
 // and nothing is sent until the user clicks Download.
-type PageStream = { url: string; label: string; supported: boolean };
+type PageStream = { url: string; kind: StreamKind; label: string; supported: boolean };
 type AddReply = { ok: boolean; message: string };
 
 const SHADOW_CSS = `
   :host { all: initial; }
+  :host([hidden]) { display: none !important; }
   .box { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647; display: flex; flex-direction: column;
     align-items: flex-end; gap: 8px; font: 13px/1.4 system-ui, sans-serif; color: ${THEME.text}; }
   .bar { display: flex; border: 1px solid ${THEME.accent}; border-radius: 8px; background: ${THEME.surface}; overflow: hidden; }
@@ -80,6 +83,8 @@ const SHADOW_CSS = `
   .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dl { border: 1px solid ${THEME.accent}; border-radius: 4px; background: ${THEME.accent}; color: ${THEME.onAccent}; font-weight: 700; }
   .dl:hover { background: ${THEME.accentLight}; border-color: ${THEME.accentLight}; }
+  .dl.alt { border-color: ${THEME.border}; background: ${THEME.surface2}; color: ${THEME.text}; font-weight: 600; }
+  .dl.alt:hover { background: ${THEME.surface}; border-color: ${THEME.accent}; }
   .msg { color: ${THEME.muted}; font-size: 12px; overflow-wrap: anywhere; }
   [hidden] { display: none !important; }
 `;
@@ -101,16 +106,16 @@ if (window.top === window) {
     return el;
   };
 
-  const askToAdd = async (url: string): Promise<AddReply> => {
+  const askToAdd = async (url: string, format: VideoFormat): Promise<AddReply> => {
     try {
-      const r = (await chrome.runtime.sendMessage({ type: "odm-add-stream", url })) as AddReply | undefined;
+      const r = (await chrome.runtime.sendMessage({ type: "odm-add-stream", url, format })) as AddReply | undefined;
       return r ?? { ok: false, message: "ODM did not answer." };
     } catch {
       return { ok: false, message: "ODM did not answer." };
     }
   };
 
-  const windowSize = () => ({ width: window.innerWidth, height: window.innerHeight });
+  const windowSize = () => ({ width: document.documentElement.clientWidth, height: document.documentElement.clientHeight });
 
   /** Shows the bar at its place, kept in view; the saved place stays as the user chose it. */
   const placeBar = () => {
@@ -200,15 +205,22 @@ if (window.top === window) {
       const row = add(item, "div", "row");
       const name = add(row, "span", "name", s.label);
       name.title = s.url;
-      const dl = add(row, "button", "dl", "Download") as HTMLButtonElement;
-      dl.addEventListener("click", async () => {
-        dl.disabled = true;
-        messages.set(s.url, "Sending...");
-        render();
-        const r = await askToAdd(s.url);
-        messages.set(s.url, r.message);
-        render();
-      });
+      const choices: [VideoFormat, string, string][] = [
+        ["video", "dl", videoLabel(s.kind, s.url)],
+        ["mp3", "dl alt", "MP3"],
+      ];
+      for (const [format, cls, text] of choices) {
+        const dl = add(row, "button", cls, text) as HTMLButtonElement;
+        dl.title = `Save with ODM as ${text}`;
+        dl.disabled = messages.get(s.url) === "Sending...";
+        dl.addEventListener("click", async () => {
+          messages.set(s.url, "Sending...");
+          render();
+          const r = await askToAdd(s.url, format);
+          messages.set(s.url, r.message);
+          render();
+        });
+      }
       const text = messages.get(s.url);
       if (text) add(item, "div", "msg", text);
     }
@@ -249,6 +261,7 @@ if (window.top === window) {
 // Nothing is sent until the user clicks it.
 const VIDEO_CSS = `
   :host { all: initial; }
+  :host([hidden]) { display: none !important; }
   .wrap { position: fixed; z-index: 2147483647; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
     font: 13px/1.4 system-ui, sans-serif; color: ${THEME.text}; }
   button { font: inherit; color: inherit; background: ${THEME.surface}; border: 1px solid ${THEME.accent}; border-radius: 8px;
@@ -256,6 +269,7 @@ const VIDEO_CSS = `
   button:hover { background: ${THEME.surface2}; }
   button:disabled { cursor: default; opacity: 0.7; }
   .row { display: flex; gap: 4px; }
+  .alt { border-color: ${THEME.border}; }
   .x { color: ${THEME.muted}; font-weight: 400; }
   .msg { max-width: 260px; padding: 6px 8px; border: 1px solid ${THEME.border}; border-radius: 8px; background: ${THEME.bg};
     color: ${THEME.text}; font-size: 12px; overflow-wrap: anywhere; }
@@ -273,7 +287,7 @@ const MESSAGE_MS = 4000;
   let messageTimer: ReturnType<typeof setTimeout> | undefined;
   let sending = false;
   let hiddenHere = false;
-  let ui: { host: HTMLElement; wrap: HTMLElement; button: HTMLButtonElement; msg: HTMLElement } | null = null;
+  let ui: { host: HTMLElement; wrap: HTMLElement; button: HTMLButtonElement; mp3: HTMLButtonElement; msg: HTMLElement } | null = null;
 
   /** The links of the post (feed item) that holds the video, for finding the video's own page. */
   const postLinks = (v: HTMLVideoElement): string[] => {
@@ -315,7 +329,11 @@ const MESSAGE_MS = 4000;
     wrap.className = "wrap";
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = "Download with ODM";
+    const mp3 = document.createElement("button");
+    mp3.type = "button";
+    mp3.className = "alt";
+    mp3.textContent = "MP3";
+    mp3.title = "Save with ODM as MP3";
     const msg = document.createElement("div");
     msg.className = "msg";
     msg.hidden = true;
@@ -331,16 +349,17 @@ const MESSAGE_MS = 4000;
     });
     const row = document.createElement("div");
     row.className = "row";
-    row.append(button, close);
+    row.append(button, mp3, close);
     wrap.append(row, msg);
     root.appendChild(wrap);
     host.addEventListener("mouseenter", () => clearTimeout(hideTimer));
     host.addEventListener("mouseleave", scheduleHide);
-    button.addEventListener("click", async () => {
+    const send = async (format: VideoFormat) => {
       const video = current;
       if (!video || sending) return;
       sending = true;
       button.disabled = true;
+      mp3.disabled = true;
       clearTimeout(messageTimer);
       msg.textContent = "Sending…";
       msg.hidden = false;
@@ -348,8 +367,8 @@ const MESSAGE_MS = 4000;
       try {
         // On a video site the page is the thing to download (yt-dlp finds the media); elsewhere the file or stream.
         const message = isSitePage(location.href)
-          ? { type: "odm-add-page", url: pageAddress(location.href, postLinks(video)) }
-          : { type: "odm-add-video", src: video.currentSrc };
+          ? { type: "odm-add-page", url: pageAddress(location.href, postLinks(video)), format }
+          : { type: "odm-add-video", src: video.currentSrc, format };
         const r = (await chrome.runtime.sendMessage(message)) as AddReply | undefined;
         reply = r ?? { ok: false, message: "ODM did not answer." };
       } catch {
@@ -357,13 +376,16 @@ const MESSAGE_MS = 4000;
       }
       sending = false;
       button.disabled = false;
+      mp3.disabled = false;
       msg.textContent = reply.message;
       messageTimer = setTimeout(() => {
         msg.hidden = true;
       }, MESSAGE_MS);
-    });
+    };
+    button.addEventListener("click", () => void send("video"));
+    mp3.addEventListener("click", () => void send("mp3"));
     document.documentElement.appendChild(host);
-    ui = { host, wrap, button, msg };
+    ui = { host, wrap, button, mp3, msg };
   };
 
   const show = (video: HTMLVideoElement) => {
@@ -373,6 +395,10 @@ const MESSAGE_MS = 4000;
     if (!ui) build();
     if (!ui) return;
     current = video;
+    const kind = isSitePage(location.href) ? "page" : /^https?:/i.test(video.currentSrc) ? "file" : "hls";
+    const label = videoLabel(kind, video.currentSrc);
+    ui.button.textContent = `↓ ${label}`;
+    ui.button.title = `Save with ODM as ${label}`;
     ui.host.hidden = false;
     place();
   };

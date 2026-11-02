@@ -20,6 +20,10 @@ describe("background wiring", () => {
 describe("content wiring", () => {
   test("content catches magnet link clicks", () => expect(content).toMatch(/closest\??\.?\("a\[href\]"\)[\s\S]{0,200}isMagnet/));
   test("magnet clicks fall back to the browser", () => expect(content).toMatch(/location\.href = href[\s\S]{0,300}type: "odm-magnet"[\s\S]{0,200}catch\(fallBack\)/));
+  test("the bar is kept in view of the page, not the window with its scrollbar", () =>
+    expect(content).toContain("width: document.documentElement.clientWidth, height: document.documentElement.clientHeight"));
+  test("both on-page controls can really hide: `all: initial` on the host beats the hidden attribute", () =>
+    expect(content.match(/:host\(\[hidden\]\) \{ display: none !important; \}/g)?.length).toBe(2));
   test("content asks for the detection state", () => expect(content).toContain('type: "odm-detection-state"'));
   test("content handles on/off messages", () => expect(content).toMatch(/m\?\.type === "odm-detection"/));
   test("the bar does not render while off", () => expect(content).toMatch(/const render = \(\) => \{[\s\S]{0,200}!detecting/));

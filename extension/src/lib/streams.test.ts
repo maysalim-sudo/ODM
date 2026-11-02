@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MIN_VIDEO_BYTES, SentHeaderCache, StreamStore, classify, responseSize, streamLabel, toStreamPayload, toVideoFilePayload } from "./streams";
+import { MIN_VIDEO_BYTES, SentHeaderCache, StreamStore, classify, responseSize, streamLabel, videoLabel, toStreamPayload, toVideoFilePayload } from "./streams";
 
 describe("classify", () => {
   it("detects HLS by path, ignoring the query", () => {
@@ -245,5 +245,20 @@ describe("format in stream payloads", () => {
   it("leaves the field out when none was chosen", () => {
     expect("format" in toVideoFilePayload(stream, "https://e.com", [], "UA")).toBe(false);
     expect("format" in toStreamPayload(stream, "https://e.com", "T", [], "UA")).toBe(false);
+  });
+});
+
+describe("videoLabel", () => {
+  it("says MP4 for what ODM merges into one", () => {
+    expect(videoLabel("hls", "https://e.com/a.m3u8")).toBe("MP4");
+    expect(videoLabel("page", "https://youtu.be/a")).toBe("MP4");
+  });
+  it("says what a plain file really is", () => {
+    expect(videoLabel("file", "https://e.com/b.webm?x=1")).toBe("WEBM");
+    expect(videoLabel("file", "https://e.com/b.mp4")).toBe("MP4");
+  });
+  it("falls back when a file has no extension", () => {
+    expect(videoLabel("file", "https://e.com/video")).toBe("Video");
+    expect(videoLabel("file", "not a url")).toBe("Video");
   });
 });
