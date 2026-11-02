@@ -1,4 +1,5 @@
 import * as api from "./api";
+import { queueOrder } from "./home";
 import { ReloadGate, addOffer, addPrompt, applyEvent, counts, keepVisible, nextConfirm, visible, type Filter, type Row, type SortDir, type SortKey, type StatusFilter } from "./model";
 import type { AfterQueue, ConfirmArgs, ExistsChoice, ExistsPrompt, Offer, UiEvent } from "./types";
 
@@ -17,6 +18,9 @@ class DownloadsStore {
   /** Browser downloads added paused that wait for the "New download" dialog, oldest first. */
   confirms = $state<string[]>([]);
 
+  /** Torrents put off with Later: still paused, and Choose files brings their dialog back. */
+  later = $state<string[]>([]);
+
   /** Bumped per torrent when its file list arrives or changes, so open views reload it. */
   fileLists = $state<Record<string, number>>({});
 
@@ -26,7 +30,11 @@ class DownloadsStore {
   /** The "When the queue is done" countdown: what happens and when (epoch ms), or null. */
   afterQueue = $state<{ action: Exclude<AfterQueue, "nothing">; at: number } | null>(null);
 
-  visible = $derived(visible(this.rows, this.filter, this.sortKey, this.sortDir));
+  /** Up next is in queue order in every view, whatever the table is sorted by. */
+  visible = $derived.by(() => {
+    const list = visible(this.rows, this.filter, this.sortKey, this.sortDir);
+    return this.filter.status === "queued" ? queueOrder(list) : list;
+  });
   counts = $derived(counts(this.rows, this.filter.category));
   /** The download the "New download" dialog is about, if any. */
   confirmRow = $derived(nextConfirm(this.confirms, [...this.rows.values()]));
@@ -65,6 +73,17 @@ class DownloadsStore {
     this.prompts = this.prompts.filter((p) => p.id !== id);
   }
 
+  /** A torrent's row still waits for the user's choice of files. */
+  waitsForChoice(id: string): boolean {
+    return this.confirms.includes(id) || this.later.includes(id);
+  }
+
+  /** Bring back the dialog of a torrent put off with Later. */
+  chooseFiles(id: string): void {
+    this.later = this.later.filter((x) => x !== id);
+    this.addConfirm(id);
+  }
+
   private addConfirm(id: string): void {
     if (!this.confirms.includes(id)) this.confirms = [...this.confirms, id];
   }
@@ -76,6 +95,8 @@ class DownloadsStore {
       return r === undefined || r.state === "paused";
     });
     if (kept.length !== this.confirms.length) this.confirms = kept;
+    const later = this.later.filter((id) => this.rows.get(id)?.state === "paused");
+    if (later.length !== this.later.length) this.later = later;
     // A prompt goes once its download is no longer waiting (cancelled or removed from the list).
     const waiting = this.prompts.filter((p) => {
       const r = this.rows.get(p.id);
@@ -91,6 +112,7 @@ class DownloadsStore {
   async confirm(args: ConfirmArgs, dontAskAgain: boolean): Promise<void> {
     await api.confirmDownload(args);
     this.confirms = this.confirms.filter((id) => id !== args.id);
+    if (args.action === "later" && this.rows.get(args.id)?.kind === "torrent") this.later = [...this.later, args.id];
     if (dontAskAgain) {
       try {
         const s = await api.getSettings();
@@ -184,7 +206,7 @@ class DownloadsStore {
   }
 
   /** Plain click selects one; ctrl toggles; shift extends from the last selected row. */
-  select(id: string, mode: "one" | "toggle" | "range"): void {
+  select(id: string, mode: "one" | "toggle" | "range", order: string[] = this.visible.map((r) => r.id)): void {
     if (mode === "one") {
       this.selected = new Set([id]);
       return;
@@ -194,12 +216,11 @@ class DownloadsStore {
       if (next.has(id)) next.delete(id);
       else next.add(id);
     } else {
-      const ids = this.visible.map((r) => r.id);
       const anchor = [...this.selected].at(-1);
-      const a = anchor ? ids.indexOf(anchor) : -1;
-      const b = ids.indexOf(id);
+      const a = anchor ? order.indexOf(anchor) : -1;
+      const b = order.indexOf(id);
       if (a === -1 || b === -1) next.add(id);
-      else for (const x of ids.slice(Math.min(a, b), Math.max(a, b) + 1)) next.add(x);
+      else for (const x of order.slice(Math.min(a, b), Math.max(a, b) + 1)) next.add(x);
     }
     this.selected = next;
   }

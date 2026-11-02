@@ -4,6 +4,7 @@
   import CancelDialog from "./components/CancelDialog.svelte";
   import BatchDialog from "./components/BatchDialog.svelte";
   import DetailPanel from "./components/DetailPanel.svelte";
+  import DownloadList from "./components/DownloadList.svelte";
   import DownloadTable from "./components/DownloadTable.svelte";
   import OpenProgramDialog from "./components/OpenProgramDialog.svelte";
   import RefreshUrlDialog from "./components/RefreshUrlDialog.svelte";
@@ -16,6 +17,7 @@
   import AfterQueueDialog from "./components/AfterQueueDialog.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
   import Header from "./components/Header.svelte";
+  import SelectionBar from "./components/SelectionBar.svelte";
   import StatusBar from "./components/StatusBar.svelte";
   import Tabs from "./components/Tabs.svelte";
   import * as api from "./lib/api";
@@ -23,6 +25,8 @@
   import { integration } from "./lib/integration.svelte";
   import { queueSchedule } from "./lib/queueSchedule.svelte";
   import { SECTIONS, type SectionId } from "./lib/settingsPage";
+  import type { RowAction } from "./lib/home";
+  import { isRiskyFile, type Row } from "./lib/model";
   import type { ListView } from "./lib/types";
   import { updates } from "./lib/updates.svelte";
 
@@ -38,7 +42,10 @@
   let welcomeOpen = $state(false);
   let settingsSection = $state<SectionId | undefined>(undefined);
   let listView = $state<ListView>("cards");
-  const detailName = $derived(detailId ? (downloads.rows.get(detailId)?.filename ?? "") : "");
+  /** The row a card's action applies to; the details panel's row otherwise. */
+  let actionId = $state<string | null>(null);
+  const targetId = $derived(actionId ?? detailId);
+  const targetName = $derived(targetId ? (downloads.rows.get(targetId)?.filename ?? "") : "");
 
   onMount(() => {
     void downloads.init();
@@ -82,6 +89,50 @@
   async function setListView(v: ListView) {
     listView = v;
     await downloads.run(async () => api.saveSettings({ ...(await api.getSettings()), list_view: v }));
+  }
+
+  function rowAction(row: Row, a: RowAction) {
+    const only = () => (downloads.selected = new Set([row.id]));
+    switch (a) {
+      case "details":
+        detailId = row.id;
+        break;
+      case "pause":
+        void downloads.run(() => api.pause([row.id]));
+        break;
+      case "resume":
+      case "start-now":
+      case "fix":
+        void downloads.run(() => api.resume([row.id]));
+        break;
+      case "choose-files":
+        downloads.chooseFiles(row.id);
+        break;
+      case "open":
+        if (isRiskyFile(row.filename)) {
+          actionId = row.id;
+          programOpen = true;
+        } else void downloads.run(() => api.openFile(row.id));
+        break;
+      case "open-folder":
+        void downloads.run(() => api.openFolder(row.id));
+        break;
+      case "copy-link":
+        void downloads.run(() => navigator.clipboard.writeText(row.url));
+        break;
+      case "new-link":
+        actionId = row.id;
+        refreshOpen = true;
+        break;
+      case "cancel":
+        only();
+        cancelOpen = true;
+        break;
+      case "remove":
+        only();
+        removeOpen = true;
+        break;
+    }
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -142,13 +193,24 @@
   <Tabs view={listView} onview={(v) => void setListView(v)} />
   <div class="body">
     <div class="main">
-      <DownloadTable onopen={(id) => (detailId = id)} />
+      {#if listView === "cards"}
+        <DownloadList onaction={rowAction} onremove={() => (removeOpen = true)} />
+      {:else}
+        <DownloadTable onopen={(id) => (detailId = id)} />
+      {/if}
+      <SelectionBar oncancel={() => (cancelOpen = true)} onremove={() => (removeOpen = true)} />
     </div>
     <DetailPanel
       id={detailId}
       onclose={() => (detailId = null)}
-      onrefresh={() => (refreshOpen = true)}
-      onrisky={() => (programOpen = true)}
+      onrefresh={() => {
+        actionId = null;
+        refreshOpen = true;
+      }}
+      onrisky={() => {
+        actionId = null;
+        programOpen = true;
+      }}
     />
   </div>
   <StatusBar
@@ -164,8 +226,8 @@
 <BatchDialog open={batchOpen} onclose={() => (batchOpen = false)} />
 <CancelDialog open={cancelOpen} onclose={() => (cancelOpen = false)} />
 <RemoveDialog open={removeOpen} onclose={() => (removeOpen = false)} />
-<RefreshUrlDialog open={refreshOpen} id={detailId} onclose={() => (refreshOpen = false)} />
-<OpenProgramDialog open={programOpen} id={detailId} name={detailName} onclose={() => (programOpen = false)} />
+<RefreshUrlDialog open={refreshOpen} id={targetId} onclose={() => (refreshOpen = false)} />
+<OpenProgramDialog open={programOpen} id={targetId} name={targetName} onclose={() => (programOpen = false)} />
 <WelcomeDialog open={welcomeOpen} onclose={() => (welcomeOpen = false)} />
 <BrowserDialog
   open={browserOpen}
@@ -202,6 +264,7 @@
     min-height: 0;
   }
   .main {
+    position: relative;
     flex: 1;
     min-width: 0;
     display: flex;

@@ -17,6 +17,21 @@ export type RowAction =
   | "cancel"
   | "remove";
 
+export const ACTION_LABELS: Record<RowAction, string> = {
+  pause: "Pause",
+  resume: "Resume",
+  "start-now": "Start now",
+  "choose-files": "Choose files",
+  fix: "Try again",
+  open: "Open",
+  "open-folder": "Open folder",
+  details: "Details",
+  "copy-link": "Copy link",
+  "new-link": "Paste new link",
+  cancel: "Cancel download",
+  remove: "Remove from list",
+};
+
 const GIB = 1024 ** 3;
 
 /** One decimal from a gigabyte up to a terabyte, so "3.7 GB of 5.9 GB" stays short. */
