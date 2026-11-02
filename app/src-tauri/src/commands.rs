@@ -152,6 +152,11 @@ pub async fn set_download_limit(
     api::set_download_limit(&state.manager, &id, kbps).await
 }
 
+#[tauri::command]
+pub async fn reorder_queue(state: State<'_, AppState>, ids: Vec<String>) -> Res<()> {
+    api::reorder_queue(&state.manager, ids).await
+}
+
 /// Cancels the countdown "When the queue is done" started (sleep, shut down or quit).
 #[tauri::command]
 pub async fn cancel_after_queue(app: AppHandle, state: State<'_, AppState>) -> Res<()> {

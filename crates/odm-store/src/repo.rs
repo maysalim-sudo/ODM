@@ -267,6 +267,31 @@ pub fn set_placement(
     Ok(())
 }
 
+/// Sets the queue order, top first: the last row gets priority 1. Only queued and paused rows
+/// count; other ids are skipped. Returns the ids that were written.
+pub fn reorder_queue(c: &mut Connection, ids: &[String]) -> rusqlite::Result<Vec<String>> {
+    let tx = c.transaction()?;
+    let mut waiting = Vec::with_capacity(ids.len());
+    for id in ids {
+        let found: Option<String> = tx
+            .query_row("SELECT state FROM downloads WHERE id=?1", [id], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        if matches!(found.as_deref(), Some("queued" | "paused")) && !waiting.contains(id) {
+            waiting.push(id.clone());
+        }
+    }
+    for (i, id) in waiting.iter().enumerate() {
+        tx.execute(
+            "UPDATE downloads SET priority=?2 WHERE id=?1",
+            params![id, (waiting.len() - i) as i64],
+        )?;
+    }
+    tx.commit()?;
+    Ok(waiting)
+}
+
 /// Changes the name and/or folder. A given name is locked against the probe; a given folder ends auto-placement.
 pub fn set_target(
     c: &Connection,

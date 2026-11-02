@@ -145,6 +145,7 @@ enum Cmd {
     Finished(String, Outcome),
     AnswerExists(String, ExistsChoice, oneshot::Sender<Result<(), OdmError>>),
     SetDownloadLimit(String, Option<u64>, oneshot::Sender<Result<(), OdmError>>),
+    Reorder(Vec<String>, oneshot::Sender<Result<(), OdmError>>),
     Tick,
     Shutdown(oneshot::Sender<()>),
     ShutdownDeadline,
@@ -430,6 +431,14 @@ impl ManagerHandle {
         rx.await.map_err(|_| closed())?
     }
 
+    /// Sets what starts next: `ids` is the waiting list, top first. Ids that are no longer
+    /// queued or paused are skipped, and a running download is never stopped.
+    pub async fn reorder_queue(&self, ids: Vec<String>) -> Result<(), OdmError> {
+        let (tx, rx) = oneshot::channel();
+        self.send(Cmd::Reorder(ids, tx)).await?;
+        rx.await.map_err(|_| closed())?
+    }
+
     pub async fn list(&self) -> Result<Vec<(DownloadRecord, u64)>, OdmError> {
         self.store.list_with_bytes().await.map_err(store_err)
     }
@@ -599,6 +608,10 @@ impl Manager {
                 }
                 Cmd::SetDownloadLimit(id, bps, reply) => {
                     let r = self.set_download_limit(&id, bps).await;
+                    let _ = reply.send(r);
+                }
+                Cmd::Reorder(ids, reply) => {
+                    let r = self.reorder_queue(ids).await;
                     let _ = reply.send(r);
                 }
                 Cmd::Tick => self.tick().await,
@@ -1411,6 +1424,21 @@ impl Manager {
             .get(id)
         {
             l.set_rate(bps.unwrap_or(0));
+        }
+        Ok(())
+    }
+
+    async fn reorder_queue(&mut self, ids: Vec<String>) -> Result<(), OdmError> {
+        let written = self.env.store.reorder_queue(ids).await.map_err(store_err)?;
+        for id in written {
+            if let Some(state) = self.state_of(&id).await {
+                let _ = self.env.events.send(EngineEvent::State {
+                    id,
+                    state,
+                    error_code: None,
+                    error_message: None,
+                });
+            }
         }
         Ok(())
     }

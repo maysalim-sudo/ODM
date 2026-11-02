@@ -652,3 +652,121 @@ async fn a_video_choice_stays_with_the_download() {
         Some(r#"{"quality":"audio"}"#)
     );
 }
+
+/// One slot, a slow first download holding it, then `n` queued downloads behind it.
+async fn queue_behind_a_slow_download(
+    d: &Path,
+    s: &TestServer,
+    n: usize,
+) -> (ManagerHandle, String, Vec<String>) {
+    let mut c = cfg(d);
+    c.max_concurrent = 1;
+    let m = ManagerHandle::start(c, Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let first = m.add(AddRequest::new(s.url("/file"))).await.unwrap();
+    wait_state(m.store(), &first, DownloadState::Downloading, 10).await;
+    let mut ids = Vec::new();
+    for _ in 0..n {
+        ids.push(m.add(AddRequest::new(s.url("/file"))).await.unwrap());
+    }
+    (m, first, ids)
+}
+
+/// The order the given downloads start in, once each has left the queue.
+async fn start_order(m: &ManagerHandle, ids: &[String]) -> Vec<String> {
+    let mut seen = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while seen.len() < ids.len() {
+        for id in ids {
+            let r = m.store().get_download(id).await.unwrap().unwrap();
+            if r.state != DownloadState::Queued && !seen.contains(id) {
+                seen.push(id.clone());
+            }
+        }
+        assert!(Instant::now() < deadline, "started so far: {seen:?}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    seen
+}
+
+fn slow_faults() -> Faults {
+    Faults {
+        bytes_per_sec: Some(MB),
+        ..Default::default()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_queue_starts_in_the_chosen_order() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(MB, slow_faults()).await;
+    let (m, _first, ids) = queue_behind_a_slow_download(d.path(), &s, 3).await;
+    let (a, b, c) = (ids[0].clone(), ids[1].clone(), ids[2].clone());
+    m.reorder_queue(vec![c.clone(), a.clone(), b.clone()])
+        .await
+        .unwrap();
+    assert_eq!(start_order(&m, &ids).await, vec![c, a, b]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_download_added_after_reordering_starts_last() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(MB, slow_faults()).await;
+    let (m, _first, ids) = queue_behind_a_slow_download(d.path(), &s, 2).await;
+    let (a, b) = (ids[0].clone(), ids[1].clone());
+    m.reorder_queue(vec![b.clone(), a.clone()]).await.unwrap();
+    let late = m.add(AddRequest::new(s.url("/file"))).await.unwrap();
+    let all = vec![a.clone(), b.clone(), late.clone()];
+    assert_eq!(start_order(&m, &all).await, vec![b, a, late]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reordering_never_stops_a_running_download() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(MB, slow_faults()).await;
+    let (m, first, ids) = queue_behind_a_slow_download(d.path(), &s, 1).await;
+    m.reorder_queue(vec![ids[0].clone(), first.clone()])
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let r = m.store().get_download(&first).await.unwrap().unwrap();
+    assert_eq!(r.state, DownloadState::Downloading);
+    assert_eq!(r.priority, 0, "a running download keeps its place");
+    let q = m.store().get_download(&ids[0]).await.unwrap().unwrap();
+    assert_eq!(q.state, DownloadState::Queued);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unknown_and_finished_ids_are_skipped() {
+    let d = tempfile::tempdir().unwrap();
+    let s = TestServer::start(1024, Faults::default()).await;
+    let mut c = cfg(d.path());
+    c.max_concurrent = 1;
+    let m = ManagerHandle::start(c, Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let done = m.add(AddRequest::new(s.url("/file"))).await.unwrap();
+    wait_state(m.store(), &done, DownloadState::Completed, 10).await;
+    let mut paused = Vec::new();
+    for _ in 0..2 {
+        let mut r = AddRequest::new(s.url("/file"));
+        r.start_paused = true;
+        paused.push(m.add(r).await.unwrap());
+    }
+    m.reorder_queue(vec![
+        paused[1].clone(),
+        "no-such-id".into(),
+        done.clone(),
+        paused[0].clone(),
+    ])
+    .await
+    .unwrap();
+    let priority = |id: String| {
+        let m = m.clone();
+        async move { m.store().get_download(&id).await.unwrap().unwrap().priority }
+    };
+    assert_eq!(priority(paused[1].clone()).await, 2);
+    assert_eq!(priority(paused[0].clone()).await, 1, "the last row gets 1");
+    assert_eq!(priority(done).await, 0);
+}

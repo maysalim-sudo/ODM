@@ -66,6 +66,7 @@ function dl(id: string, patch: Partial<Download> = {}): Download {
     page_url: null,
     page_title: null,
     created_at: 1,
+    priority: 0,
     started_at: null,
     finished_at: null,
     pause_reason: null,

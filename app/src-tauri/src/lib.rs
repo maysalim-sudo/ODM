@@ -284,6 +284,7 @@ pub fn run() {
             commands::cancel,
             commands::remove,
             commands::pause_all,
+            commands::reorder_queue,
             commands::resume_all,
             commands::get_settings,
             commands::save_settings,

@@ -27,6 +27,8 @@ export interface Download {
   page_url: string | null;
   page_title: string | null;
   created_at: number;
+  /** Waiting order: higher starts first, 0 joins the end. */
+  priority: number;
   started_at: number | null;
   finished_at: number | null;
   /** Why a paused download is paused: null (by the user), "schedule" or "exists". */

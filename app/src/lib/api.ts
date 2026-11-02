@@ -46,6 +46,7 @@ export const resume = (ids: string[]) => invoke<void>("resume", { ids });
 export const cancel = (ids: string[], deleteFile: boolean) => invoke<void>("cancel", { ids, deleteFile });
 export const remove = (ids: string[], deleteFile: boolean) => invoke<void>("remove", { ids, deleteFile });
 export const pauseAll = () => invoke<void>("pause_all");
+export const reorderQueue = (ids: string[]) => invoke<void>("reorder_queue", { ids });
 export const resumeAll = () => invoke<void>("resume_all");
 export const getSettings = () => invoke<Settings>("get_settings");
 export const saveSettings = (settings: Settings) => invoke<Settings>("save_settings", { settings });

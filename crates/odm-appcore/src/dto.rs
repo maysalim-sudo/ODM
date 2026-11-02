@@ -25,6 +25,8 @@ pub struct DownloadDto {
     pub page_url: Option<String>,
     pub page_title: Option<String>,
     pub created_at: i64,
+    /// Waiting order: higher starts first, 0 joins the end.
+    pub priority: i64,
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
     /// Why a paused download is paused: null (by the user), "schedule" or "exists".
@@ -74,6 +76,7 @@ pub fn to_dto(r: &DownloadRecord, bytes: u64) -> DownloadDto {
         finished_at: r.finished_at,
         pause_reason: r.pause_reason.clone(),
         speed_limit_kbps: r.speed_limit.map(|b| (b / 1024).max(1)),
+        priority: r.priority,
         info_hash: r.info_hash.clone(),
         // A torrent gets its size from the file list.
         has_meta: (r.kind == "torrent").then_some(r.size.is_some()),

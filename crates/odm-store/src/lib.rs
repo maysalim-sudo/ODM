@@ -219,6 +219,9 @@ impl Store {
             .await
     }
     /// A download's own speed limit in bytes per second; None = none.
+    pub async fn reorder_queue(&self, ids: Vec<String>) -> Result<Vec<String>, StoreError> {
+        self.call(move |c| repo::reorder_queue(c, &ids)).await
+    }
     pub async fn set_speed_limit(&self, id: &str, bps: Option<u64>) -> Result<(), StoreError> {
         let id = id.to_string();
         self.call(move |c| repo::set_speed_limit(c, &id, bps)).await

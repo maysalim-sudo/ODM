@@ -207,6 +207,11 @@ pub async fn set_download_limit(
     m.set_download_limit(id, bps).await.map_err(msg)
 }
 
+/// The waiting list in its new order, top first.
+pub async fn reorder_queue(m: &ManagerHandle, ids: Vec<String>) -> Result<(), String> {
+    m.reorder_queue(ids).await.map_err(msg)
+}
+
 /// The user's answer when a finished download's file name is taken.
 pub async fn answer_exists(
     m: &ManagerHandle,
