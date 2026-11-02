@@ -50,7 +50,8 @@ describe("palette", () => {
       "--text": "#ffffff", "--muted": "#a0a0a0", "--accent": "#ffa31a", "--accent-light": "#ffb84d",
       "--on-accent": "#000000", "--error": "#ff6b6b", "--error-tint": "#291111", "--success": "#34d399",
       "--success-tint": "#082218", "--warn": "#a78bfa", "--warn-tint": "#211c32", "--info": "#60a5fa",
-      "--idle": "#6b7280", "--selected": "#291a04", "--selected-hover": "#382406", "--radius": "4px",
+      "--idle": "#6b7280", "--selected": "#291a04", "--selected-hover": "#382406", "--radius": "7px",
+      "--radius-lg": "10px", "--radius-xl": "12px",
     });
   });
 
@@ -68,6 +69,11 @@ describe("palette", () => {
   test("selected-hover differs from surface-2", () => {
     expect(vars["--selected-hover"]).not.toBe(vars["--surface-2"]);
   });
+});
+
+describe("type", () => {
+  test("Inter comes first in the body font", () => expect(appCss).toMatch(/body\s*\{[^}]*font:[^;]*"Inter"/));
+  test("Inter is bundled, not fetched", () => expect(appCss).toMatch(/@font-face\s*\{[^}]*url\("\.\/assets\/fonts\/InterVariable\.woff2"\)/));
 });
 
 describe("components", () => {
