@@ -194,3 +194,26 @@ async fn a_plain_download_never_needs_ffmpeg() {
     let r = wait_for(m.store(), &id, DownloadState::Completed).await;
     assert_eq!(r.filename, "clip.mp4");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn try_again_after_a_failed_conversion_finishes_without_downloading_again() {
+    let tools = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let s = TestServer::start(SIZE, Faults::default()).await;
+    let m = ManagerHandle::start(
+        cfg(out.path(), stub_ffmpeg(tools.path(), false)),
+        Store::open_in_memory().unwrap(),
+    )
+    .await
+    .unwrap();
+    let id = m
+        .add(mp3_request(s.url("/file"), out.path()))
+        .await
+        .unwrap();
+    wait_for(m.store(), &id, DownloadState::Failed).await;
+    stub_ffmpeg(tools.path(), true);
+    m.resume(&id).await.unwrap();
+    let r = wait_for(m.store(), &id, DownloadState::Completed).await;
+    assert_eq!(r.filename, "clip.mp3");
+    assert_eq!(files_in(out.path()), vec!["clip.mp3".to_string()]);
+}
