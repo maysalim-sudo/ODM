@@ -1,22 +1,21 @@
 <script lang="ts">
+  import { tick as nextTick } from "svelte";
   import * as api from "../lib/api";
   import { downloads } from "../lib/downloads.svelte";
   import { queueSchedule } from "../lib/queueSchedule.svelte";
   import { formatBytes, formatEta, formatSpeed, joinPath } from "../lib/format";
-  import { canRefresh, canResume, isActive, isRiskyFile, needsVideoTools, progressPct, rowStatus } from "../lib/model";
+  import { ACTION_LABELS, FIX_LABELS, rowActions, type RowAction } from "../lib/home";
+  import { canRefresh, canResume, isActive, needsVideoTools, problemInfo, progressPct, rowStatus } from "../lib/model";
   import { checkSpeed } from "../lib/settingsPage";
   import type { Detail } from "../lib/types";
   import ChunkMap from "./ChunkMap.svelte";
+  import Icon from "./Icon.svelte";
   import PieceMap from "./PieceMap.svelte";
+  import ProgressBar from "./ProgressBar.svelte";
   import TorrentFiles from "./TorrentFiles.svelte";
   import ToolsCard from "./ToolsCard.svelte";
 
-  let {
-    id,
-    onclose,
-    onrefresh,
-    onrisky,
-  }: { id: string | null; onclose: () => void; onrefresh: () => void; onrisky: () => void } = $props();
+  let { id, onclose, onaction }: { id: string | null; onclose: () => void; onaction: (a: RowAction) => void } = $props();
 
   let detail = $state<Detail | null>(null);
   let copied = $state(false);
@@ -24,6 +23,11 @@
   let toolsReady = $state(false);
 
   const row = $derived(id ? downloads.rows.get(id) : undefined);
+  const waiting = $derived(id ? downloads.waitsForChoice(id) : false);
+  const problem = $derived(row?.state === "failed" ? problemInfo(row) : null);
+  const primary = $derived(row ? rowActions(row, queueSchedule.wait !== null, waiting).primary : null);
+  // Remove has its own button here, so a cancelled row has no main action.
+  const primaryLabel = $derived(primary === "fix" && problem ? FIX_LABELS[problem.action] : primary ? ACTION_LABELS[primary] : "");
   // Live chunks while it runs; the stored ones otherwise.
   const chunks = $derived(row?.chunks ?? detail?.chunks ?? []);
   const pct = $derived(row && (row.segments || row.size) ? progressPct(row) : null);
@@ -116,6 +120,31 @@
     if (kbps !== rowLimit) void setLimit(kbps);
   }
 
+  // Focus moves in while the drawer is open and goes back to where it came from.
+  let drawer = $state<HTMLElement>();
+  let closeButton = $state<HTMLButtonElement>();
+  $effect(() => {
+    if (!drawer) return;
+    const before = document.activeElement as HTMLElement | null;
+    void nextTick().then(() => closeButton?.focus());
+    return () => before?.focus();
+  });
+
+  function onkey(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      onclose();
+    } else if (e.key === "Tab" && drawer) {
+      const stops = [...drawer.querySelectorAll<HTMLElement>("button:not(:disabled), input, select, summary")];
+      const last = stops.length - 1;
+      const at = stops.indexOf(document.activeElement as HTMLElement);
+      if (e.shiftKey ? at <= 0 : at === last) {
+        e.preventDefault();
+        stops[e.shiftKey ? last : 0]?.focus();
+      }
+    }
+  }
+
   // The download was removed while its panel was open (not merely not loaded yet).
   $effect(() => {
     if (id && downloads.loaded && !row) onclose();
@@ -134,66 +163,64 @@
 </script>
 
 {#if id && row}
-  <aside aria-label="Download details">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="scrim" onclick={onclose}></div>
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <aside bind:this={drawer} aria-label="Download details" onkeydown={onkey}>
     <header>
       <h2 title={row.filename}>{row.filename}</h2>
-      <button onclick={onclose} aria-label="Close details">Close</button>
+      <button bind:this={closeButton} class="plain" onclick={onclose} aria-label="Close details" title="Close"><Icon name="x" /></button>
     </header>
 
-    {#if isTorrent}
-      {#if detail?.torrent?.pieces}
-        <section>
-          <PieceMap pieces={detail.torrent.pieces} />
-        </section>
-      {/if}
-    {:else if row.kind !== "hls" && row.kind !== "site"}
-      <section>
-        <ChunkMap {chunks} total={row.size} />
-      </section>
+    <div class="amount">
+      {#if pct !== null}<span class="pct">{Math.floor(pct)}%</span>{/if}
+      <span class="of">{formatBytes(row.bytes)}{row.size === null ? "" : ` of ${formatBytes(row.size)}`}</span>
+    </div>
+    <ProgressBar value={pct} state={row.state} />
+
+    <div class="stats">
+      <div>
+        <span>Speed</span>
+        <strong>{row.state === "downloading" ? formatSpeed(row.speed_bps) : "—"}</strong>
+      </div>
+      <div>
+        <span>Time left</span>
+        <strong>{row.state === "downloading" ? formatEta(row.eta_s) : "—"}</strong>
+      </div>
+    </div>
+
+    {#if problem}
+      <div class="problem" role="status">
+        <strong>{problem.title}</strong>
+        <p>{problem.body}</p>
+      </div>
+    {:else}
+      <p class="status">{rowStatus(row, waiting, queueSchedule.wait)}</p>
     {/if}
 
+    <div class="actions">
+      {#if primary}
+        <button class="primary main" onclick={() => onaction(primary)}>{primaryLabel}</button>
+      {/if}
+      {#if canRefresh(row) && problem?.action !== "new-link"}
+        <button onclick={() => onaction("new-link")}>Paste new link</button>
+      {/if}
+      <button onclick={() => onaction("open-folder")}><Icon name="folder" /> Open folder</button>
+      <button class="square" onclick={copyUrl} aria-label={copied ? "Link copied" : "Copy link"} title={copied ? "Copied" : "Copy link"}>
+        <Icon name={copied ? "check" : "copy"} />
+      </button>
+      <button class="square" onclick={() => onaction("remove")} aria-label="Remove from list" title="Remove from list"><Icon name="trash" /></button>
+    </div>
+
     <dl>
-      <dt>Status</dt>
-      <dd class:bad={row.state === "failed"}>{rowStatus(row, downloads.confirms.includes(row.id), queueSchedule.wait)}</dd>
-      {#if row.error_message}
-        <dt>Problem</dt>
-        <dd class="bad wrap">{row.error_message}</dd>
-      {/if}
-      <dt>Downloaded</dt>
-      <dd>
-        {formatBytes(row.bytes)}{row.size === null ? "" : ` of ${formatBytes(row.size)}`}{pct === null ? "" : ` (${pct.toFixed(1)}%)`}
-      </dd>
-      {#if row.kind === "hls" && row.segments}
-        <dt>Segments</dt>
-        <dd>{row.segments.done} of {row.segments.total}</dd>
-      {/if}
-      <dt>Speed</dt>
-      <dd>{row.state === "downloading" ? formatSpeed(row.speed_bps) : "—"}</dd>
-      <dt>Time left</dt>
-      <dd>{row.state === "downloading" ? formatEta(row.eta_s) : "—"}</dd>
+      <dt>Saved to</dt>
+      <dd class="wrap">{joinPath(row.save_dir, row.filename)}</dd>
       {#if isTorrent}
         <dt>Peers</dt>
         <dd>{row.torrent ? `${row.torrent.peers_connected} connected (${row.torrent.peers_seen} found)` : "—"}</dd>
         <dt>Uploading</dt>
         <dd>{row.torrent && row.state === "downloading" ? formatSpeed(row.torrent.up_bps) : "—"}</dd>
-      {/if}
-      <dt>Saved to</dt>
-      <dd class="wrap">{joinPath(row.save_dir, row.filename)}</dd>
-      <dt>Address</dt>
-      <dd class="wrap">{row.url}</dd>
-      {#if detail?.final_url && detail.final_url !== row.url}
-        <dt>Redirects to</dt>
-        <dd class="wrap">{detail.final_url}</dd>
-      {/if}
-      {#if row.kind === "site"}
-        <dt>Method</dt>
-        <dd>Downloaded with yt-dlp</dd>
-      {:else if isTorrent}
-        <dt>Info hash</dt>
-        <dd class="wrap">{row.info_hash}</dd>
-      {:else}
-        <dt>Connections</dt>
-        <dd>Up to {row.max_connections}</dd>
       {/if}
       {#if row.kind === "file" && row.state !== "completed" && row.state !== "cancelled"}
         <dt><label for="detail-limit">Speed limit</label></dt>
@@ -220,10 +247,6 @@
           {#if limitError}<span class="bad" role="alert">{limitError}</span>{/if}
         </dd>
       {/if}
-      {#if detail && detail.header_names.length > 0}
-        <dt>Sent headers</dt>
-        <dd class="wrap">{detail.header_names.join(", ")}</dd>
-      {/if}
     </dl>
 
     {#if isTorrent && detail?.torrent && detail.torrent.files.length > 0}
@@ -249,32 +272,71 @@
       </section>
     {/if}
 
-    <footer>
-      <button
-        disabled={row.state !== "completed"}
-        onclick={() => (isRiskyFile(row.filename) ? onrisky() : downloads.run(() => api.openFile(row.id)))}
-      >
-        Open file
-      </button>
-      {#if canRefresh(row)}
-        <button onclick={onrefresh}>Refresh URL</button>
+    <details>
+      <summary>Technical details <Icon name="chevron" /></summary>
+      {#if isTorrent}
+        {#if detail?.torrent?.pieces}
+          <PieceMap pieces={detail.torrent.pieces} />
+        {/if}
+      {:else if row.kind !== "hls" && row.kind !== "site"}
+        <ChunkMap {chunks} total={row.size} />
       {/if}
-      <button onclick={() => downloads.run(() => api.openFolder(row.id))}>Open folder</button>
-      <button onclick={copyUrl}>{copied ? "Copied" : "Copy address"}</button>
-    </footer>
+      <dl>
+        {#if row.kind === "hls" && row.segments}
+          <dt>Segments</dt>
+          <dd>{row.segments.done} of {row.segments.total}</dd>
+        {/if}
+        {#if row.kind === "site"}
+          <dt>Method</dt>
+          <dd>Downloaded with yt-dlp</dd>
+        {:else if isTorrent}
+          <dt>Info hash</dt>
+          <dd class="wrap">{row.info_hash}</dd>
+        {:else}
+          <dt>Connections</dt>
+          <dd>Up to {row.max_connections}</dd>
+        {/if}
+        <dt>Address</dt>
+        <dd class="wrap">{row.url}</dd>
+        {#if detail?.final_url && detail.final_url !== row.url}
+          <dt>Redirects to</dt>
+          <dd class="wrap">{detail.final_url}</dd>
+        {/if}
+        {#if detail && detail.header_names.length > 0}
+          <dt>Sent headers</dt>
+          <dd class="wrap">{detail.header_names.join(", ")}</dd>
+        {/if}
+        {#if row.error_message}
+          <dt>Error</dt>
+          <dd class="bad wrap">{row.error_message}</dd>
+        {/if}
+      </dl>
+    </details>
   </aside>
 {/if}
 
 <style>
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: var(--backdrop);
+  }
   aside {
-    width: 360px;
-    flex: none;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 21;
+    width: 400px;
+    max-width: 100vw;
     display: flex;
     flex-direction: column;
     gap: 14px;
-    padding: 12px;
+    padding: 16px 20px;
     background: var(--surface);
     border-left: 1px solid var(--border);
+    box-shadow: var(--shadow-dialog);
     overflow-y: auto;
     user-select: text;
   }
@@ -286,11 +348,93 @@
   }
   h2 {
     margin: 0;
-    font-size: 14px;
-    font-weight: 700;
+    font-size: 15px;
+    font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  h3 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .plain {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+    color: var(--muted);
+  }
+  .amount {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .pct {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+  .of,
+  .status {
+    color: var(--muted);
+  }
+  .status {
+    margin: 0;
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .stats div {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    background: var(--bg);
+  }
+  .stats span {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .stats strong {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .problem {
+    padding: 10px 12px;
+    border: 1px solid var(--error);
+    border-radius: var(--radius-lg);
+    background: var(--error-tint);
+  }
+  .problem p {
+    margin: 4px 0 0;
+    color: var(--muted);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 34px;
+  }
+  .main {
+    flex: 1;
+  }
+  .square {
+    width: 34px;
+    padding: 0;
   }
   dl {
     display: grid;
@@ -325,10 +469,23 @@
   .bad {
     color: var(--error);
   }
-  footer {
+  details {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: auto;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
   }
 </style>

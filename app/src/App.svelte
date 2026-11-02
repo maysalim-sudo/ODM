@@ -214,13 +214,9 @@
     <DetailPanel
       id={detailId}
       onclose={() => (detailId = null)}
-      onrefresh={() => {
-        actionId = null;
-        refreshOpen = true;
-      }}
-      onrisky={() => {
-        actionId = null;
-        programOpen = true;
+      onaction={(a) => {
+        const row = detailId ? downloads.rows.get(detailId) : undefined;
+        if (row) rowAction(row, a);
       }}
     />
   </div>
