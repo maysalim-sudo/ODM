@@ -5,6 +5,7 @@
   import { formatBytes } from "../lib/format";
   import { selectedSize } from "../lib/fileTree";
   import type { ConfirmArgs, TorrentFile } from "../lib/types";
+  import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
   import TorrentFiles from "./TorrentFiles.svelte";
 
@@ -124,18 +125,28 @@
 <!-- A fresh Modal per download: after Escape the browser has closed the native dialog, and the next
      queued download needs it opened again. -->
 {#key row?.id}
-<Modal {open} title={isTorrent ? "New torrent" : "New download"} onclose={dismiss} width={isTorrent ? 600 : 520}>
+<Modal {open} title={isTorrent ? "New torrent" : "New download"} onclose={dismiss} width={isTorrent ? 860 : 620} panel>
   {#if row && isTorrent}
-    <p class="info name" title={row.filename}>{row.filename}</p>
-    {#if !hasMeta}
-      <p class="info" role="status">Fetching file list… You can wait, or download every file now.</p>
-    {:else}
+    <div class="preview">
+      <span class="tile" aria-hidden="true"><Icon name="magnet" size={20} /></span>
+      <div class="facts">
+        <div class="name" title={row.filename}>{row.filename}</div>
+        <div class="meta" role="status">
+          {#if hasMeta}
+            Torrent · {picked.size} of {files.length} files · {formatBytes(selectedSize(files, picked))} of {formatBytes(selectedSize(files, new Set(files.map((f) => f.idx))))}
+          {:else}
+            Fetching file list… You can wait, or download every file now.
+          {/if}
+        </div>
+      </div>
+    </div>
+    {#if hasMeta}
       <div class="files">
         <TorrentFiles {files} selected={picked} onchange={(next) => (picked = next)} disabled={busy} />
         <p class="info sel">
           <button type="button" class="link" onclick={() => (picked = new Set(files.map((f) => f.idx)))} disabled={busy}>Select all</button>
           <button type="button" class="link" onclick={() => (picked = new Set())} disabled={busy}>Select none</button>
-          <span>{picked.size} of {files.length} files · {formatBytes(selectedSize(files, picked))} of {formatBytes(selectedSize(files, new Set(files.map((f) => f.idx))))}</span>
+          <span>ODM stops sharing once your files are finished.</span>
         </p>
       </div>
     {/if}
@@ -155,11 +166,18 @@
       <button class="cancel" onclick={() => choose("cancel")} disabled={busy}>Cancel</button>
       <button onclick={() => choose("later", hasMeta && picked.size > 0 ? [...picked] : null)} disabled={busy}>Later</button>
       <button onclick={() => choose("start", hasMeta ? files.map((f) => f.idx) : null)} disabled={busy}>Download all</button>
-      <button class="primary" onclick={() => choose("start", [...picked])} disabled={busy || !hasMeta || picked.size === 0}>Download</button>
+      <button class="primary" onclick={() => choose("start", [...picked])} disabled={busy || !hasMeta || picked.size === 0}>
+        Download {picked.size === 1 ? "1 file" : `${picked.size} files`}
+      </button>
     </div>
   {:else if row}
-    <p class="info">{host || row.url}</p>
-    <p class="info">Size: {row.size !== null ? formatBytes(row.size) : "unknown"}</p>
+    <div class="preview">
+      <span class="tile" aria-hidden="true"><Icon name="download" size={20} /></span>
+      <div class="facts">
+        <div class="name" title={row.filename}>{row.filename}</div>
+        <div class="meta">{host || row.url} · {row.size !== null ? formatBytes(row.size) : "Size unknown"}</div>
+      </div>
+    </div>
 
     <label class="field">
       <span>File name</span>
@@ -198,9 +216,36 @@
   .cancel {
     margin-right: auto;
   }
+  .preview {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .tile {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-lg);
+    background: var(--surface-2);
+    color: var(--accent);
+  }
+  .facts {
+    min-width: 0;
+  }
   .name {
-    color: var(--text);
+    overflow: hidden;
+    font-size: 15px;
     font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .meta {
+    overflow-wrap: anywhere;
+    color: var(--muted);
+    font-size: 12px;
   }
   .files {
     margin-bottom: 10px;
@@ -218,7 +263,7 @@
     padding: 0;
     border: none;
     background: none;
-    color: var(--accent);
+    color: var(--muted);
     cursor: pointer;
   }
 </style>

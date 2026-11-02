@@ -7,8 +7,17 @@
     title,
     onclose,
     width = 520,
+    panel = false,
     children,
-  }: { open: boolean; title: string; onclose: () => void; width?: number; children: Snippet } = $props();
+  }: {
+    open: boolean;
+    title: string;
+    onclose: () => void;
+    width?: number;
+    /** Sits under the paste bar like the add panel; the content then names itself. */
+    panel?: boolean;
+    children: Snippet;
+  } = $props();
 
   let el = $state<HTMLDialogElement>();
 
@@ -32,10 +41,10 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-<dialog bind:this={el} style:width={`${width}px`} aria-labelledby="modal-title" onclose={onclose} onmousedown={down} onclick={backdrop}>
+<dialog bind:this={el} class:panel style:width={`${width}px`} aria-labelledby="modal-title" onclose={onclose} onmousedown={down} onclick={backdrop}>
   {#if open}
     <div class="content">
-      <h2 id="modal-title">{title}</h2>
+      <h2 id="modal-title" class:sr={panel}>{title}</h2>
       {@render children()}
     </div>
   {/if}
@@ -50,6 +59,10 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-dialog);
+  }
+  dialog.panel {
+    margin: 64px auto auto;
+    border-radius: var(--radius-xl);
   }
   dialog::backdrop {
     background: var(--backdrop);
@@ -93,5 +106,13 @@
     margin: 0 0 14px;
     font-size: 15px;
     font-weight: 700;
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
 </style>
