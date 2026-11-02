@@ -1,5 +1,5 @@
 import { APP_DEADLINE_MS } from "./ids";
-import type { AddDownloadPayload, OdmResponse } from "./protocol";
+import { errorText, type AddDownloadPayload, type OdmResponse } from "./protocol";
 
 export type BrowserItem = {
   url: string;
@@ -71,6 +71,13 @@ export function toMenuPayload(
 /** The browser download may be cancelled only when this is true. */
 export function shouldCancelBrowserDownload(r: OdmResponse | null): boolean {
   return r?.ok === true;
+}
+
+/** What to tell the user about a takeover that did not happen; null when there is nothing to say. */
+export function captureProblem(r: OdmResponse | null): string | null {
+  if (!r) return "ODM did not answer, so your browser kept this download. Check that ODM is installed and open it once.";
+  if (r.ok || r.error?.code === "skipped") return null;
+  return errorText(r);
 }
 
 /**

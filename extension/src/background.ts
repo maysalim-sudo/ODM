@@ -2,6 +2,7 @@ import { AltTracker } from "./lib/alt";
 import { ext, cookiesFor, send, sendDetailed } from "./lib/browser";
 import {
   ClaimSet,
+  captureProblem,
   captureUrl,
   cookieHeader,
   isHttp,
@@ -256,9 +257,10 @@ async function handle(item: DownloadLike, storeId?: string): Promise<void> {
     } catch {
       // Same.
     }
-  } else if (r && !r.ok && r.error?.code !== "skipped") {
-    await flagError(errorText(r));
+    return;
   }
+  const problem = captureProblem(r);
+  if (problem) await flagError(problem);
 }
 
 if (__TARGET__ === "chromium") {

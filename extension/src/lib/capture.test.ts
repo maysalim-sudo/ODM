@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ClaimSet,
   basename,
+  captureProblem,
   captureUrl,
   cookieHeader,
   isHttp,
@@ -104,5 +105,25 @@ describe("ClaimSet", () => {
     c.claim(3);
     expect(c.claim(1)).toBe(true);
     expect(c.claim(3)).toBe(false);
+  });
+});
+
+describe("captureProblem", () => {
+  const skipped = { ok: false, error: { code: "skipped", message: "Skipped" } };
+  const refused = { ok: false, error: { code: "other", message: "Disk trouble" } };
+
+  it("explains when ODM did not answer", () => {
+    expect(captureProblem(null)).toBe(
+      "ODM did not answer, so your browser kept this download. Check that ODM is installed and open it once.",
+    );
+  });
+  it("stays quiet when ODM took the download", () => {
+    expect(captureProblem({ ok: true } as never)).toBeNull();
+  });
+  it("stays quiet when ODM chose to leave it to the browser", () => {
+    expect(captureProblem(skipped as never)).toBeNull();
+  });
+  it("passes on any other error", () => {
+    expect(captureProblem(refused as never)).toBe("Disk trouble");
   });
 });
