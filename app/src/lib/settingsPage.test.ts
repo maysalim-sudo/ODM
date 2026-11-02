@@ -384,7 +384,7 @@ describe("page source", () => {
     expect(app).toMatch(/e\.ctrlKey && e\.key === ","/);
   });
   it("the New download dialog offers Start now when the download would wait", async () => {
-    const add = (await import("../components/AddDialog.svelte?raw")).default;
+    const add = (await import("../components/AddPanel.svelte?raw")).default;
     expect(add).toContain(">Start now</button>");
     expect(add).toContain('"Add paused"');
     expect(add).toContain('"Add to queue"');

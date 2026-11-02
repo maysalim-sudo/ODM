@@ -1,12 +1,14 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import Icon from "./Icon.svelte";
 
   let {
-    onadd,
+    children,
     onbatch,
     onsettings,
   }: {
-    onadd: () => void;
+    /** The paste bar. */
+    children: Snippet;
     onbatch: () => void;
     onsettings: () => void;
   } = $props();
@@ -14,11 +16,7 @@
 
 <header>
   <span class="mark" aria-hidden="true"><Icon name="download" size={22} /></span>
-  <button class="paste" onclick={onadd}>
-    <Icon name="download" />
-    <span class="hint">Paste a link or magnet, or drop a file here</span>
-    <kbd>Ctrl V</kbd>
-  </button>
+  {@render children()}
   <button class="side" onclick={onbatch}><Icon name="add-many" /> Add several</button>
   <button class="side" onclick={onsettings}><Icon name="sliders" /> Settings</button>
 </header>
@@ -39,35 +37,6 @@
     border-radius: var(--radius);
     background: var(--accent);
     color: var(--on-accent);
-  }
-  .paste {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    height: 44px;
-    padding: 0 8px 0 14px;
-    border-radius: var(--radius-lg);
-    background: var(--surface);
-    color: var(--muted);
-    font-weight: 400;
-    text-align: left;
-  }
-  .hint {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  kbd {
-    flex: none;
-    padding: 3px 7px;
-    border-radius: var(--radius);
-    background: var(--surface-2);
-    font: inherit;
-    font-size: 12px;
   }
   .side {
     display: inline-flex;

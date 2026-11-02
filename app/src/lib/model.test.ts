@@ -44,6 +44,7 @@ import {
   formatLimit,
   totalSpeed,
   rowStatus,
+  pastedAddress,
 } from "./model";
 import type { StatusFilter } from "./model";
 import type { Download, IntegrationStatus, StoreLinks, ToolsStatus } from "./types";
@@ -255,6 +256,25 @@ describe("filters and counts", () => {
     expect(visible(r, all, "created_at", "desc").map((x) => x.id)).toEqual(["a", "b"]);
     expect(visible(r, all, "filename", "asc").map((x) => x.id)).toEqual(["a", "b"]);
     expect(visible(r, all, "filename", "desc").map((x) => x.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("pastedAddress", () => {
+  it("takes web and magnet links, trimmed", () => {
+    expect(pastedAddress("  https://e.com/a.iso\n")).toBe("https://e.com/a.iso");
+    expect(pastedAddress("HTTP://e.com/a")).toBe("HTTP://e.com/a");
+    expect(pastedAddress("magnet:?xt=urn:btih:abc")).toBe("magnet:?xt=urn:btih:abc");
+  });
+
+  it("ignores other text", () => {
+    expect(pastedAddress("hello world")).toBeNull();
+    expect(pastedAddress("ftp://e.com/a")).toBeNull();
+    expect(pastedAddress("")).toBeNull();
+    expect(pastedAddress("see https://e.com/a for details")).toBeNull();
+  });
+
+  it("leaves several links to Add several", () => {
+    expect(pastedAddress("https://e.com/a\nhttps://e.com/b")).toBeNull();
   });
 });
 

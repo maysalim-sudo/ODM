@@ -296,6 +296,12 @@ export function parseUrls(text: string): ParsedUrls {
   return out;
 }
 
+/** The address in pasted text: one http(s) or magnet link; null for anything else. */
+export function pastedAddress(text: string): string | null {
+  const t = text.trim();
+  return /^(https?:\/\/[^/\s]|magnet:\?)\S*$/i.test(t) ? t : null;
+}
+
 /**
  * Makes list reloads safe: a superseded response is dropped, and upsert/removed events
  * that arrived while the request was in flight are replayed on top of the fresh list.

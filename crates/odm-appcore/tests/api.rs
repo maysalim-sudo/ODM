@@ -2,7 +2,8 @@ use odm_appcore::api::{self, AddArgs};
 use odm_appcore::dto::UiEvent;
 use odm_appcore::Settings;
 use odm_core::DownloadState;
-use odm_engine::{ChunkViewState, EngineConfig, ManagerHandle};
+use odm_engine::config::Quality;
+use odm_engine::{ChunkViewState, EngineConfig, ManagerHandle, VideoOverride};
 use odm_store::Store;
 use odm_testserver::hls::{write_synthetic, HlsFaults, HlsServer};
 use odm_testserver::{Faults, TestServer};
@@ -555,6 +556,31 @@ async fn add_with_page_flag_adds_a_site_download() {
     assert_eq!(rec.kind, "site");
     assert_eq!(rec.url, "https://www.youtube.com/watch?v=abc");
     assert_eq!(rec.state, DownloadState::Paused);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_site_download_keeps_the_quality_chosen_in_the_add_panel() {
+    let d = tempfile::tempdir().unwrap();
+    let m = manager(d.path()).await;
+    let chosen = VideoOverride {
+        quality: Some(Quality::P720),
+        subtitles: Some(true),
+        ..Default::default()
+    };
+    let id = api::add(
+        &m,
+        AddArgs {
+            url: "https://www.youtube.com/watch?v=abc".into(),
+            page: true,
+            start_paused: true,
+            video_override: Some(chosen),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let (rec, _) = m.get(&id).await.unwrap().unwrap();
+    assert_eq!(rec.video_override, chosen.to_stored());
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -260,6 +260,8 @@ export interface AddArgs {
   page?: boolean;
   /** This download's own speed limit in KB/s; null = none. Plain files only. */
   speed_limit_kbps?: number | null;
+  /** Site pages: this download's own video choices; what it leaves out follows the settings. */
+  video_override?: { quality?: VideoQuality; subtitles?: boolean } | null;
 }
 
 export interface ConfirmArgs {

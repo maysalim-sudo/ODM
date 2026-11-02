@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import AddDialog from "./components/AddDialog.svelte";
+  import AddPanel from "./components/AddPanel.svelte";
   import CancelDialog from "./components/CancelDialog.svelte";
   import BatchDialog from "./components/BatchDialog.svelte";
   import DetailPanel from "./components/DetailPanel.svelte";
@@ -31,7 +31,7 @@
   import { updates } from "./lib/updates.svelte";
 
   let detailId = $state<string | null>(null);
-  let addOpen = $state(false);
+  let addPanel = $state<AddPanel>();
   let batchOpen = $state(false);
   let settingsOpen = $state(false);
   let removeOpen = $state(false);
@@ -135,10 +135,8 @@
     }
   }
 
-  function onkeydown(e: KeyboardEvent) {
-    if (
-      addOpen ||
-      batchOpen ||
+  const dialogOpen = $derived(
+    batchOpen ||
       settingsOpen ||
       removeOpen ||
       cancelOpen ||
@@ -146,14 +144,22 @@
       programOpen ||
       browserOpen ||
       welcomeOpen ||
+      downloads.confirmRow !== undefined ||
       downloads.offers.length > 0 ||
       downloads.prompts.length > 0 ||
-      downloads.afterQueue !== null
-    )
-      return;
+      downloads.afterQueue !== null,
+  );
+
+  function onkeydown(e: KeyboardEvent) {
+    if (dialogOpen) return;
     if (e.ctrlKey && e.key === ",") {
       e.preventDefault();
       settingsOpen = true;
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "n") {
+      e.preventDefault();
+      addPanel?.focus();
       return;
     }
     const t = e.target;
@@ -165,10 +171,9 @@
     if (typing) return;
     if (e.key === "Delete" && downloads.selected.size > 0) removeOpen = true;
     if (e.key === "Escape") detailId = null;
-    if (e.ctrlKey && e.key.toLowerCase() === "n") {
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
-      if (e.shiftKey) batchOpen = true;
-      else addOpen = true;
+      batchOpen = true;
     }
   }
 </script>
@@ -177,13 +182,14 @@
 
 <div class="app" inert={settingsOpen}>
   <Header
-    onadd={() => (addOpen = true)}
     onbatch={() => (batchOpen = true)}
     onsettings={() => {
       settingsSection = undefined;
       settingsOpen = true;
     }}
-  />
+  >
+    <AddPanel bind:this={addPanel} blocked={dialogOpen} />
+  </Header>
   {#if downloads.error}
     <div class="error" role="alert">
       <span>{downloads.error}</span>
@@ -222,7 +228,6 @@
   />
 </div>
 
-<AddDialog open={addOpen} onclose={() => (addOpen = false)} />
 <BatchDialog open={batchOpen} onclose={() => (batchOpen = false)} />
 <CancelDialog open={cancelOpen} onclose={() => (cancelOpen = false)} />
 <RemoveDialog open={removeOpen} onclose={() => (removeOpen = false)} />

@@ -6,7 +6,7 @@ use odm_engine::retry::{classify_status, http_err};
 use odm_engine::site::is_site_page_url;
 use odm_engine::{
     AddRequest, EngineConfig, ExistsChoice, ManagerHandle, SiteRequest, StreamRequest,
-    TorrentAdded, TorrentRequest,
+    TorrentAdded, TorrentRequest, VideoOverride,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -140,6 +140,8 @@ pub struct AddArgs {
     /// "Start now" in the New download dialog: start it whatever "Start new downloads"
     /// says, and even while the queue schedule is closed.
     pub start_now: bool,
+    /// Site pages: this download's own quality and subtitles; None follows the settings.
+    pub video_override: Option<VideoOverride>,
 }
 
 /// Whether new downloads are added paused ("Start new downloads: Paused").
@@ -166,6 +168,7 @@ pub async fn add(m: &ManagerHandle, a: AddArgs) -> Result<String, String> {
             save_dir: given(a.save_dir).map(PathBuf::from),
             start_paused: a.start_paused,
             start_now: a.start_now,
+            video_override: a.video_override,
             ..Default::default()
         };
         return m.add_site(req).await.map_err(msg);
