@@ -22,6 +22,6 @@ describe("the Problems tab selects like the other cards", () => {
 
   it("marks selected rows and gets its selection from the list", () => {
     expect(problemCard).toContain("class:selected={downloads.selected.has(row.id)}");
-    expect(downloadList).toMatch(/<ProblemCard[^>]*onselect=/);
+    expect(downloadList).toContain("onaction={(a) => onaction(row, a)} onselect={(mode) => downloads.select(row.id, mode, order)} />{:else}");
   });
 });
