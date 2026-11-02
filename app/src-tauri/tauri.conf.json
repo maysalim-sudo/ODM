@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ODM",
   "mainBinaryName": "ODM",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "com.odm.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -31,7 +31,7 @@
     "targets": ["nsis"],
     "publisher": "Salim May",
     "copyright": "© 2026 Salim May. MIT License.",
-    "homepage": "https://github.com/salimmay/ODM",
+    "homepage": "https://github.com/maysalim-sudo/ODM",
     "shortDescription": "A personal download manager for Windows and Linux.",
     "category": "Utility",
     "longDescription": "ODM (Open Downloader Manager) downloads files over several connections at once, resumes after a pause or a crash, and keeps a queue with speed and concurrency limits. It takes over downloads from Chrome, Edge, Brave, Vivaldi, Opera, Firefox and Floorp, and finds the videos a page plays.",
@@ -60,7 +60,7 @@
   "plugins": {
     "updater": {
       "pubkey": "",
-      "endpoints": ["https://github.com/salimmay/ODM/releases/latest/download/latest.json"],
+      "endpoints": ["https://github.com/maysalim-sudo/ODM/releases/latest/download/latest.json"],
       "windows": { "installMode": "passive" }
     }
   }

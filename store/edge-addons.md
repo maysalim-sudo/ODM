@@ -11,9 +11,9 @@ Ready-to-paste fields for the Microsoft Edge Add-ons (Partner Center) submission
   ```
 - **Category:** Productivity
 - **Language:** English
-- **Support URL:** https://github.com/salimmay/ODM/issues
-- **Privacy policy URL:** https://github.com/salimmay/ODM/blob/master/store/PRIVACY.md
-- **Website / homepage:** https://github.com/salimmay/ODM
+- **Support URL:** https://github.com/maysalim-sudo/ODM/issues
+- **Privacy policy URL:** https://github.com/maysalim-sudo/ODM/blob/master/store/PRIVACY.md
+- **Website / homepage:** https://github.com/maysalim-sudo/ODM
 
 ## Detailed description
 
@@ -28,11 +28,11 @@ Features
 - Hold Alt while clicking a link to skip ODM and download in the browser as usual.
 - Right-click menu: "Download with ODM" on links and media.
 
-Requires the free ODM desktop app for Windows. Install it first: https://github.com/salimmay/ODM/releases/latest
+Requires the free ODM desktop app for Windows. Install it first: https://github.com/maysalim-sudo/ODM/releases/latest
 
 Privacy: ODM collects nothing and sends nothing to any server. Download addresses, page titles, cookies and Referer/Origin go only to the ODM program on your own computer, and only after you start a download or click a Download button.
 
-Open source (MIT): https://github.com/salimmay/ODM
+Open source (MIT): https://github.com/maysalim-sudo/ODM
 ```
 
 ## Single purpose
@@ -65,7 +65,7 @@ Permissions in `extension/manifests/chromium.json`: `downloads`, `cookies`, `nat
 
 ## Edge-specific notes
 
-- **Notes for certification (optional):** The extension needs the ODM desktop app (free, open source) to do anything. Install it from https://github.com/salimmay/ODM/releases/latest, then start a download in the browser. Source: https://github.com/salimmay/ODM (see `extension/AMO-NOTES.md` for build steps).
+- **Notes for certification (optional):** The extension needs the ODM desktop app (free, open source) to do anything. Install it from https://github.com/maysalim-sudo/ODM/releases/latest, then start a download in the browser. Source: https://github.com/maysalim-sudo/ODM (see `extension/AMO-NOTES.md` for build steps).
 - Partner Center asks whether the extension accesses personal information: ODM collects no data, as above.
 
 ## Images to upload

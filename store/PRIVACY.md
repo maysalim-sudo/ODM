@@ -42,4 +42,4 @@ If you click to install the optional video tools, ODM downloads yt-dlp, FFmpeg (
 
 ## Contact
 
-Questions or concerns: open an issue at https://github.com/salimmay/ODM/issues
+Questions or concerns: open an issue at https://github.com/maysalim-sudo/ODM/issues

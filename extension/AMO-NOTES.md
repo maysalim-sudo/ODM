@@ -1,6 +1,6 @@
 # Notes for addons.mozilla.org reviewers
 
-ODM is the browser half of ODM (Open Downloader Manager), a desktop download manager for Windows. It is open source under the MIT licence: https://github.com/salimmay/ODM
+ODM is the browser half of ODM (Open Downloader Manager), a desktop download manager for Windows. It is open source under the MIT licence: https://github.com/maysalim-sudo/ODM
 
 ## Build from source
 

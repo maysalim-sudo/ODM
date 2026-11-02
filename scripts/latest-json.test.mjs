@@ -25,8 +25,8 @@ All notable changes to ODM are documented here.
 
 First public release.
 
-[0.2.0]: https://github.com/salimmay/ODM/releases/tag/v0.2.0
-[0.1.0]: https://github.com/salimmay/ODM/releases/tag/v0.1.0
+[0.2.0]: https://github.com/maysalim-sudo/ODM/releases/tag/v0.2.0
+[0.1.0]: https://github.com/maysalim-sudo/ODM/releases/tag/v0.1.0
 `;
 
 describe("topSection", () => {
@@ -46,7 +46,7 @@ describe("topSection", () => {
 
 describe("installerUrl", () => {
   it("points at the versioned installer of the GitHub release", () => {
-    expect(installerUrl("0.2.0")).toBe("https://github.com/salimmay/ODM/releases/download/v0.2.0/ODM_0.2.0_x64-setup.exe");
+    expect(installerUrl("0.2.0")).toBe("https://github.com/maysalim-sudo/ODM/releases/download/v0.2.0/ODM_0.2.0_x64-setup.exe");
   });
 });
 
@@ -71,7 +71,7 @@ describe("buildLatestJson", () => {
       platforms: {
         "windows-x86_64": {
           signature: "dW50cnVzdGVkIGNvbW1lbnQ=",
-          url: "https://github.com/salimmay/ODM/releases/download/v0.2.0/ODM_0.2.0_x64-setup.exe",
+          url: "https://github.com/maysalim-sudo/ODM/releases/download/v0.2.0/ODM_0.2.0_x64-setup.exe",
         },
       },
     });

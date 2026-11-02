@@ -3,7 +3,7 @@
 
 import { join } from "node:path";
 
-const RELEASES = "https://github.com/salimmay/ODM/releases/download";
+const RELEASES = "https://github.com/maysalim-sudo/ODM/releases/download";
 
 /**
  * Updater files an earlier build may have left: a plain build must not leave an old
