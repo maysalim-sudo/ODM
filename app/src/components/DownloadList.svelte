@@ -186,7 +186,7 @@
   {:else if flat}
     <ul>
       {#each shown as row (row.id)}
-        {#if status === "failed"}<ProblemCard {row} onaction={(a) => onaction(row, a)} />{:else}{@render card(row)}{/if}
+        {#if status === "failed"}<ProblemCard {row} onaction={(a) => onaction(row, a)} onselect={(mode) => downloads.select(row.id, mode, order)} />{:else}{@render card(row)}{/if}
       {/each}
     </ul>
   {:else}

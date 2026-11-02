@@ -1,9 +1,14 @@
 <script lang="ts">
+  import { downloads } from "../lib/downloads.svelte";
   import { FIX_LABELS, stoppedAt, type RowAction } from "../lib/home";
   import { problemInfo, type ProblemFix, type Row } from "../lib/model";
   import Icon from "./Icon.svelte";
 
-  let { row, onaction }: { row: Row; onaction: (a: RowAction) => void } = $props();
+  let {
+    row,
+    onaction,
+    onselect,
+  }: { row: Row; onaction: (a: RowAction) => void; onselect: (mode: "toggle" | "range") => void } = $props();
 
   const ICONS: Record<ProblemFix, string> = { "new-link": "refresh", tools: "video", retry: "alert" };
 
@@ -15,15 +20,33 @@
     onaction(a);
   }
 
+  function click(e: MouseEvent) {
+    if (e.shiftKey) onselect("range");
+    else if (e.ctrlKey || e.metaKey) onselect("toggle");
+    else onaction("details");
+  }
+
   function key(e: KeyboardEvent) {
-    if (e.target === e.currentTarget && e.key === "Enter") onaction("details");
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "Enter") onaction("details");
+    if (e.key === " ") {
+      e.preventDefault();
+      onselect("toggle");
+    }
   }
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<li class="card" tabindex="0" aria-label={`${info.title}. ${row.filename}`} onclick={() => onaction("details")} onkeydown={key}>
+<li
+  class="card"
+  class:selected={downloads.selected.has(row.id)}
+  tabindex="0"
+  aria-label={`${info.title}. ${row.filename}`}
+  onclick={click}
+  onkeydown={key}
+>
   <span class="tile" aria-hidden="true"><Icon name={ICONS[info.action]} size={20} /></span>
   <div class="text">
     <div class="title">{info.title}</div>
@@ -44,6 +67,15 @@
     background: var(--surface);
     cursor: pointer;
     list-style: none;
+  }
+  .card.selected {
+    background: var(--selected);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  @media (forced-colors: active) {
+    .card.selected {
+      outline: 2px solid Highlight;
+    }
   }
   .tile {
     display: grid;

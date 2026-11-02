@@ -164,6 +164,7 @@
     }
     if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
+      detailId = null;
       addPanel?.focus();
       return;
     }
@@ -193,7 +194,7 @@
       settingsOpen = true;
     }}
   >
-    <AddPanel bind:this={addPanel} blocked={dialogOpen} />
+    <AddPanel bind:this={addPanel} blocked={dialogOpen || detailId !== null} />
   </Header>
   {#if downloads.error}
     <div class="error" role="alert">
