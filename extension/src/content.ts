@@ -1,3 +1,4 @@
+import { BAR_DEFAULT, BAR_KEY, clampBar, nudgeBar, readBar } from "./lib/barPosition";
 import { isSitePage, pageAddress, visibleStreams } from "./lib/sites";
 import { THEME } from "./lib/theme";
 import { isMagnet } from "./lib/torrent";
@@ -69,6 +70,8 @@ const SHADOW_CSS = `
   button { font: inherit; color: inherit; background: none; border: 0; padding: 7px 10px; cursor: pointer; }
   button:hover { background: ${THEME.surface2}; }
   .main { font-weight: 700; }
+  .move { padding: 7px 8px; border-right: 1px solid ${THEME.border}; color: ${THEME.muted}; cursor: grab; touch-action: none; }
+  .move:active { cursor: grabbing; }
   .close { border-left: 1px solid ${THEME.border}; color: ${THEME.muted}; }
   .list { width: 300px; max-height: 260px; overflow: auto; padding: 8px; border: 1px solid ${THEME.border}; border-radius: 8px;
     background: ${THEME.bg}; display: flex; flex-direction: column; gap: 8px; }
@@ -87,7 +90,8 @@ if (window.top === window) {
   let dismissed = false;
   let open = false;
   const messages = new Map<string, string>();
-  let ui: { host: HTMLElement; main: HTMLButtonElement; list: HTMLElement } | null = null;
+  let ui: { host: HTMLElement; box: HTMLElement; main: HTMLButtonElement; list: HTMLElement } | null = null;
+  let spot = BAR_DEFAULT;
 
   const add = (parent: Node, tag: string, cls?: string, text?: string): HTMLElement => {
     const el = document.createElement(tag);
@@ -106,6 +110,51 @@ if (window.top === window) {
     }
   };
 
+  const windowSize = () => ({ width: window.innerWidth, height: window.innerHeight });
+
+  /** Shows the bar at its place, kept in view; the saved place stays as the user chose it. */
+  const placeBar = () => {
+    if (!ui) return;
+    const shown = clampBar(spot, ui.box.getBoundingClientRect(), windowSize());
+    ui.box.style.right = `${shown.right}px`;
+    ui.box.style.bottom = `${shown.bottom}px`;
+  };
+
+  const saveSpot = () => {
+    try {
+      void Promise.resolve(chrome.storage.local.set({ [BAR_KEY]: spot })).catch(() => {});
+    } catch {
+      // Extension context invalidated after a reload.
+    }
+  };
+
+  const makeMovable = (handle: HTMLButtonElement, box: HTMLElement) => {
+    let start: { x: number; y: number; right: number; bottom: number } | null = null;
+    handle.addEventListener("pointerdown", (e) => {
+      handle.setPointerCapture(e.pointerId);
+      start = { x: e.clientX, y: e.clientY, ...spot };
+    });
+    handle.addEventListener("pointermove", (e) => {
+      if (!start) return;
+      spot = clampBar({ right: start.right - (e.clientX - start.x), bottom: start.bottom - (e.clientY - start.y) }, box.getBoundingClientRect(), windowSize());
+      placeBar();
+    });
+    const drop = () => {
+      if (start) saveSpot();
+      start = null;
+    };
+    handle.addEventListener("pointerup", drop);
+    handle.addEventListener("pointercancel", drop);
+    handle.addEventListener("keydown", (e) => {
+      const next = nudgeBar(spot, e.key);
+      if (!next) return;
+      e.preventDefault();
+      spot = clampBar(next, box.getBoundingClientRect(), windowSize());
+      placeBar();
+      saveSpot();
+    });
+  };
+
   const build = () => {
     const host = document.createElement("div");
     const root = host.attachShadow({ mode: "closed" });
@@ -114,6 +163,10 @@ if (window.top === window) {
     const list = add(box, "div", "list");
     list.hidden = true;
     const bar = add(box, "div", "bar");
+    const move = add(bar, "button", "move", "⋮⋮") as HTMLButtonElement;
+    move.title = "Drag to move";
+    move.setAttribute("aria-label", "Move the ODM bar. Use the arrow keys.");
+    makeMovable(move, box);
     const main = add(bar, "button", "main") as HTMLButtonElement;
     const close = add(bar, "button", "close", "×") as HTMLButtonElement;
     close.title = "Hide for this page";
@@ -127,7 +180,7 @@ if (window.top === window) {
       render();
     });
     document.documentElement.appendChild(host);
-    ui = { host, main, list };
+    ui = { host, box, main, list };
   };
 
   const render = () => {
@@ -159,7 +212,20 @@ if (window.top === window) {
       const text = messages.get(s.url);
       if (text) add(item, "div", "msg", text);
     }
+    placeBar();
   };
+
+  window.addEventListener("resize", placeBar);
+  try {
+    void Promise.resolve(chrome.storage.local.get(BAR_KEY))
+      .then((stored) => {
+        spot = readBar((stored as Record<string, unknown>)[BAR_KEY]);
+        placeBar();
+      })
+      .catch(() => {});
+  } catch {
+    // Extension context invalidated after a reload.
+  }
 
   detectionHooks.push((on) => {
     if (!on) streams = [];
@@ -189,6 +255,8 @@ const VIDEO_CSS = `
     padding: 7px 10px; cursor: pointer; font-weight: 700; }
   button:hover { background: ${THEME.surface2}; }
   button:disabled { cursor: default; opacity: 0.7; }
+  .row { display: flex; gap: 4px; }
+  .x { color: ${THEME.muted}; font-weight: 400; }
   .msg { max-width: 260px; padding: 6px 8px; border: 1px solid ${THEME.border}; border-radius: 8px; background: ${THEME.bg};
     color: ${THEME.text}; font-size: 12px; overflow-wrap: anywhere; }
   [hidden] { display: none !important; }
@@ -204,6 +272,7 @@ const MESSAGE_MS = 4000;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   let messageTimer: ReturnType<typeof setTimeout> | undefined;
   let sending = false;
+  let hiddenHere = false;
   let ui: { host: HTMLElement; wrap: HTMLElement; button: HTMLButtonElement; msg: HTMLElement } | null = null;
 
   /** The links of the post (feed item) that holds the video, for finding the video's own page. */
@@ -250,7 +319,20 @@ const MESSAGE_MS = 4000;
     const msg = document.createElement("div");
     msg.className = "msg";
     msg.hidden = true;
-    wrap.append(button, msg);
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "x";
+    close.textContent = "×";
+    close.title = "Hide for this page";
+    close.setAttribute("aria-label", "Hide for this page");
+    close.addEventListener("click", () => {
+      hiddenHere = true;
+      hide();
+    });
+    const row = document.createElement("div");
+    row.className = "row";
+    row.append(button, close);
+    wrap.append(row, msg);
     root.appendChild(wrap);
     host.addEventListener("mouseenter", () => clearTimeout(hideTimer));
     host.addEventListener("mouseleave", scheduleHide);
@@ -285,7 +367,7 @@ const MESSAGE_MS = 4000;
   };
 
   const show = (video: HTMLVideoElement) => {
-    if (!detecting) return;
+    if (!detecting || hiddenHere) return;
     clearTimeout(hideTimer);
     if (document.fullscreenElement || !bigEnough(video)) return;
     if (!ui) build();
