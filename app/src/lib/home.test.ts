@@ -175,7 +175,7 @@ describe("rowSummary", () => {
   it("shows size and finish time when finished", () => {
     const at = new Date(2026, 9, 5, 14, 30).getTime();
     const s = rowSummary(row("a", { state: "completed", size: GB * 2, finished_at: at }), false, null);
-    expect(s).toMatch(/^2\.0 GB · .*14:30/);
+    expect(s).toBe(`2.0 GB · ${formatDate(at)}`);
   });
 
   it("says cancelled", () => expect(rowSummary(row("a", { state: "cancelled" }), false, null)).toBe("Cancelled"));
