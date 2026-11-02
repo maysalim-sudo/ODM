@@ -33,7 +33,7 @@
 <div class="wrap">
   {#if downloads.visible.length === 0}
     <p class="empty">
-      {downloads.rows.size === 0 ? "No downloads yet. Choose Add download to start one." : "Nothing matches this filter."}
+      {downloads.rows.size === 0 ? "No downloads yet. Paste a link to start one." : "Nothing matches this filter."}
     </p>
   {:else}
     <table role="grid">

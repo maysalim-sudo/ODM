@@ -13,16 +13,20 @@
     type GroupKey,
     type RowAction,
   } from "../lib/home";
-  import type { Row } from "../lib/model";
+  import { integration } from "../lib/integration.svelte";
+  import { browserConnected, type Row } from "../lib/model";
   import DownloadCard from "./DownloadCard.svelte";
+  import Icon from "./Icon.svelte";
   import ProblemCard from "./ProblemCard.svelte";
 
   let {
     onaction,
     onremove,
+    onbrowser,
   }: {
     onaction: (row: Row, a: RowAction) => void;
     onremove: () => void;
+    onbrowser: () => void;
   } = $props();
 
   const NAMES: Record<GroupKey, string> = { needs: "Needs you", active: "Downloading", next: "Up next", done: "Finished" };
@@ -120,6 +124,11 @@
     window.addEventListener("keydown", key, true);
   }
 
+  async function pickTorrent() {
+    const path = await api.pickTorrentFile().catch(() => null);
+    if (path) await downloads.run(() => api.addTorrent({ kind: "file", path }));
+  }
+
   function clearFinished(rows: Row[]) {
     downloads.selected = new Set(rows.map((r) => r.id));
     onremove();
@@ -148,10 +157,32 @@
 {/snippet}
 
 <div class="list" bind:this={listEl}>
-  {#if shown.length === 0}
-    <p class="empty">
-      {downloads.rows.size === 0 ? "No downloads yet. Paste a link to start one." : "Nothing here right now."}
-    </p>
+  {#if downloads.loaded && downloads.rows.size === 0}
+    <div class="first">
+      <h1>Paste a link to start</h1>
+      <p>ODM reads the link, shows you what it found and saves it to your download folder.</p>
+      <div class="ways">
+        <section>
+          <span class="tile" aria-hidden="true"><Icon name="download" /></span>
+          <h3>Any file</h3>
+          <p>Paste a link above, or press Ctrl V anywhere in ODM.</p>
+        </section>
+        <section>
+          <span class="tile" aria-hidden="true"><Icon name="globe" /></span>
+          <h3>From your browser</h3>
+          <p>Downloads and videos come here on their own.</p>
+          {#if !browserConnected(integration.status)}<button class="next" onclick={onbrowser}>Connect browser</button>{/if}
+        </section>
+        <section>
+          <span class="tile" aria-hidden="true"><Icon name="magnet" /></span>
+          <h3>Torrents</h3>
+          <p>Paste a magnet link, or drop a .torrent file on this window.</p>
+          <button class="next" onclick={pickTorrent}>Choose a .torrent file</button>
+        </section>
+      </div>
+    </div>
+  {:else if shown.length === 0}
+    <p class="empty">Nothing here right now.</p>
   {:else if flat}
     <ul>
       {#each shown as row (row.id)}
@@ -197,6 +228,57 @@
     margin: 80px auto;
     color: var(--muted);
     text-align: center;
+  }
+  .first {
+    max-width: 924px;
+    margin: 64px auto 0;
+    text-align: center;
+  }
+  h1 {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 700;
+  }
+  .first > p {
+    margin: 8px 0 24px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .ways {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    text-align: left;
+  }
+  .ways section {
+    padding: 18px;
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+  }
+  .tile {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    color: var(--accent);
+  }
+  h3 {
+    margin: 10px 0 4px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .ways p {
+    margin: 0;
+    color: var(--muted);
+  }
+  .next {
+    margin-top: 8px;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+    color: var(--accent);
   }
   ul {
     display: flex;

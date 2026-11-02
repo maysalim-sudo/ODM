@@ -185,7 +185,7 @@
 
 <svelte:window {onkeydown} />
 
-<div class="app" inert={settingsOpen}>
+<div class="app" inert={settingsOpen || welcomeOpen}>
   <Header
     onbatch={() => (batchOpen = true)}
     onsettings={() => {
@@ -205,7 +205,7 @@
   <div class="body">
     <div class="main">
       {#if listView === "cards"}
-        <DownloadList onaction={rowAction} onremove={() => (removeOpen = true)} />
+        <DownloadList onaction={rowAction} onremove={() => (removeOpen = true)} onbrowser={() => (browserOpen = true)} />
       {:else}
         <DownloadTable onopen={(id) => (detailId = id)} />
       {/if}
