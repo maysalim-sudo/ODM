@@ -67,6 +67,7 @@ pub struct Settings {
     pub user_agent: String,
     pub update_check: bool,
     pub update_install: UpdateInstall,
+    pub list_view: ListView,
     /// The torrent listen port; 0 until the first run picks one (`ensure_torrent_port`).
     pub torrent_port: u16,
     pub torrent_upnp: bool,
@@ -155,6 +156,15 @@ pub enum UpdateInstall {
     #[default]
     Ask,
     Auto,
+}
+
+/// How the download list is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ListView {
+    #[default]
+    Cards,
+    Table,
 }
 
 /// A weekly time window. `days` runs Monday (index 0) to Sunday (6). `from` and `to`
@@ -375,6 +385,7 @@ impl Default for Settings {
             user_agent: String::new(),
             update_check: true,
             update_install: UpdateInstall::default(),
+            list_view: ListView::default(),
             torrent_port: 0,
             torrent_upnp: true,
             torrent_upload_kbps: Some(100),

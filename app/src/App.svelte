@@ -15,14 +15,15 @@
   import ExistsDialog from "./components/ExistsDialog.svelte";
   import AfterQueueDialog from "./components/AfterQueueDialog.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
-  import Sidebar from "./components/Sidebar.svelte";
-  import Toolbar from "./components/Toolbar.svelte";
-  import UpdateBanner from "./components/UpdateBanner.svelte";
+  import Header from "./components/Header.svelte";
+  import StatusBar from "./components/StatusBar.svelte";
+  import Tabs from "./components/Tabs.svelte";
   import * as api from "./lib/api";
   import { downloads } from "./lib/downloads.svelte";
   import { integration } from "./lib/integration.svelte";
   import { queueSchedule } from "./lib/queueSchedule.svelte";
   import { SECTIONS, type SectionId } from "./lib/settingsPage";
+  import type { ListView } from "./lib/types";
   import { updates } from "./lib/updates.svelte";
 
   let detailId = $state<string | null>(null);
@@ -36,6 +37,7 @@
   let browserOpen = $state(false);
   let welcomeOpen = $state(false);
   let settingsSection = $state<SectionId | undefined>(undefined);
+  let listView = $state<ListView>("cards");
   const detailName = $derived(detailId ? (downloads.rows.get(detailId)?.filename ?? "") : "");
 
   onMount(() => {
@@ -44,7 +46,10 @@
     // First start: the guided setup. A settings read that fails just skips it.
     api
       .getSettings()
-      .then((s) => (welcomeOpen = !s.onboarding_done))
+      .then((s) => {
+        welcomeOpen = !s.onboarding_done;
+        listView = s.list_view;
+      })
       .catch(() => {});
     // The tray can ask for the Settings page at a section.
     let off: (() => void) | undefined;
@@ -73,6 +78,11 @@
       stop();
     };
   });
+
+  async function setListView(v: ListView) {
+    listView = v;
+    await downloads.run(async () => api.saveSettings({ ...(await api.getSettings()), list_view: v }));
+  }
 
   function onkeydown(e: KeyboardEvent) {
     if (
@@ -115,15 +125,13 @@
 <svelte:window {onkeydown} />
 
 <div class="app" inert={settingsOpen}>
-  <Toolbar
+  <Header
     onadd={() => (addOpen = true)}
     onbatch={() => (batchOpen = true)}
     onsettings={() => {
       settingsSection = undefined;
       settingsOpen = true;
     }}
-    oncancel={() => (cancelOpen = true)}
-    onremove={() => (removeOpen = true)}
   />
   {#if downloads.error}
     <div class="error" role="alert">
@@ -131,15 +139,9 @@
       <button onclick={() => (downloads.error = null)}>Dismiss</button>
     </div>
   {/if}
+  <Tabs view={listView} onview={(v) => void setListView(v)} />
   <div class="body">
-    <Sidebar onbrowser={() => (browserOpen = true)} />
     <div class="main">
-      <UpdateBanner
-        onnotes={() => {
-          settingsSection = "updates";
-          settingsOpen = true;
-        }}
-      />
       <DownloadTable onopen={(id) => (detailId = id)} />
     </div>
     <DetailPanel
@@ -149,6 +151,13 @@
       onrisky={() => (programOpen = true)}
     />
   </div>
+  <StatusBar
+    onbrowser={() => (browserOpen = true)}
+    onnotes={() => {
+      settingsSection = "updates";
+      settingsOpen = true;
+    }}
+  />
 </div>
 
 <AddDialog open={addOpen} onclose={() => (addOpen = false)} />

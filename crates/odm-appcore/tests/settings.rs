@@ -1,3 +1,4 @@
+use odm_appcore::settings::ListView;
 use odm_appcore::settings::{
     check_proxy_url, check_user_agent, parse_hhmm, AfterQueue, OnComplete, OnExists, ProxyMode,
     Schedule, StartMode, UpdateInstall, VideoContainer, VideoQuality, PROXY_BAD_PORT, PROXY_FORMAT,
@@ -339,6 +340,24 @@ fn old_settings_file_keeps_folder_and_gets_new_defaults() {
             ..Settings::default()
         }
     );
+}
+
+#[test]
+fn the_list_view_defaults_to_cards_and_round_trips() {
+    assert_eq!(Settings::default().list_view, ListView::Cards);
+    let (old, warnings) = Settings::from_json(r#"{"max_concurrent": 2}"#);
+    assert_eq!(
+        old.list_view,
+        ListView::Cards,
+        "files from before the setting load"
+    );
+    assert!(warnings.is_empty());
+    let table = Settings {
+        list_view: ListView::Table,
+        ..Settings::default()
+    };
+    let (back, _) = Settings::from_json(&serde_json::to_string(&table).unwrap());
+    assert_eq!(back.list_view, ListView::Table);
 }
 
 #[test]

@@ -6,6 +6,7 @@
   import { formatLimit, isActive, speedPresets, totalSpeed } from "../lib/model";
   import { checkSpeed, fromKbps, springEase, toKbps, type SpeedUnit } from "../lib/settingsPage";
   import { speedLimit } from "../lib/speedLimit.svelte";
+  import Icon from "./Icon.svelte";
   import Segmented from "./Segmented.svelte";
 
   const OPEN_MS = 320;
@@ -119,7 +120,7 @@
     if (!pop?.contains(t) && !chip?.contains(t)) close(false);
   }
 
-  /** Grows from the chip's top-right corner with a critically damped spring. Reduced motion: a fade. */
+  /** Grows from the chip's bottom-right corner with a critically damped spring. Reduced motion: a fade. */
   function grow(_node: Element) {
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
     return {
@@ -142,8 +143,12 @@
     {title}
     onclick={toggle}
   >
+    <Icon name="download" size={14} />
     <span class="speed">{chipText}</span>
+    <span aria-hidden="true">·</span>
+    <span class="limit">{formatLimit(speedLimit.kbps)}</span>
     {#if limited}<span class="dot" aria-hidden="true"></span>{/if}
+    <Icon name="chevron" size={14} />
   </button>
   {#if open}
     <div class="pop" bind:this={pop} transition:grow>
@@ -222,8 +227,17 @@
     align-items: center;
     gap: 6px;
     font-variant-numeric: tabular-nums;
-    min-width: 92px;
     justify-content: center;
+    padding: 4px 6px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--muted);
+    font-weight: 400;
+    white-space: nowrap;
+  }
+  .speed {
+    color: var(--text);
+    font-weight: 600;
   }
   .dot {
     width: 7px;
@@ -233,7 +247,7 @@
   }
   .pop {
     position: absolute;
-    top: calc(100% + 6px);
+    bottom: calc(100% + 6px);
     right: 0;
     z-index: 20;
     min-width: 200px;
@@ -242,7 +256,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-dialog);
-    transform-origin: top right;
+    transform-origin: bottom right;
   }
   .item {
     display: flex;

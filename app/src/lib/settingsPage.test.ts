@@ -71,6 +71,7 @@ const DEFAULTS: Settings = {
   user_agent: "",
   update_check: true,
   update_install: "ask",
+  list_view: "cards",
   torrent_port: 51000,
   torrent_upnp: true,
   torrent_upload_kbps: 100,
@@ -391,8 +392,6 @@ describe("page source", () => {
     expect(add).toMatch(/waits = \$derived\(addsPaused \|\| queueSchedule\.wait !== null\)/);
     const table = (await import("../components/DownloadTable.svelte?raw")).default;
     expect(table).toContain("rowStatus(row, downloads.confirms.includes(row.id), queueSchedule.wait)");
-    const toolbar = (await import("../components/Toolbar.svelte?raw")).default;
-    expect(toolbar).toContain("canResume(r, queueSchedule.wait !== null)");
   });
   it("the file-exists prompt and the after-queue countdown use the shared Modal, with the plain choices", async () => {
     const exists = (await import("../components/ExistsDialog.svelte?raw")).default;

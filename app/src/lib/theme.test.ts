@@ -39,7 +39,7 @@ const componentStyles: [string, string][] = [
   ["App.svelte", styleOf(appSvelte)],
 ];
 const allAppSource = [appCss, appSvelte, ...Object.values(components)].join("\n");
-const sidebarSrc = styleOf(components["../components/Sidebar.svelte"]);
+const tabsSrc = styleOf(components["../components/Tabs.svelte"]);
 const chunkMapSrc = styleOf(components["../components/ChunkMap.svelte"]);
 const modalSrc = styleOf(components["../components/Modal.svelte"]);
 
@@ -85,8 +85,9 @@ describe("components", () => {
     for (const old of OLD) expect(allAppSource.toLowerCase()).not.toContain(old);
   });
 
-  test("active sidebar item is an orange pill", () => {
-    expect(sidebarSrc).toMatch(/button\.active\s*\{[^}]*background:\s*var\(--accent\)/);
+  test("the active tab is grey: orange marks the next step only", () => {
+    expect(tabsSrc).toMatch(/\[aria-selected="true"\]\s*\{[^}]*background:\s*var\(--surface-2\)/);
+    expect(tabsSrc).not.toContain("--accent");
   });
 
   test("failed chunk keeps its outline", () => {

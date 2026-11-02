@@ -10,6 +10,8 @@ export type DownloadState =
 
 export type ChunkState = "pending" | "active" | "retrying" | "done" | "failed";
 
+export type ListView = "cards" | "table";
+
 export interface Download {
   id: string;
   url: string;
@@ -214,6 +216,7 @@ export interface Settings {
   user_agent: string;
   update_check: boolean;
   update_install: UpdateInstall;
+  list_view: ListView;
   /** 0 until the first run picks one. */
   torrent_port: number;
   torrent_upnp: boolean;
