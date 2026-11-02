@@ -1,4 +1,4 @@
-ODM 0.3.0 is a new look built to be easier to follow: every download shows its own next step. You can also choose what downloads next, and save any video ODM finds as MP3 or video.
+ODM 0.4.0 is a new look built to be easier to follow: every download shows its own next step. You can also choose what downloads next, and save any video ODM finds as MP3 or video.
 
 ## The new look
 
@@ -38,8 +38,8 @@ Full list: [CHANGELOG.md](https://github.com/maysalim-sudo/ODM/blob/master/CHANG
 
 | File | What it is |
 |---|---|
-| `ODM-setup.exe` | The Windows installer (the same file as `ODM_0.3.0_x64-setup.exe`) |
-| `ODM_0.3.0_x64-setup.exe` and its `.sig` | The installer under its versioned name, and its update signature |
+| `ODM-setup.exe` | The Windows installer (the same file as `ODM_0.4.0_x64-setup.exe`) |
+| `ODM_0.4.0_x64-setup.exe` and its `.sig` | The installer under its versioned name, and its update signature |
 | `ODM-amd64.deb`, `ODM-x86_64.rpm`, `ODM-x86_64.AppImage` | The Linux packages |
 | `latest.json` | Used by ODM's updater; you don't need it |
 | `odm-extension-chromium.zip` | The extension for Chromium browsers (load unpacked) |

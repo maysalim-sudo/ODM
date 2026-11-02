@@ -6,7 +6,7 @@ The top versioned section becomes the "What's new" text of an update, so write i
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-11-02
+## [0.4.0] - 2026-11-02
 
 A new look built to be easier to follow: each download now shows its own next step. Update the ODM browser extension along with this version: the new video buttons and controls are part of the extension.
 
@@ -75,6 +75,6 @@ First public release.
 - Automatic updates: ODM checks for a new version, shows what's new and installs it. Updates are signed, and ODM refuses one that does not verify.
 - More file types that run code (such as .url, .chm and .appinstaller) are flagged before you open them.
 
-[0.3.0]: https://github.com/maysalim-sudo/ODM/releases/tag/v0.3.0
+[0.4.0]: https://github.com/maysalim-sudo/ODM/releases/tag/v0.4.0
 [0.2.0]: https://github.com/maysalim-sudo/ODM/releases/tag/v0.2.0
 [0.1.0]: https://github.com/maysalim-sudo/ODM/releases/tag/v0.1.0
