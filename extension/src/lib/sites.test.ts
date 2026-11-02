@@ -108,3 +108,12 @@ describe("visibleStreams", () => {
     expect(visibleStreams(undefined, list)).toEqual(list);
   });
 });
+
+describe("toPagePayload format", () => {
+  it("carries a chosen format", () => {
+    expect(toPagePayload("https://youtu.be/a", "T", [], "UA", "mp3").format).toBe("mp3");
+  });
+  it("leaves the field out when none was chosen", () => {
+    expect("format" in toPagePayload("https://youtu.be/a", "T", [], "UA")).toBe(false);
+  });
+});

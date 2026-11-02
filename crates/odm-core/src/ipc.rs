@@ -100,6 +100,14 @@ pub enum Source {
     Menu,
 }
 
+/// What a video found in the browser is saved as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VideoFormat {
+    Video,
+    Mp3,
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct AddDownload {
     pub url: String,
@@ -119,6 +127,8 @@ pub struct AddDownload {
     pub source: Source,
     #[serde(default)]
     pub expires_at_ms: Option<u64>,
+    #[serde(default)]
+    pub format: Option<VideoFormat>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -131,6 +141,8 @@ pub struct AddStream {
     pub headers: BTreeMap<String, String>,
     #[serde(default)]
     pub cookies: Option<String>,
+    #[serde(default)]
+    pub format: Option<VideoFormat>,
 }
 
 /// A site page (YouTube, Facebook…) whose video yt-dlp downloads.
@@ -143,6 +155,8 @@ pub struct AddPage {
     pub headers: BTreeMap<String, String>,
     #[serde(default)]
     pub cookies: Option<String>,
+    #[serde(default)]
+    pub format: Option<VideoFormat>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -265,6 +279,26 @@ pub fn skip_bytes<R: Read>(r: &mut R, n: usize) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_payload_without_a_format_still_reads() {
+        let p: AddPage = serde_json::from_str(r#"{"page_url":"https://e.com/v"}"#).unwrap();
+        assert_eq!(p.format, None);
+    }
+
+    #[test]
+    fn formats_read_from_their_names() {
+        let p: AddPage =
+            serde_json::from_str(r#"{"page_url":"https://e.com/v","format":"mp3"}"#).unwrap();
+        assert_eq!(p.format, Some(VideoFormat::Mp3));
+        let s: AddStream =
+            serde_json::from_str(r#"{"page_url":"p","playlist_url":"u","format":"video"}"#)
+                .unwrap();
+        assert_eq!(s.format, Some(VideoFormat::Video));
+        let d: AddDownload =
+            serde_json::from_str(r#"{"url":"https://e.com/f","format":"mp3"}"#).unwrap();
+        assert_eq!(d.format, Some(VideoFormat::Mp3));
+    }
 
     #[test]
     fn frame_round_trip() {

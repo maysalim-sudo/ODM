@@ -1,5 +1,5 @@
 import { cookieHeader, type Cookie } from "./capture";
-import type { AddPagePayload } from "./protocol";
+import type { AddPagePayload, VideoFormat } from "./protocol";
 
 /** Sites whose pages ODM hands to yt-dlp. Keep in step with `SITE_HOSTS` in the app's engine. */
 export const SITE_HOSTS: string[] = [
@@ -71,12 +71,19 @@ export function pageAddress(pageUrl: string, candidateHrefs: string[]): string {
   return pageUrl;
 }
 
-export function toPagePayload(pageUrl: string, title: string | undefined, cookies: Cookie[], userAgent: string): AddPagePayload {
+export function toPagePayload(
+  pageUrl: string,
+  title: string | undefined,
+  cookies: Cookie[],
+  userAgent: string,
+  format?: VideoFormat,
+): AddPagePayload {
   return {
     page_url: pageUrl,
     page_title: title?.trim() ? title : undefined,
     headers: { "User-Agent": userAgent, Referer: pageUrl },
     cookies: cookieHeader(cookies),
+    ...(format ? { format } : {}),
   };
 }
 

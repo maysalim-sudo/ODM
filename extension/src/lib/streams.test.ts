@@ -235,3 +235,15 @@ describe("stream pieces are not videos", () => {
     expect(classify("https://cdn.x/full/movie.mp4", "video/mp4", 5e6)).toBe("file");
   });
 });
+
+describe("format in stream payloads", () => {
+  const stream = { url: "https://e.com/a.mp4", kind: "file" as const, label: "a", supported: true };
+  it("carries a chosen format", () => {
+    expect(toVideoFilePayload(stream, "https://e.com", [], "UA", undefined, "mp3").format).toBe("mp3");
+    expect(toStreamPayload(stream, "https://e.com", "T", [], "UA", undefined, "mp3").format).toBe("mp3");
+  });
+  it("leaves the field out when none was chosen", () => {
+    expect("format" in toVideoFilePayload(stream, "https://e.com", [], "UA")).toBe(false);
+    expect("format" in toStreamPayload(stream, "https://e.com", "T", [], "UA")).toBe(false);
+  });
+});

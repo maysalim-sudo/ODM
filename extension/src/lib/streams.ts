@@ -1,6 +1,6 @@
 import { basename, cookieHeader, type Cookie } from "./capture";
 import { formatBytes } from "./format";
-import type { AddDownloadPayload, AddStreamPayload } from "./protocol";
+import type { AddDownloadPayload, AddStreamPayload, VideoFormat } from "./protocol";
 
 export type StreamKind = "hls" | "dash" | "file";
 export type Stream = { url: string; kind: StreamKind; label: string; supported: boolean; size?: number };
@@ -149,6 +149,7 @@ export function toStreamPayload(
   cookies: Cookie[],
   userAgent: string,
   sent?: SentHeaders,
+  format?: VideoFormat,
 ): AddStreamPayload {
   return {
     page_url: pageUrl,
@@ -156,6 +157,7 @@ export function toStreamPayload(
     playlist_url: s.url,
     headers: withOrigin({ "User-Agent": userAgent, Referer: sent?.referer ?? pageUrl }, sent),
     cookies: cookieHeader(cookies),
+    ...(format ? { format } : {}),
   };
 }
 
@@ -166,6 +168,7 @@ export function toVideoFilePayload(
   cookies: Cookie[],
   userAgent: string,
   sent?: SentHeaders,
+  format?: VideoFormat,
 ): AddDownloadPayload {
   let filename: string | undefined;
   try {
@@ -180,5 +183,6 @@ export function toVideoFilePayload(
     headers: withOrigin({ "User-Agent": userAgent }, sent),
     cookies: cookieHeader(cookies),
     source: "menu",
+    ...(format ? { format } : {}),
   };
 }

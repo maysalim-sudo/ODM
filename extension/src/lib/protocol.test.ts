@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifySendError, errorText, makeRequest, TIMEOUT_SENTINEL } from "./protocol";
+import { classifySendError, errorText, makeRequest, readFormat, TIMEOUT_SENTINEL } from "./protocol";
 
 describe("protocol", () => {
   it("makes a request with a uuid id", () => {
@@ -17,5 +17,15 @@ describe("protocol", () => {
     expect(classifySendError(new Error("Specified native messaging host not found."))).toBe("missing_host");
     expect(classifySendError(new Error("Error when communicating with the native messaging host."))).toBe("other");
     expect(classifySendError(TIMEOUT_SENTINEL)).toBe("timeout");
+  });
+});
+
+describe("readFormat", () => {
+  it("keeps the two formats", () => {
+    expect(readFormat("mp3")).toBe("mp3");
+    expect(readFormat("video")).toBe("video");
+  });
+  it("drops anything else", () => {
+    for (const v of [undefined, null, "wav", 3]) expect(readFormat(v)).toBeUndefined();
   });
 });

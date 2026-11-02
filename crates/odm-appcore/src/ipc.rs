@@ -4,14 +4,16 @@ use crate::confirm::Pending;
 use crate::integration::Contact;
 use crate::messages::user_message;
 use crate::offers::{find_reusable, OfferDto, Offers};
+use crate::settings::VideoQuality;
 use crate::summary::SpeedBoard;
 use crate::Settings;
 use odm_core::ipc::{
     cmd, code, AddDownload, AddPage, AddStream, AddTorrent, Added, PingReply, Request, Response,
-    Source, Summary, TorrentLinkKind,
+    Source, Summary, TorrentLinkKind, VideoFormat,
 };
 use odm_core::{filename, redact_url, DownloadState};
-use odm_engine::{AddRequest, ManagerHandle, SiteRequest, StreamRequest};
+use odm_engine::config::{Container, Quality};
+use odm_engine::{AddRequest, ManagerHandle, SiteRequest, StreamRequest, VideoOverride};
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -121,6 +123,40 @@ fn paused_wanted(ctx: &IpcContext) -> bool {
     crate::api::starts_paused(&ctx.settings.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
+/// A click's format as engine options. `site`: a page yt-dlp saves, where video means MP4 even
+/// when Settings pick another container or audio only. A plain file or stream stays as it is.
+fn override_for(
+    format: Option<VideoFormat>,
+    site: bool,
+    quality: VideoQuality,
+) -> Option<VideoOverride> {
+    match format? {
+        VideoFormat::Mp3 => Some(VideoOverride {
+            quality: Some(Quality::Audio),
+            ..VideoOverride::default()
+        }),
+        VideoFormat::Video if site => Some(VideoOverride {
+            quality: (quality == VideoQuality::Audio).then_some(Quality::Best),
+            container: Some(Container::Mp4),
+            subtitles: None,
+        }),
+        VideoFormat::Video => None,
+    }
+}
+
+fn format_override(
+    ctx: &IpcContext,
+    format: Option<VideoFormat>,
+    site: bool,
+) -> Option<VideoOverride> {
+    let quality = ctx
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .video_quality;
+    override_for(format, site, quality)
+}
+
 /// The download was added paused: queue it for the "New download" dialog and bring the window up.
 fn ask_to_confirm(ctx: &IpcContext, download_id: &str) {
     ctx.pending.push(download_id.to_string());
@@ -155,7 +191,9 @@ async fn add_stream(ctx: &IpcContext, id: Option<String>, payload: Value) -> Res
     if let Some(c) = p.cookies.as_deref().filter(|c| !c.is_empty()) {
         headers.push(("Cookie".into(), c.to_string()));
     }
+    let video_override = format_override(ctx, p.format, false);
     let mut req = StreamRequest {
+        video_override,
         playlist_url: p.playlist_url,
         page_url: Some(p.page_url).filter(|u| !u.is_empty()),
         page_title: p.page_title.filter(|t| !t.trim().is_empty()),
@@ -203,6 +241,7 @@ async fn add_page(ctx: &IpcContext, id: Option<String>, payload: Value) -> Respo
     }
     let confirm = confirm_wanted(ctx);
     let req = SiteRequest {
+        video_override: format_override(ctx, p.format, true),
         page_url: p.page_url,
         page_title: p.page_title.filter(|t| !t.trim().is_empty()),
         headers: normalize_headers(headers),
@@ -341,6 +380,7 @@ async fn add_download(ctx: &IpcContext, id: Option<String>, payload: Value) -> R
         .filter(|f| !f.is_empty())
         .map(str::to_string);
     let mut req = AddRequest {
+        video_override: format_override(ctx, p.format, false),
         filename: basename.clone(),
         page_url: p.referrer.clone(),
         headers,
@@ -380,5 +420,52 @@ async fn add_download(ctx: &IpcContext, id: Option<String>, payload: Value) -> R
             reply(id, &Added { download_id })
         }
         Err(e) => Response::err(id, code::ADD_FAILED, user_message(&e)),
+    }
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::override_for;
+    use crate::settings::VideoQuality;
+    use odm_core::ipc::VideoFormat;
+    use odm_engine::config::{Container, Quality};
+    use odm_engine::VideoOverride;
+
+    #[test]
+    fn no_format_follows_the_settings() {
+        assert_eq!(override_for(None, true, VideoQuality::P720), None);
+    }
+
+    #[test]
+    fn mp3_asks_for_audio_on_any_kind() {
+        for site in [true, false] {
+            let got = override_for(Some(VideoFormat::Mp3), site, VideoQuality::Best).unwrap();
+            assert_eq!(got.quality, Some(Quality::Audio));
+        }
+    }
+
+    #[test]
+    fn video_on_a_site_page_is_an_mp4_at_the_chosen_quality() {
+        assert_eq!(
+            override_for(Some(VideoFormat::Video), true, VideoQuality::P720),
+            Some(VideoOverride {
+                container: Some(Container::Mp4),
+                ..VideoOverride::default()
+            })
+        );
+    }
+
+    #[test]
+    fn video_on_a_site_page_is_video_even_when_settings_say_audio() {
+        let got = override_for(Some(VideoFormat::Video), true, VideoQuality::Audio).unwrap();
+        assert_eq!(got.quality, Some(Quality::Best));
+    }
+
+    #[test]
+    fn video_on_a_plain_file_changes_nothing() {
+        assert_eq!(
+            override_for(Some(VideoFormat::Video), false, VideoQuality::Best),
+            None
+        );
     }
 }

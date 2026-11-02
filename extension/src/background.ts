@@ -14,7 +14,7 @@ import {
 } from "./lib/capture";
 import { DetectionState, STORAGE_KEY, TabSites, changedTabs } from "./lib/detection";
 import { MENU_ID } from "./lib/ids";
-import { errorText } from "./lib/protocol";
+import { errorText, readFormat, type VideoFormat } from "./lib/protocol";
 import { isSitePage, toPagePayload } from "./lib/sites";
 import { isMagnet, isTorrentDownload, toTorrentPayload } from "./lib/torrent";
 import { BADGE, BADGE_ERROR } from "./lib/theme";
@@ -75,25 +75,25 @@ async function pageOf(tabId: number, tab?: chrome.tabs.Tab): Promise<chrome.tabs
 }
 
 /** Sends one plain video file to ODM as a download. */
-async function sendFile(stream: Stream, page: chrome.tabs.Tab): Promise<Reply> {
+async function sendFile(stream: Stream, page: chrome.tabs.Tab, format?: VideoFormat): Promise<Reply> {
   const storeId = (page as { cookieStoreId?: string }).cookieStoreId;
   const cookies = await cookiesFor(stream.url, storeId);
-  const payload = toVideoFilePayload(stream, page.url ?? "", cookies, navigator.userAgent, sentHeaders.get(stream.url));
+  const payload = toVideoFilePayload(stream, page.url ?? "", cookies, navigator.userAgent, sentHeaders.get(stream.url), format);
   const r = await send("ADD_DOWNLOAD", payload, 15000);
   return r?.ok ? { ok: true, message: "Sent to ODM." } : { ok: false, message: errorText(r) };
 }
 
 /** Sends one listed stream to ODM. Only a click in the popup or the page button gets here. */
-async function addStream(tabId: number | undefined, url: string | undefined, tab?: chrome.tabs.Tab): Promise<Reply> {
+async function addStream(tabId: number | undefined, url: string | undefined, tab?: chrome.tabs.Tab, format?: VideoFormat): Promise<Reply> {
   const stream = tabId === undefined ? undefined : streams.list(tabId).find((s) => s.url === url && s.supported);
   if (tabId === undefined || !stream) return { ok: false, message: "That video is no longer listed. Reload the page." };
   const page = await pageOf(tabId, tab);
   if (!page) return { ok: false, message: "The tab is gone." };
-  if (stream.kind === "file") return sendFile(stream, page);
+  if (stream.kind === "file") return sendFile(stream, page, format);
   const pageUrl = page.url ?? "";
   const storeId = (page as { cookieStoreId?: string }).cookieStoreId;
   const cookies = await cookiesFor(stream.url, storeId);
-  const payload = toStreamPayload(stream, pageUrl, page.title, cookies, navigator.userAgent, sentHeaders.get(stream.url));
+  const payload = toStreamPayload(stream, pageUrl, page.title, cookies, navigator.userAgent, sentHeaders.get(stream.url), format);
   const r = await send("ADD_STREAM", payload, 15000);
   return r?.ok ? { ok: true, message: "Sent to ODM." } : { ok: false, message: errorText(r) };
 }
@@ -106,12 +106,12 @@ async function addMagnet(url: string | undefined, tab?: chrome.tabs.Tab): Promis
   return { ok: !!r?.ok, message: r?.ok ? "" : errorText(r) };
 }
 
-async function addPage(tabId: number | undefined, url: string | undefined, tab?: chrome.tabs.Tab): Promise<Reply> {
+async function addPage(tabId: number | undefined, url: string | undefined, tab?: chrome.tabs.Tab, format?: VideoFormat): Promise<Reply> {
   if (!url || !isSitePage(url)) return { ok: false, message: "This page is not a supported video site." };
   const page = tabId === undefined ? tab : await pageOf(tabId, tab);
   const storeId = (page as { cookieStoreId?: string } | undefined)?.cookieStoreId;
   const cookies = await cookiesFor(url, storeId);
-  const payload = toPagePayload(url, page?.title, cookies, navigator.userAgent);
+  const payload = toPagePayload(url, page?.title, cookies, navigator.userAgent, format);
   const r = await send("ADD_PAGE", payload, 15000);
   return r?.ok ? { ok: true, message: "Sent to ODM." } : { ok: false, message: errorText(r) };
 }
@@ -119,12 +119,12 @@ async function addPage(tabId: number | undefined, url: string | undefined, tab?:
 const NOT_SEEN = "ODM hasn't seen this video's source yet. Play it for a few seconds and try again.";
 
 /** The button on a video element: the video's own http(s) source, else the tab's best listed item. */
-async function addVideo(tabId: number | undefined, src: string | undefined, tab?: chrome.tabs.Tab): Promise<Reply> {
+async function addVideo(tabId: number | undefined, src: string | undefined, tab?: chrome.tabs.Tab, format?: VideoFormat): Promise<Reply> {
   if (tabId === undefined) return { ok: false, message: NOT_SEEN };
   const page = await pageOf(tabId, tab);
   if (!page) return { ok: false, message: "The tab is gone." };
   if (src && isHttp(src)) {
-    return sendFile({ url: src, kind: "file", label: src, supported: true }, page);
+    return sendFile({ url: src, kind: "file", label: src, supported: true }, page, format);
   }
   const supported = streams.list(tabId).filter((s) => s.supported);
   const hls = supported.find((s) => s.kind === "hls");
@@ -132,11 +132,11 @@ async function addVideo(tabId: number | undefined, src: string | undefined, tab?
     .filter((s) => s.kind === "file")
     .reduce<Stream | undefined>((best, s) => (!best || (s.size ?? 0) > (best.size ?? 0) ? s : best), undefined);
   const pick = hls ?? largest;
-  return pick ? addStream(tabId, pick.url, page) : { ok: false, message: NOT_SEEN };
+  return pick ? addStream(tabId, pick.url, page, format) : { ok: false, message: NOT_SEEN };
 }
 
 ext.runtime.onMessage.addListener((msg: unknown, sender: chrome.runtime.MessageSender, sendResponse: (r: unknown) => void) => {
-  const m = msg as { type?: string; down?: boolean; tabId?: number; url?: string; src?: string } | null;
+  const m = msg as { type?: string; down?: boolean; tabId?: number; url?: string; src?: string; format?: unknown } | null;
   switch (m?.type) {
     case "odm-alt":
       if (m.down) alt.down(Date.now());
@@ -152,18 +152,18 @@ ext.runtime.onMessage.addListener((msg: unknown, sender: chrome.runtime.MessageS
       void detection.isOn(sender.tab?.url).then((on) => sendResponse({ on }));
       return true;
     case "odm-add-video":
-      void addVideo(sender.tab?.id, m.src, sender.tab).then(sendResponse);
+      void addVideo(sender.tab?.id, m.src, sender.tab, readFormat(m.format)).then(sendResponse);
       return true;
     case "odm-magnet":
       void addMagnet(m.url, sender.tab).then(sendResponse);
       return true;
     case "odm-add-page":
       // A content script is identified by its sender; the popup names the tab.
-      void addPage(sender.tab?.id ?? m.tabId, m.url, sender.tab).then(sendResponse);
+      void addPage(sender.tab?.id ?? m.tabId, m.url, sender.tab, readFormat(m.format)).then(sendResponse);
       return true;
     case "odm-add-stream":
       // A content script is identified by its sender; the popup names the tab.
-      void addStream(sender.tab?.id ?? m.tabId, m.url, sender.tab).then(sendResponse);
+      void addStream(sender.tab?.id ?? m.tabId, m.url, sender.tab, readFormat(m.format)).then(sendResponse);
       return true;
     default:
       return false;

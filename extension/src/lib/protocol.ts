@@ -5,6 +5,14 @@ export type OdmResponse<T = unknown> = {
   error?: { code: string; message: string };
 };
 
+/** What a detected video is saved as. */
+export type VideoFormat = "video" | "mp3";
+
+/** A format from a page message; anything else means no choice. */
+export function readFormat(value: unknown): VideoFormat | undefined {
+  return value === "video" || value === "mp3" ? value : undefined;
+}
+
 export type AddDownloadPayload = {
   url: string;
   filename?: string;
@@ -15,6 +23,7 @@ export type AddDownloadPayload = {
   mime?: string;
   source: "capture" | "menu";
   expires_at_ms?: number;
+  format?: VideoFormat;
 };
 
 /** A magnet link, or a `.torrent` URL the app fetches with these headers and cookies. */
@@ -33,6 +42,7 @@ export type AddStreamPayload = {
   playlist_url: string;
   headers: Record<string, string>;
   cookies?: string;
+  format?: VideoFormat;
 };
 
 export type AddPagePayload = {
@@ -40,6 +50,7 @@ export type AddPagePayload = {
   page_title?: string;
   headers: Record<string, string>;
   cookies?: string;
+  format?: VideoFormat;
 };
 
 export function makeRequest(cmd: string, payload: object = {}): { id: string; cmd: string; payload: object } {
