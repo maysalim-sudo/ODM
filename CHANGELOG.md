@@ -8,15 +8,30 @@ The top versioned section becomes the "What's new" text of an update, so write i
 
 ## [0.3.0] - 2026-11-02
 
-Update the ODM browser extension along with this version: the new buttons and controls are part of the extension.
+A new look built to be easier to follow: each download now shows its own next step. Update the ODM browser extension along with this version: the new video buttons and controls are part of the extension.
 
 ### Added
 
+- A new home screen. Downloads are grouped into Needs you, Downloading, Up next and Finished, and each one has its own buttons.
+- Choose what downloads next: drag a row in Up next, use Move to top, Move up and Move down, or press Alt+Up and Alt+Down. Sort by size puts the smallest first, and a second click puts the largest first.
+- See how much is left to download in the status bar, with its own figure on each group.
+- Paste a link anywhere with Ctrl+V. ODM reads it, shows what it found, and asks only for what it needs. The other options are under More options.
+- Plain explanations when a download fails, with the fix on the row. Technical details are in the details panel.
+- Choose the video quality and subtitles for one download when you add it.
+- The detailed table is one click away with the view switch.
+- Inter is now ODM's typeface.
 - Choose MP3 or video for each video ODM finds: on the button over a video, in the page's video list and in the extension's popup. Plain video files show their real type, such as WEBM.
 - MP3 works for plain video files, HLS streams and site videos. It needs FFmpeg from "Get video tools".
 - Move the page's video list: drag it by its grip, or use the arrow keys. It stays where you put it.
 - A × on the button over a video hides it.
 - The extension's icon shows a warning when ODM doesn't answer a download from the browser.
+
+### Changed
+
+- Cancelled downloads are now under Finished, not Problems.
+- Settings has six sections, with the settings most people change under Essentials. Every setting is still there, and search still finds them all.
+- The welcome screen shows one step at a time.
+- Ctrl+N now goes to the paste bar.
 
 ### Fixed
 

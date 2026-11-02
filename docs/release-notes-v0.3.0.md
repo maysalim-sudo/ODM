@@ -1,6 +1,15 @@
-ODM 0.3.0 lets you save any video it finds as MP3 or video, and makes the on-page video controls easier to move and hide.
+ODM 0.3.0 is a new look built to be easier to follow: every download shows its own next step. You can also choose what downloads next, and save any video ODM finds as MP3 or video.
 
-## What's new
+## The new look
+
+- **Home:** downloads are grouped into Needs you, Downloading, Up next and Finished, each with its own buttons. Click one for its details. The detailed table is one click away.
+- **Paste a link:** press Ctrl+V anywhere. ODM reads the link and shows what it found. The other options are under More options.
+- **Choose what's next:** drag a row in Up next, use the `…` menu, or press Alt+Up and Alt+Down. Sort by size puts the smallest first, and a second click puts the largest first.
+- **How much is left:** the status bar adds up what's left to download.
+- **Problems in plain words:** a failed download says what happened and offers the fix on its row.
+- **Settings:** six sections, with the things most people change under Essentials. Nothing was removed, and search finds everything.
+
+## Also new
 
 - **MP3 or video:** choose for each video on the button over it, in the page's video list or in the extension's popup. Plain video files show their real type, such as WEBM. MP3 works for plain files, HLS streams and site videos, and needs FFmpeg from "Get video tools".
 - **Move the video list:** drag it by its grip, or use the arrow keys. It stays where you put it.

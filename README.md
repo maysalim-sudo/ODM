@@ -27,7 +27,7 @@ Only download what you have the right to. Respect each site's terms.
 
 ## Settings
 
-Open **Settings** from the toolbar, the tray, or with **Ctrl+,**. Changes apply at once. **Restore defaults** resets one section, and the search box finds any option.
+Open **Settings** from the header, the tray, or with **Ctrl+,**. Changes apply at once. **Restore defaults** resets one section, and the search box finds any option.
 
 - **General:** start ODM with Windows (it starts in the tray), start minimized, keep running in the tray when the window is closed, notifications for finished and failed downloads, and prevent sleep while downloading.
 - **Downloads:**
@@ -119,7 +119,7 @@ Build a standalone executable (written to `target/debug/odm-app.exe`):
     cd app
     pnpm tauri build --debug --no-bundle
 
-The app bundles the built extension (`extension/dist`) and Tauri fails the build if it is missing, so build the extension first (see "Browser integration"), as `node scripts/release.mjs` does. This also applies to `cargo check` and `cargo clippy` of the whole workspace. In ODM, the sidebar's **Browser** chip opens a panel that shows what is registered, tests the connection, repairs the registration and opens the bundled extension folders.
+The app bundles the built extension (`extension/dist`) and Tauri fails the build if it is missing, so build the extension first (see "Browser integration"), as `node scripts/release.mjs` does. This also applies to `cargo check` and `cargo clippy` of the whole workspace. In ODM, the status bar's **Browser** status opens a panel that shows what is registered, tests the connection, repairs the registration and opens the bundled extension folders.
 
 ## Browser integration
 
@@ -147,7 +147,7 @@ Using it:
 ## Video streams (HLS)
 
 - When a page plays an HLS video, the extension's badge shows how many streams it found, and a small "ODM" button appears at the bottom right of the page. Pick a stream there, or in the toolbar popup, to send it to ODM. Nothing is sent unless you click.
-- You can also paste an `.m3u8` link into **Add download**. For a playlist with several qualities, choose one under **Quality** (the highest is preselected).
+- You can also paste an `.m3u8` link into the paste bar. For a playlist with several qualities, choose one under **Quality** (the highest is preselected).
 - ODM downloads the segments over several connections, resumes after a pause or restart, decrypts AES-128 streams, and merges everything into an `.mp4` with FFmpeg.
 - FFmpeg is required and not bundled. ODM uses the path set in **Settings → FFmpeg path**, or else `ffmpeg.exe` on your `PATH`.
 - Not supported yet: live streams, SAMPLE-AES encryption, byte-range playlists and DASH (`.mpd`). DASH streams show up as "not supported yet".

@@ -167,6 +167,11 @@
     background: var(--selected);
     box-shadow: inset 3px 0 0 var(--accent);
   }
+  @media (forced-colors: active) {
+    .card.selected {
+      outline: 2px solid Highlight;
+    }
+  }
   .tile {
     display: grid;
     place-items: center;

@@ -73,6 +73,12 @@
     background: var(--surface-2);
     color: var(--text);
   }
+  @media (forced-colors: active) {
+    [role="tab"][aria-selected="true"],
+    .views button[aria-pressed="true"] {
+      outline: 2px solid Highlight;
+    }
+  }
   .count {
     font-weight: 400;
     color: var(--muted);
