@@ -12,8 +12,7 @@ ODM 0.3.0 lets you save any video it finds as MP3 or video, and makes the on-pag
 
 **Update the app and the extension together.** With a new extension and an older ODM, choosing MP3 saves video instead.
 
-- **Windows, ODM 0.2.0:** ODM offers the update itself. Your downloads pause and continue afterwards.
-- **Windows, ODM 0.1.0:** install this version by hand once: download **ODM-setup.exe** below and run it. Pause your downloads and close ODM first.
+- **Windows:** ODM offers the update itself. Your downloads pause and continue afterwards.
 - **Linux:** install the new package from this page, as ODM can't update itself on Linux yet.
 - **New install:** download **ODM-setup.exe** below and run it. The installer isn't code-signed yet, so Windows SmartScreen may show "Windows protected your PC". Choose **More info → Run anyway**.
 
