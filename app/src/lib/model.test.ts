@@ -45,6 +45,7 @@ import {
   totalSpeed,
   rowStatus,
 } from "./model";
+import type { StatusFilter } from "./model";
 import type { Download, IntegrationStatus, StoreLinks, ToolsStatus } from "./types";
 
 function dl(id: string, patch: Partial<Download> = {}): Download {
@@ -210,30 +211,49 @@ describe("filters and counts", () => {
     dl("c", { state: "completed", category: "video" }),
     dl("d", { state: "failed" }),
     dl("e", { state: "probing" }),
+    dl("f", { state: "cancelled", category: "video" }),
+    dl("g", { state: "queued" }),
   ]);
+  const ids = (status: StatusFilter, category: string | null = null) =>
+    [...rows.values()].filter((r) => matches(r, { status, category })).map((r) => r.id);
 
-  it("matches by status group and category", () => {
-    const ids = (f: Parameters<typeof matches>[1]) => [...rows.values()].filter((r) => matches(r, f)).map((r) => r.id);
-    expect(ids("all")).toHaveLength(5);
+  it("matches by status group", () => {
+    expect(ids("all")).toHaveLength(7);
     expect(ids("active")).toEqual(["a", "e"]);
-    expect(ids("queued")).toEqual(["b"]);
-    expect(ids("completed")).toEqual(["c"]);
+    expect(ids("queued")).toEqual(["b", "g"]);
     expect(ids("failed")).toEqual(["d"]);
-    expect(ids("cat:video")).toEqual(["a", "c"]);
   });
 
-  it("counts every filter", () => {
-    const c = counts(rows);
-    expect([c.all, c.active, c.queued, c.completed, c.failed]).toEqual([5, 2, 1, 1, 1]);
-    expect(c["cat:video"]).toBe(2);
+  it("files cancelled downloads under finished, not problems", () => {
+    expect(ids("completed")).toEqual(["c", "f"]);
+    expect(ids("failed")).not.toContain("f");
+  });
+
+  it("combines a status with a category", () => {
+    expect(ids("all", "video")).toEqual(["a", "c", "f"]);
+    expect(ids("completed", "video")).toEqual(["c", "f"]);
+    expect(ids("queued", "video")).toEqual([]);
+  });
+
+  it("counts every status and category", () => {
+    const c = counts(rows, null);
+    expect([c.all, c.active, c.queued, c.completed, c.failed]).toEqual([7, 2, 2, 2, 1]);
+    expect(c["cat:video"]).toBe(3);
     expect(c["cat:audio"]).toBe(0);
+  });
+
+  it("counts statuses within the chosen category, and categories across all rows", () => {
+    const c = counts(rows, "video");
+    expect([c.all, c.active, c.queued, c.completed, c.failed]).toEqual([3, 1, 0, 2, 0]);
+    expect(c["cat:general"]).toBe(4);
   });
 
   it("sorts newest first by default and by name on request", () => {
     const r = replaceAll([dl("b", { created_at: 1 }), dl("a", { created_at: 2 })]);
-    expect(visible(r, "all", "created_at", "desc").map((x) => x.id)).toEqual(["a", "b"]);
-    expect(visible(r, "all", "filename", "asc").map((x) => x.id)).toEqual(["a", "b"]);
-    expect(visible(r, "all", "filename", "desc").map((x) => x.id)).toEqual(["b", "a"]);
+    const all = { status: "all", category: null } as const;
+    expect(visible(r, all, "created_at", "desc").map((x) => x.id)).toEqual(["a", "b"]);
+    expect(visible(r, all, "filename", "asc").map((x) => x.id)).toEqual(["a", "b"]);
+    expect(visible(r, all, "filename", "desc").map((x) => x.id)).toEqual(["b", "a"]);
   });
 });
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { downloads } from "../lib/downloads.svelte";
   import { integration } from "../lib/integration.svelte";
-  import { CATEGORIES, CATEGORY_LABELS, integrationProblem, relativeTime, type Filter } from "../lib/model";
+  import { CATEGORIES, CATEGORY_LABELS, integrationProblem, relativeTime, type StatusFilter } from "../lib/model";
 
   let { onbrowser }: { onbrowser: () => void } = $props();
 
@@ -13,7 +13,7 @@
       : "Browser: not connected yet",
   );
 
-  const status: { key: Filter; label: string }[] = [
+  const status: { key: StatusFilter; label: string }[] = [
     { key: "all", label: "All downloads" },
     { key: "active", label: "Active" },
     { key: "queued", label: "Queued" },
@@ -26,17 +26,16 @@
 <div class="side">
 <nav aria-label="Filters">
   {#each status as s (s.key)}
-    <button class:active={downloads.filter === s.key} aria-current={downloads.filter === s.key ? "true" : undefined} onclick={() => downloads.setFilter(s.key)}>
+    <button class:active={downloads.filter.status === s.key} aria-current={downloads.filter.status === s.key ? "true" : undefined} onclick={() => downloads.setStatus(s.key)}>
       <span>{s.label}</span>
       <span class="count">{downloads.counts[s.key] ?? 0}</span>
     </button>
   {/each}
   <h2>Categories</h2>
   {#each CATEGORIES as c (c)}
-    {@const key = `cat:${c}` as Filter}
-    <button class:active={downloads.filter === key} aria-current={downloads.filter === key ? "true" : undefined} onclick={() => downloads.setFilter(key)}>
+    <button class:active={downloads.filter.category === c} aria-current={downloads.filter.category === c ? "true" : undefined} onclick={() => downloads.setCategory(downloads.filter.category === c ? null : c)}>
       <span>{CATEGORY_LABELS[c]}</span>
-      <span class="count">{downloads.counts[key] ?? 0}</span>
+      <span class="count">{downloads.counts[`cat:${c}`] ?? 0}</span>
     </button>
   {/each}
 </nav>

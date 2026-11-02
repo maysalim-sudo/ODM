@@ -28,7 +28,10 @@ export const CATEGORY_LABELS: Record<(typeof CATEGORIES)[number], string> = {
 };
 
 export type StatusFilter = "all" | "active" | "queued" | "completed" | "failed";
-export type Filter = StatusFilter | `cat:${string}`;
+export interface Filter {
+  status: StatusFilter;
+  category: string | null;
+}
 export type SortKey = "filename" | "size" | "progress" | "speed_bps" | "state" | "created_at";
 export type SortDir = "asc" | "desc";
 
@@ -128,8 +131,8 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
   }
 }
 
-export function matches(row: Row, filter: Filter): boolean {
-  switch (filter) {
+function matchesStatus(row: Row, status: StatusFilter): boolean {
+  switch (status) {
     case "all":
       return true;
     case "active":
@@ -137,20 +140,25 @@ export function matches(row: Row, filter: Filter): boolean {
     case "queued":
       return row.state === "queued" || row.state === "paused";
     case "completed":
-      return row.state === "completed";
+      return row.state === "completed" || row.state === "cancelled";
     case "failed":
-      return row.state === "failed" || row.state === "cancelled";
-    default:
-      return row.category === filter.slice(4);
+      return row.state === "failed";
   }
 }
 
-export function counts(rows: Map<string, Row>): Record<string, number> {
+export function matches(row: Row, filter: Filter): boolean {
+  return matchesStatus(row, filter.status) && (filter.category === null || row.category === filter.category);
+}
+
+const STATUSES: StatusFilter[] = ["all", "active", "queued", "completed", "failed"];
+
+/** Rows per status within `category`, and rows per category (`cat:<id>`) across the whole list. */
+export function counts(rows: Map<string, Row>, category: string | null): Record<string, number> {
   const out: Record<string, number> = { all: 0, active: 0, queued: 0, completed: 0, failed: 0 };
   for (const c of CATEGORIES) out[`cat:${c}`] = 0;
-  const keys = Object.keys(out) as Filter[];
   for (const row of rows.values()) {
-    for (const k of keys) if (matches(row, k)) out[k] += 1;
+    out[`cat:${row.category}`] = (out[`cat:${row.category}`] ?? 0) + 1;
+    for (const s of STATUSES) if (matches(row, { status: s, category })) out[s] += 1;
   }
   return out;
 }

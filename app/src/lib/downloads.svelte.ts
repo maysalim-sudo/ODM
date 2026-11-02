@@ -1,10 +1,10 @@
 import * as api from "./api";
-import { ReloadGate, addOffer, addPrompt, applyEvent, counts, keepVisible, nextConfirm, visible, type Filter, type Row, type SortDir, type SortKey } from "./model";
+import { ReloadGate, addOffer, addPrompt, applyEvent, counts, keepVisible, nextConfirm, visible, type Filter, type Row, type SortDir, type SortKey, type StatusFilter } from "./model";
 import type { AfterQueue, ConfirmArgs, ExistsChoice, ExistsPrompt, Offer, UiEvent } from "./types";
 
 class DownloadsStore {
   rows = $state<Map<string, Row>>(new Map());
-  filter = $state<Filter>("all");
+  filter = $state<Filter>({ status: "all", category: null });
   sortKey = $state<SortKey>("created_at");
   sortDir = $state<SortDir>("desc");
   selected = $state<Set<string>>(new Set());
@@ -27,7 +27,7 @@ class DownloadsStore {
   afterQueue = $state<{ action: Exclude<AfterQueue, "nothing">; at: number } | null>(null);
 
   visible = $derived(visible(this.rows, this.filter, this.sortKey, this.sortDir));
-  counts = $derived(counts(this.rows));
+  counts = $derived(counts(this.rows, this.filter.category));
   /** The download the "New download" dialog is about, if any. */
   confirmRow = $derived(nextConfirm(this.confirms, [...this.rows.values()]));
   selectedRows = $derived([...this.selected].map((id) => this.rows.get(id)).filter((r): r is Row => !!r));
@@ -135,7 +135,7 @@ class DownloadsStore {
     if (ev.type === "focus") {
       // A torrent already in the list was added again: show its row.
       if (this.rows.has(ev.id)) {
-        this.setFilter("all");
+        this.filter = { status: "all", category: null };
         this.select(ev.id, "one");
       }
       return;
@@ -171,9 +171,15 @@ class DownloadsStore {
     if (kept !== this.selected) this.selected = kept;
   }
 
-  /** Change the filter; rows it hides drop out of the selection. */
-  setFilter(f: Filter): void {
-    this.filter = f;
+  /** Change the tab; rows it hides drop out of the selection. */
+  setStatus(status: StatusFilter): void {
+    this.filter = { ...this.filter, status };
+    this.pruneSelection();
+  }
+
+  /** Change the type, or show every type with null; rows it hides drop out of the selection. */
+  setCategory(category: string | null): void {
+    this.filter = { ...this.filter, category };
     this.pruneSelection();
   }
 
