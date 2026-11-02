@@ -17,6 +17,7 @@ tracing.workspace = true
 uuid.workspace = true
 bytes.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 md-5.workspace = true
 aes.workspace = true
@@ -28,6 +29,5 @@ windows-sys.workspace = true
 
 [dev-dependencies]
 odm-torrent = { workspace = true, features = ["fake"] }
-serde_json.workspace = true
 odm-testserver.workspace = true
 tempfile.workspace = true

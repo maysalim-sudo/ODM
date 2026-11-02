@@ -11,7 +11,7 @@ pub mod events;
 pub mod schedule;
 pub mod speed;
 
-pub use config::{EngineConfig, ExistsChoice, ExistsPolicy};
+pub use config::{apply_override, EngineConfig, ExistsChoice, ExistsPolicy, VideoOverride};
 pub use events::{
     ChunkView, ChunkViewState, EngineEvent, ProgressSnapshot, SegmentProgress, TorrentProgress,
 };

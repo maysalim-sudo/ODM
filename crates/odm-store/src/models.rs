@@ -39,6 +39,8 @@ pub struct DownloadRecord {
     pub pause_reason: Option<String>,
     /// Lowercase hex v1 info hash; torrents only.
     pub info_hash: Option<String>,
+    /// This download's own video choices as JSON; None follows the settings.
+    pub video_override: Option<String>,
 }
 
 impl DownloadRecord {
@@ -71,6 +73,7 @@ impl DownloadRecord {
             auto_place: false,
             pause_reason: None,
             info_hash: None,
+            video_override: None,
         }
     }
 }

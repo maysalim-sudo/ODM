@@ -6,7 +6,7 @@ pub mod run;
 pub use progress::{parse_line, ByteCounter, Line};
 pub use run::run_site;
 
-use crate::config::{Container, EngineConfig, ProxyConfig, Quality, VideoOptions};
+use crate::config::{apply_override, Container, EngineConfig, ProxyConfig, Quality, VideoOptions};
 use crate::hls::{title_to_stem, with_mp4};
 use odm_core::filename;
 use odm_store::DownloadRecord;
@@ -179,7 +179,10 @@ pub fn build_args(
     .iter()
     .map(|s| s.to_string())
     .collect();
-    a.extend(format_args(&cfg.video));
+    a.extend(format_args(&apply_override(
+        &cfg.video,
+        rec.video_override.as_deref(),
+    )));
     a.push("-o".into());
     a.push(template.to_string_lossy().into_owned());
     a.push("--progress-template".into());
@@ -220,15 +223,19 @@ pub fn build_args(
 }
 
 /// The file name shown for a site video before yt-dlp has named it: the requested name, else
-/// the page title, else `video.mp4`. Always ends in `.mp4`.
-pub fn output_name(requested: Option<&str>, page_title: Option<&str>) -> String {
-    if let Some(n) = requested.filter(|n| !n.trim().is_empty()) {
-        return with_mp4(&filename::sanitize(n));
+/// the page title, else `video.mp4`. Ends in `.mp4`, or `.mp3` for `audio`.
+pub fn output_name(requested: Option<&str>, page_title: Option<&str>, audio: bool) -> String {
+    let name = if let Some(n) = requested.filter(|n| !n.trim().is_empty()) {
+        with_mp4(&filename::sanitize(n))
+    } else if let Some(t) = page_title.filter(|t| !t.trim().is_empty()) {
+        with_mp4(&title_to_stem(t))
+    } else {
+        "video.mp4".into()
+    };
+    match name.strip_suffix(".mp4").filter(|_| audio) {
+        Some(stem) => format!("{stem}.mp3"),
+        None => name,
     }
-    if let Some(t) = page_title.filter(|t| !t.trim().is_empty()) {
-        return with_mp4(&title_to_stem(t));
-    }
-    "video.mp4".into()
 }
 
 #[cfg(test)]
@@ -338,6 +345,30 @@ mod tests {
         );
         let pos = got.iter().position(|a| a == "--js-runtimes").unwrap();
         assert_eq!(got[pos + 1], "deno:C:/t/deno.exe");
+    }
+
+    #[test]
+    fn a_stored_override_changes_the_format_args() {
+        let mut r = rec();
+        r.video_override = Some(r#"{"quality":"audio"}"#.into());
+        let got = build_args(
+            &r,
+            &[],
+            Path::new(TMP),
+            None,
+            None,
+            0,
+            &EngineConfig::default(),
+        );
+        assert!(got.windows(2).any(|w| w == ["--audio-format", "mp3"]));
+    }
+
+    #[test]
+    fn an_audio_site_download_is_named_mp3() {
+        assert_eq!(output_name(None, Some("Song"), true), "Song.mp3");
+        assert_eq!(output_name(Some("a.mp4"), None, true), "a.mp3");
+        assert_eq!(output_name(None, None, true), "video.mp3");
+        assert_eq!(output_name(None, Some("Song"), false), "Song.mp4");
     }
 
     fn base_args(tmp: &Path) -> Vec<String> {

@@ -7,6 +7,7 @@ use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
+use crate::config::Quality;
 use crate::download::{
     build_client, finalize, part_path, pause_with_reason, run_download, transition, DownloadEnv,
     Outcome, Placed,
@@ -19,7 +20,7 @@ use crate::torrent::{
     client_settings, file_records, store_metadata, stored_torrent, write_torrent, TorrentAdded,
     TorrentRequest,
 };
-use crate::{EngineConfig, EngineEvent, ExistsChoice, ExistsPolicy, SpeedLimiter};
+use crate::{EngineConfig, EngineEvent, ExistsChoice, ExistsPolicy, SpeedLimiter, VideoOverride};
 use odm_store::{TorrentFileRecord, TorrentMetaRecord};
 use odm_torrent::{TorrentClient, TorrentError, TorrentMeta, TorrentSource};
 
@@ -50,6 +51,8 @@ pub struct AddRequest {
     pub size_hint: Option<u64>,
     /// This download's own speed limit in bytes per second; None or 0 = none.
     pub speed_limit: Option<u64>,
+    /// This download's own video choices; None follows the settings.
+    pub video_override: Option<VideoOverride>,
 }
 
 impl AddRequest {
@@ -74,6 +77,8 @@ pub struct StreamRequest {
     pub start_paused: bool,
     /// Start even while the queue schedule is closed.
     pub start_now: bool,
+    /// This download's own video choices; None follows the settings.
+    pub video_override: Option<VideoOverride>,
 }
 
 /// A video on a site page (YouTube, Facebook…), downloaded by yt-dlp.
@@ -87,6 +92,8 @@ pub struct SiteRequest {
     pub start_paused: bool,
     /// Start even while the queue schedule is closed.
     pub start_now: bool,
+    /// This download's own video choices; None follows the settings.
+    pub video_override: Option<VideoOverride>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -694,6 +701,7 @@ impl Manager {
         rec.priority = req.priority;
         rec.size = req.size_hint.filter(|&n| n > 0);
         rec.speed_limit = req.speed_limit.filter(|&n| n > 0);
+        rec.video_override = req.video_override.and_then(VideoOverride::to_stored);
         if req.start_paused {
             rec.state = DownloadState::Paused;
         }
@@ -736,6 +744,7 @@ impl Manager {
         rec.max_connections = self.env.config.max_connections.clamp(1, 32);
         rec.page_url = req.page_url;
         rec.page_title = req.page_title;
+        rec.video_override = req.video_override.and_then(VideoOverride::to_stored);
         if req.start_paused {
             rec.state = DownloadState::Paused;
         }
@@ -775,7 +784,13 @@ impl Manager {
             ));
         }
         let id = uuid::Uuid::new_v4().simple().to_string();
-        let name = crate::site::output_name(req.filename.as_deref(), req.page_title.as_deref());
+        let audio = req
+            .video_override
+            .and_then(|o| o.quality)
+            .unwrap_or(self.env.config.video.quality)
+            == Quality::Audio;
+        let name =
+            crate::site::output_name(req.filename.as_deref(), req.page_title.as_deref(), audio);
         let dir = req
             .save_dir
             .clone()
@@ -784,6 +799,7 @@ impl Manager {
         rec.category = "video".into();
         rec.filename_locked = req.filename.is_some();
         rec.max_connections = self.env.config.max_connections.clamp(1, 32);
+        rec.video_override = req.video_override.and_then(VideoOverride::to_stored);
         rec.page_url = Some(req.page_url);
         rec.page_title = req.page_title;
         if req.start_paused {

@@ -1,5 +1,7 @@
 use odm_core::DownloadState;
-use odm_engine::{AddRequest, EngineConfig, EngineEvent, ManagerHandle};
+use odm_engine::{
+    AddRequest, EngineConfig, EngineEvent, ManagerHandle, SiteRequest, VideoOverride,
+};
 use odm_store::{DownloadRecord, Store};
 use odm_testserver::{body, Faults, TestServer};
 use std::path::Path;
@@ -622,4 +624,31 @@ async fn set_target_refuses_after_bytes_were_written() {
     assert!(m.set_target(&id, Some("x.bin".into()), None).await.is_err());
     m.cancel(&id, true).await.unwrap();
     m.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_video_choice_stays_with_the_download() {
+    let d = tempfile::tempdir().unwrap();
+    let m = ManagerHandle::start(cfg(d.path()), Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let id = m
+        .add_site(SiteRequest {
+            page_url: "https://www.youtube.com/watch?v=abc".into(),
+            page_title: Some("Song".into()),
+            start_paused: true,
+            video_override: Some(VideoOverride {
+                quality: Some(odm_engine::config::Quality::Audio),
+                ..VideoOverride::default()
+            }),
+            ..SiteRequest::default()
+        })
+        .await
+        .unwrap();
+    let rec = m.store().get_download(&id).await.unwrap().unwrap();
+    assert_eq!(rec.filename, "Song.mp3");
+    assert_eq!(
+        rec.video_override.as_deref(),
+        Some(r#"{"quality":"audio"}"#)
+    );
 }

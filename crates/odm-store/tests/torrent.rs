@@ -35,7 +35,7 @@ async fn version(s: &Store) -> i64 {
 #[tokio::test]
 async fn v4_from_fresh() {
     let s = Store::open_in_memory().unwrap();
-    assert_eq!(version(&s).await, 4);
+    assert_eq!(version(&s).await, 5);
     let r = torrent("t", HASH);
     assert_eq!(r.kind, "torrent");
     assert_eq!(r.category, "torrent");
@@ -62,7 +62,8 @@ async fn v4_from_v3() {
             c.execute_batch(
                 "DROP TABLE torrent_files; DROP TABLE torrent_meta;
                  DROP INDEX idx_downloads_info_hash;
-                 ALTER TABLE downloads DROP COLUMN info_hash;",
+                 ALTER TABLE downloads DROP COLUMN info_hash;
+                 ALTER TABLE downloads DROP COLUMN video_override;",
             )?;
             c.pragma_update(None, "user_version", 3)
         })
@@ -70,7 +71,7 @@ async fn v4_from_v3() {
         .unwrap();
     }
     let s = Store::open(&path).unwrap();
-    assert_eq!(version(&s).await, 4);
+    assert_eq!(version(&s).await, 5);
     assert_eq!(s.get_download("a").await.unwrap().unwrap().info_hash, None);
     s.insert_download(torrent("t", HASH)).await.unwrap();
 }

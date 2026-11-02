@@ -41,19 +41,24 @@ pub enum ProxyConfig {
 }
 
 /// The yt-dlp quality choice.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Quality {
     #[default]
     Best,
+    #[serde(rename = "1080p")]
     P1080,
+    #[serde(rename = "720p")]
     P720,
+    #[serde(rename = "480p")]
     P480,
     /// Audio only, saved as MP3.
     Audio,
 }
 
 /// The container yt-dlp merges video and audio into.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Container {
     #[default]
     Mp4,
@@ -67,6 +72,39 @@ pub struct VideoOptions {
     pub container: Container,
     /// Download the site's subtitles and embed them.
     pub subtitles: bool,
+}
+
+/// One download's own video choices. What it leaves out follows the settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct VideoOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<Quality>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<Container>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitles: Option<bool>,
+}
+
+impl VideoOverride {
+    /// The JSON kept with the download; None when it changes nothing.
+    pub fn to_stored(self) -> Option<String> {
+        (self != Self::default())
+            .then(|| serde_json::to_string(&self).ok())
+            .flatten()
+    }
+}
+
+/// The options for a download: the settings with its stored override on top.
+/// A value that cannot be read follows the settings, so it never stops a download.
+pub fn apply_override(base: &VideoOptions, stored: Option<&str>) -> VideoOptions {
+    let o: VideoOverride = stored
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
+    VideoOptions {
+        quality: o.quality.unwrap_or(base.quality),
+        container: o.container.unwrap_or(base.container),
+        subtitles: o.subtitles.unwrap_or(base.subtitles),
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -206,6 +244,44 @@ impl EngineConfig {
 
 #[cfg(test)]
 mod tests {
+    use super::{apply_override, Container, Quality, VideoOptions, VideoOverride};
+
+    fn base() -> VideoOptions {
+        VideoOptions {
+            quality: Quality::P720,
+            container: Container::Mkv,
+            subtitles: true,
+        }
+    }
+
+    #[test]
+    fn an_override_changes_only_what_it_names() {
+        let got = apply_override(&base(), Some(r#"{"quality":"audio"}"#));
+        assert_eq!(got.quality, Quality::Audio);
+        assert_eq!(got.container, Container::Mkv);
+        assert!(got.subtitles);
+    }
+
+    #[test]
+    fn no_override_or_a_broken_one_keeps_the_settings() {
+        assert_eq!(apply_override(&base(), None), base());
+        assert_eq!(apply_override(&base(), Some("not json")), base());
+    }
+
+    #[test]
+    fn an_override_is_stored_as_json_and_an_empty_one_not_at_all() {
+        let o = VideoOverride {
+            quality: Some(Quality::P1080),
+            container: Some(Container::Mp4),
+            subtitles: None,
+        };
+        assert_eq!(
+            o.to_stored().as_deref(),
+            Some(r#"{"quality":"1080p","container":"mp4"}"#)
+        );
+        assert_eq!(VideoOverride::default().to_stored(), None);
+    }
+
     #[test]
     fn defaults_and_category_dirs() {
         let c = super::EngineConfig::default();

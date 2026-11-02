@@ -9,7 +9,7 @@ use crate::models::{
 const COLS: &str =
     "id,url,final_url,filename,save_dir,size,mime,category,state,error_kind,error_msg,\
 priority,max_connections,speed_limit,etag,last_modified,checksum,kind,page_url,page_title,\
-filename_locked,created_at,started_at,finished_at,auto_place,pause_reason,info_hash";
+filename_locked,created_at,started_at,finished_at,auto_place,pause_reason,info_hash,video_override";
 
 fn to_record(r: &Row) -> rusqlite::Result<DownloadRecord> {
     let state: String = r.get(8)?;
@@ -41,6 +41,7 @@ fn to_record(r: &Row) -> rusqlite::Result<DownloadRecord> {
         auto_place: r.get::<_, i64>(24)? != 0,
         pause_reason: r.get(25)?,
         info_hash: r.get(26)?,
+        video_override: r.get(27)?,
     })
 }
 
@@ -48,14 +49,15 @@ pub fn insert_download(c: &Connection, d: &DownloadRecord) -> rusqlite::Result<(
     c.execute(
         &format!(
             "INSERT INTO downloads ({COLS}) VALUES \
-             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)"
+             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28)"
         ),
         params![
             d.id, d.url, d.final_url, d.filename, d.save_dir, d.size.map(|v| v as i64), d.mime,
             d.category, d.state.as_str(), d.error_kind, d.error_msg, d.priority,
             d.max_connections as i64, d.speed_limit.map(|v| v as i64), d.etag, d.last_modified,
             d.checksum, d.kind, d.page_url, d.page_title, d.filename_locked as i64, d.created_at,
-            d.started_at, d.finished_at, d.auto_place as i64, d.pause_reason, d.info_hash
+            d.started_at, d.finished_at, d.auto_place as i64, d.pause_reason, d.info_hash,
+            d.video_override
         ],
     )?;
     Ok(())
@@ -239,7 +241,7 @@ pub fn list_with_bytes(c: &Connection) -> rusqlite::Result<Vec<(DownloadRecord, 
     let mut st = c.prepare(&format!(
         "SELECT {COLS}, {BYTES} FROM downloads ORDER BY created_at DESC, rowid DESC"
     ))?;
-    let rows = st.query_map([], |r| Ok((to_record(r)?, r.get::<_, i64>(27)? as u64)))?;
+    let rows = st.query_map([], |r| Ok((to_record(r)?, r.get::<_, i64>(28)? as u64)))?;
     rows.collect()
 }
 
@@ -247,7 +249,7 @@ pub fn get_with_bytes(c: &Connection, id: &str) -> rusqlite::Result<Option<(Down
     c.query_row(
         &format!("SELECT {COLS}, {BYTES} FROM downloads WHERE id=?1"),
         [id],
-        |r| Ok((to_record(r)?, r.get::<_, i64>(27)? as u64)),
+        |r| Ok((to_record(r)?, r.get::<_, i64>(28)? as u64)),
     )
     .optional()
 }

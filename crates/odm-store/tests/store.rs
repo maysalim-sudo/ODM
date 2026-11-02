@@ -15,7 +15,7 @@ async fn fresh_db_is_migrated_and_reopen_is_idempotent() {
             .call(|c| c.query_row("PRAGMA user_version", [], |r| r.get(0)))
             .await
             .unwrap();
-        assert_eq!(v, 4);
+        assert_eq!(v, 5);
         s.insert_download(rec("a")).await.unwrap();
     }
     let s = Store::open(&path).unwrap();
@@ -246,7 +246,7 @@ async fn newer_schema_is_rejected() {
     match Store::open(&path) {
         Err(odm_store::StoreError::NewerSchema { found, supported }) => {
             assert_eq!(found, 99);
-            assert_eq!(supported, 4);
+            assert_eq!(supported, 5);
         }
         Err(e) => panic!("wrong error: {e}"),
         Ok(_) => panic!("opened a newer schema"),
@@ -260,14 +260,15 @@ async fn v1_database_is_migrated_to_the_latest() {
     {
         let s = Store::open(&path).unwrap();
         s.insert_download(rec("a")).await.unwrap();
-        // Rewind to a V1-shaped database: drop what V2 to V4 added and the version.
+        // Rewind to a V1-shaped database: drop what V2 to V5 added and the version.
         s.call(|c| {
             c.execute_batch(
                 "DROP TABLE torrent_files; DROP TABLE torrent_meta;
                  DROP INDEX idx_downloads_info_hash;
                  ALTER TABLE downloads DROP COLUMN info_hash;
                  ALTER TABLE downloads DROP COLUMN auto_place;
-                 ALTER TABLE downloads DROP COLUMN pause_reason;",
+                 ALTER TABLE downloads DROP COLUMN pause_reason;
+                 ALTER TABLE downloads DROP COLUMN video_override;",
             )?;
             c.pragma_update(None, "user_version", 1)
         })
@@ -282,7 +283,7 @@ async fn v1_database_is_migrated_to_the_latest() {
         .call(|c| c.query_row("PRAGMA user_version", [], |r| r.get(0)))
         .await
         .unwrap();
-    assert_eq!(v, 4);
+    assert_eq!(v, 5);
 }
 
 #[tokio::test]
@@ -553,6 +554,21 @@ async fn set_speed_limit_round_trips() {
     s.set_speed_limit("a", None).await.unwrap();
     assert_eq!(
         s.get_download("a").await.unwrap().unwrap().speed_limit,
+        None
+    );
+}
+
+#[tokio::test]
+async fn video_override_round_trips() {
+    let s = Store::open_in_memory().unwrap();
+    let mut with = rec("a");
+    with.video_override = Some(r#"{"quality":"audio"}"#.into());
+    s.insert_download(with).await.unwrap();
+    s.insert_download(rec("b")).await.unwrap();
+    let a = s.get_download("a").await.unwrap().unwrap();
+    assert_eq!(a.video_override.as_deref(), Some(r#"{"quality":"audio"}"#));
+    assert_eq!(
+        s.get_download("b").await.unwrap().unwrap().video_override,
         None
     );
 }

@@ -91,8 +91,11 @@ CREATE TABLE torrent_files (
 );
 "#;
 
+/// A download's own video choices, as JSON; NULL follows the settings.
+const V5: &str = "ALTER TABLE downloads ADD COLUMN video_override TEXT;";
+
 /// Ordered; index i migrates to user_version i+1. Append only — never edit a shipped entry.
-const MIGRATIONS: &[&str] = &[V1, V2, V3, V4];
+const MIGRATIONS: &[&str] = &[V1, V2, V3, V4, V5];
 
 pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
