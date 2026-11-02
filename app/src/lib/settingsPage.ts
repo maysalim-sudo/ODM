@@ -3,20 +3,44 @@ import type { Schedule, Settings } from "./types";
 
 /** The Settings page: its sections, rows, search, restore and inline checks. */
 
-export type SectionId = "general" | "downloads" | "speed" | "browser" | "video" | "network" | "torrents" | "updates" | "advanced";
+export type SectionId = "essentials" | "downloads" | "browser" | "video" | "torrents" | "advanced";
 
 /** Most-used first; advanced last. */
-export const SECTIONS: { id: SectionId; title: string }[] = [
-  { id: "general", title: "General" },
-  { id: "downloads", title: "Downloads" },
-  { id: "speed", title: "Speed" },
-  { id: "browser", title: "Browser" },
-  { id: "video", title: "Video" },
-  { id: "network", title: "Network" },
-  { id: "torrents", title: "Torrents" },
-  { id: "updates", title: "Updates" },
-  { id: "advanced", title: "Advanced" },
+export const SECTIONS: { id: SectionId; title: string; icon: string }[] = [
+  { id: "essentials", title: "Essentials", icon: "cards" },
+  { id: "downloads", title: "Downloads", icon: "download" },
+  { id: "browser", title: "Browser", icon: "globe" },
+  { id: "video", title: "Video", icon: "video" },
+  { id: "torrents", title: "Torrents", icon: "magnet" },
+  { id: "advanced", title: "Advanced", icon: "sliders" },
 ];
+
+/** Links from before the six sections, such as the tray's. */
+const OLD_SECTIONS: Record<string, SectionId> = {
+  general: "essentials",
+  speed: "downloads",
+  network: "advanced",
+  updates: "advanced",
+};
+
+/** The section for an id from outside the page; an unknown one opens Essentials. */
+export function sectionFor(id: string): SectionId {
+  if (Object.hasOwn(OLD_SECTIONS, id)) return OLD_SECTIONS[id];
+  return SECTIONS.find((s) => s.id === id)?.id ?? "essentials";
+}
+
+/** The rows Essentials shows. They edit the same settings as their home sections. */
+const ESSENTIALS = ["download_dir", "sort_by_type", "max_concurrent", "speed_limit", "notify_complete", "close_to_tray", "update_check"];
+
+/** The page's blocks of rows in each section. Essentials reuses them, showing only its own rows. */
+export const SECTION_BLOCKS: Record<SectionId, string[]> = {
+  essentials: ["downloads", "speed", "general", "updates"],
+  downloads: ["downloads", "speed"],
+  browser: ["browser"],
+  video: ["video"],
+  torrents: ["torrents"],
+  advanced: ["general", "network", "updates", "advanced"],
+};
 
 export interface RowDef {
   id: string;
@@ -42,12 +66,12 @@ export const START_WITH_SYSTEM = IS_LINUX ? "Start ODM when you sign in" : "Star
 export const SYSTEM_PROXY = IS_LINUX ? "proxy set in your environment (http_proxy, https_proxy)" : "Windows proxy settings";
 
 export const ROWS: RowDef[] = [
-  row("general", "start_with_windows", START_WITH_SYSTEM, "ODM starts in the tray when you sign in.", ["start_with_windows"]),
-  row("general", "start_minimized", "Start minimized to the tray", "The window stays hidden until you open it from the tray.", ["start_minimized"]),
-  row("general", "close_to_tray", "Keep running in the tray when closed", "Closing the window keeps downloads going.", ["close_to_tray"]),
-  row("general", "notify_complete", "Notify when a download finishes", IS_LINUX ? "Shows a notification with the file name." : "Shows a Windows notification with the file name.", ["notify_complete"]),
-  row("general", "notify_failed", "Notify when a download fails", "So you can retry it or see what went wrong.", ["notify_failed"]),
-  row("general", "prevent_sleep", "Prevent sleep while downloading", "The PC stays awake until every download is done.", ["prevent_sleep"]),
+  row("advanced", "start_with_windows", START_WITH_SYSTEM, "ODM starts in the tray when you sign in.", ["start_with_windows"]),
+  row("advanced", "start_minimized", "Start minimized to the tray", "The window stays hidden until you open it from the tray.", ["start_minimized"]),
+  row("advanced", "close_to_tray", "Keep running in the tray when closed", "Closing the window keeps downloads going.", ["close_to_tray"]),
+  row("advanced", "notify_complete", "Notify when a download finishes", IS_LINUX ? "Shows a notification with the file name." : "Shows a Windows notification with the file name.", ["notify_complete"]),
+  row("advanced", "notify_failed", "Notify when a download fails", "So you can retry it or see what went wrong.", ["notify_failed"]),
+  row("advanced", "prevent_sleep", "Prevent sleep while downloading", "The PC stays awake until every download is done.", ["prevent_sleep"]),
 
   row("downloads", "download_dir", "Download folder", "Where new downloads are saved.", ["download_dir"]),
   row("downloads", "sort_by_type", "Sort into folders by type", "Each type gets its own folder inside the download folder.", ["sort_by_type", "category_folders"]),
@@ -57,11 +81,11 @@ export const ROWS: RowDef[] = [
   row("downloads", "max_concurrent", "Downloads at once", "The rest wait in the queue.", ["max_concurrent"]),
   row("downloads", "history_days", "Remove finished downloads from the list", "Only the list entry goes. The file stays.", ["history_days"]),
 
-  row("speed", "speed_limit", "Speed limit", "Caps the total speed of all downloads.", ["speed_limit_kbps"]),
-  row("speed", "limit_schedule", "Limit only at certain times", "Outside these hours downloads run at full speed.", ["limit_schedule"]),
-  row("speed", "max_connections", "Connections per download", "More connections can be faster. Some servers allow only a few.", ["max_connections"]),
-  row("speed", "queue_schedule", "Run the queue at certain times", "Downloads start at the start time and pause at the stop time.", ["queue_schedule"]),
-  row("speed", "after_queue", "When the queue is done", "Runs once the queue has nothing left to download.", ["after_queue"]),
+  row("downloads", "speed_limit", "Speed limit", "Caps the total speed of all downloads.", ["speed_limit_kbps"]),
+  row("downloads", "limit_schedule", "Limit only at certain times", "Outside these hours downloads run at full speed.", ["limit_schedule"]),
+  row("downloads", "max_connections", "Connections per download", "More connections can be faster. Some servers allow only a few.", ["max_connections"]),
+  row("downloads", "queue_schedule", "Run the queue at certain times", "Downloads start at the start time and pause at the stop time.", ["queue_schedule"]),
+  row("downloads", "after_queue", "When the queue is done", "Runs once the queue has nothing left to download.", ["after_queue"]),
 
   row("browser", "capture_enabled", "Take over downloads from the browser", "Needs the ODM browser extension.", ["capture_enabled"]),
   row("browser", "confirm_browser_downloads", "Ask where to save each one", "Shows the new download window before it starts.", ["confirm_browser_downloads"]),
@@ -76,21 +100,21 @@ export const ROWS: RowDef[] = [
   row("video", "video_subtitles", "Download subtitles when available", "Subtitles are embedded in the video file.", ["video_subtitles"]),
   row("video", "ytdlp_auto_update", "Keep yt-dlp up to date automatically", "Video sites change often. ODM checks once a week.", ["ytdlp_auto_update"]),
 
-  row("network", "proxy", "Proxy", `System uses the ${SYSTEM_PROXY}.`, ["proxy_mode", "proxy_url"]),
-  row("network", "connect_timeout_s", "Connect timeout", "How long to wait for a server to answer.", ["connect_timeout_s"]),
-  row("network", "read_timeout_s", "Read timeout", "How long a stalled connection waits before it retries.", ["read_timeout_s"]),
-  row("network", "max_attempts", "Retries per part", "How often each part is retried before the download fails.", ["max_attempts"]),
+  row("advanced", "proxy", "Proxy", `System uses the ${SYSTEM_PROXY}.`, ["proxy_mode", "proxy_url"]),
+  row("advanced", "connect_timeout_s", "Connect timeout", "How long to wait for a server to answer.", ["connect_timeout_s"]),
+  row("advanced", "read_timeout_s", "Read timeout", "How long a stalled connection waits before it retries.", ["read_timeout_s"]),
+  row("advanced", "max_attempts", "Retries per part", "How often each part is retried before the download fails.", ["max_attempts"]),
 
   row("torrents", "torrent_port", "Listen port", "Other computers reach ODM on this port. Random picks a new one.", ["torrent_port"]),
   row("torrents", "torrent_upnp", "Open the port on the router", "Uses UPnP so more peers can reach ODM.", ["torrent_upnp"]),
   row("torrents", "torrent_upload", "Upload while downloading", "Peers send faster to those who share back. ODM stops uploading when a torrent finishes.", ["torrent_upload_kbps"]),
   row("torrents", "torrent_max_peers", "Peers per torrent", "More peers can be faster but use more connections.", ["torrent_max_peers"]),
 
-  row("updates", "update_check", "Check for updates automatically", "ODM tells you when a new version is ready.", ["update_check"]),
-  row("updates", "update_install", "When an update is ready", "Installing when you quit saves a step.", ["update_install"]),
-  row("updates", "check_now", "Check for updates now", "Looks for a new version right away."),
-  row("updates", "whats_new", "What's new", "The changes in the new version."),
-  row("updates", "app_version", "Version", "The version of ODM you are running."),
+  row("advanced", "update_check", "Check for updates automatically", "ODM tells you when a new version is ready.", ["update_check"]),
+  row("advanced", "update_install", "When an update is ready", "Installing when you quit saves a step.", ["update_install"]),
+  row("advanced", "check_now", "Check for updates now", "Looks for a new version right away."),
+  row("advanced", "whats_new", "What's new", "The changes in the new version."),
+  row("advanced", "app_version", "Version", "The version of ODM you are running."),
 
   row("advanced", "user_agent", "Custom User-Agent", "Leave empty to use ODM's own. Browser downloads keep the browser's.", ["user_agent"]),
   row("advanced", "ffmpeg_path", "Path to FFmpeg", "Leave empty to use the video tools or find FFmpeg automatically.", ["ffmpeg_path"]),
@@ -131,6 +155,7 @@ export function isShown(id: string, query: string): boolean {
 
 /** Ids of the ready rows that match; a null section searches them all. */
 export function visibleRows(section: SectionId | null, query: string): string[] {
+  if (section === "essentials") return query.trim() === "" ? ESSENTIALS.filter(ready) : [];
   return ROWS.filter((r) => (section === null || r.section === section) && ready(r.id) && matchesQuery(r, query)).map((r) => r.id);
 }
 

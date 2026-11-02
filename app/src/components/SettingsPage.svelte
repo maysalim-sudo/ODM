@@ -10,6 +10,7 @@
     torrentProxyNote,
     uploadMode,
     SECTIONS,
+    SECTION_BLOCKS,
     checkFolderName,
     checkHost,
     checkInt,
@@ -34,6 +35,7 @@
   import type { Settings } from "../lib/types";
   import { checkLine } from "../lib/updates";
   import { updates } from "../lib/updates.svelte";
+  import Icon from "./Icon.svelte";
   import NumberField from "./NumberField.svelte";
   import ScheduleEditor from "./ScheduleEditor.svelte";
   import Segmented from "./Segmented.svelte";
@@ -67,7 +69,7 @@
   let saveError = $state<string | null>(null);
   let version = $state("");
   let query = $state("");
-  let active = $state<SectionId>("general");
+  let active = $state<SectionId>("essentials");
   let speedUnit = $state<SpeedUnit>("kb");
   let lastKbps = 1024;
   let folderErrors = $state<Record<string, string>>({});
@@ -323,7 +325,8 @@
               aria-current={!searching && active === sec.id ? "page" : undefined}
               onclick={() => pickSection(sec.id)}
             >
-              <span>{sec.title}</span>
+              <Icon name={sec.icon} />
+              <span class="title">{sec.title}</span>
               {#if searching}<span class="count">{hits}</span>{/if}
             </button>
           {/if}
@@ -338,7 +341,9 @@
               <section aria-labelledby={`sec-${sec.id}`}>
                 <h2 id={`sec-${sec.id}`}>{sec.title}</h2>
 
-                {#if sec.id === "general"}
+                {#if sec.id === "essentials"}<p class="intro">The few things most people change. Everything else is one section away.</p>{/if}
+                {#each SECTION_BLOCKS[sec.id] as block (block)}
+                {#if block === "general"}
                   {#if any("start_with_windows", "start_minimized", "close_to_tray")}
                     <div class="card">
                       {#if show("start_with_windows")}
@@ -377,7 +382,7 @@
                       {/if}
                     </div>
                   {/if}
-                {:else if sec.id === "downloads"}
+                {:else if block === "downloads"}
                   {#if any("download_dir", "sort_by_type")}
                     <div class="card">
                       {#if show("download_dir")}
@@ -476,7 +481,7 @@
                       {/if}
                     </div>
                   {/if}
-                {:else if sec.id === "speed"}
+                {:else if block === "speed"}
                   {#if any("speed_limit", "limit_schedule")}
                     <div class="card">
                       {#if show("speed_limit")}
@@ -564,7 +569,7 @@
                       {/if}
                     </div>
                   {/if}
-                {:else if sec.id === "browser"}
+                {:else if block === "browser"}
                   {#if any("capture_enabled", "confirm_browser_downloads", "min_capture")}
                     <div class="card">
                       {#if show("capture_enabled")}
@@ -631,7 +636,7 @@
                       </SettingRow>
                     </div>
                   {/if}
-                {:else if sec.id === "video"}
+                {:else if block === "video"}
                   {#if show("video_tools")}
                     <div class="tools"><ToolsCard /></div>
                   {/if}
@@ -678,7 +683,7 @@
                       {/if}
                     </div>
                   {/if}
-                {:else if sec.id === "network"}
+                {:else if block === "network"}
                   {#if any("proxy")}
                     <div class="card">
                       <SettingRow id="proxy">
@@ -730,7 +735,7 @@
                       {/if}
                     </div>
                   {/if}
-                {:else if sec.id === "torrents"}
+                {:else if block === "torrents"}
                   {#if any("torrent_port", "torrent_upnp", "torrent_upload", "torrent_max_peers")}
                     <div class="card">
                       {#if show("torrent_port")}
@@ -774,7 +779,7 @@
                       {/if}
                     </div>
                   {/if}
-                {:else if sec.id === "updates"}
+                {:else if block === "updates"}
                   {#if any("update_check", "update_install", "check_now", "whats_new", "app_version")}
                     <div class="card">
                       {#if show("update_check") && uv.supported}
@@ -819,7 +824,7 @@
                       {/if}
                     </div>
                   {/if}
-                {:else if sec.id === "advanced"}
+                {:else if block === "advanced"}
                   {#if any("user_agent", "ffmpeg_path", "ytdlp_path")}
                     <div class="card">
                       {#if show("user_agent")}
@@ -872,6 +877,7 @@
                     </div>
                   {/if}
                 {/if}
+                {/each}
 
                 {#if !searching && sectionHasRestore(sec.id)}
                   <div class="restore">
@@ -944,7 +950,8 @@
   }
   nav button {
     display: flex;
-    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
     width: 100%;
     margin-bottom: 2px;
     border-color: transparent;
@@ -956,9 +963,16 @@
     transform: none;
   }
   nav button.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--on-accent);
+    background: var(--surface-2);
+    border-color: var(--surface-2);
+    color: var(--text);
+  }
+  .title {
+    flex: 1;
+  }
+  .intro {
+    margin: -6px 0 14px;
+    color: var(--muted);
   }
   .count {
     color: var(--muted);

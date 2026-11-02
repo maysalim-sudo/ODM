@@ -3,6 +3,8 @@ import {
   READY,
   ROWS,
   SECTIONS,
+  rowDef,
+  sectionFor,
   checkFolderName,
   checkHost,
   checkType,
@@ -80,17 +82,43 @@ const DEFAULTS: Settings = {
 
 describe("sections", () => {
   it("come in the most-used-first order", () => {
-    expect(SECTIONS.map((s) => s.title)).toEqual([
-      "General",
-      "Downloads",
-      "Speed",
-      "Browser",
-      "Video",
-      "Network",
-      "Torrents",
-      "Updates",
-      "Advanced",
+    expect(SECTIONS.map((s) => s.title)).toEqual(["Essentials", "Downloads", "Browser", "Video", "Torrents", "Advanced"]);
+  });
+  it("still opens old section links on the right page", () => {
+    expect(sectionFor("general")).toBe("essentials");
+    expect(sectionFor("speed")).toBe("downloads");
+    expect(sectionFor("network")).toBe("advanced");
+    expect(sectionFor("updates")).toBe("advanced");
+  });
+  it("opens the current sections as they are", () => {
+    for (const s of SECTIONS) expect(sectionFor(s.id)).toBe(s.id);
+  });
+  it("falls back to Essentials for an unknown section", () => {
+    expect(sectionFor("nope")).toBe("essentials");
+    expect(sectionFor("")).toBe("essentials");
+    expect(sectionFor("constructor")).toBe("essentials");
+  });
+  it("Essentials shows the spec's settings, each kept under its home section", () => {
+    expect(visibleRows("essentials", "")).toEqual([
+      "download_dir",
+      "sort_by_type",
+      "max_concurrent",
+      "speed_limit",
+      "notify_complete",
+      "close_to_tray",
+      "update_check",
     ]);
+    expect(ROWS.some((r) => r.section === "essentials")).toBe(false);
+  });
+  it("search lists each setting once, never under Essentials", () => {
+    const ids = visibleRows(null, "");
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(visibleRows("essentials", "speed")).toEqual([]);
+    expect(rowDef("speed_limit").section).toBe("downloads");
+  });
+  it("moves the old sections into their new homes", () => {
+    expect(visibleRows("downloads", "")).toEqual(expect.arrayContaining(["download_dir", "speed_limit", "limit_schedule", "queue_schedule"]));
+    expect(visibleRows("advanced", "")).toEqual(expect.arrayContaining(["proxy", "start_with_windows", "update_install", "user_agent", "reset_all"]));
   });
   it("every row belongs to a section and has a one-line description in plain words", () => {
     const ids = new Set(SECTIONS.map((s) => s.id));
@@ -151,13 +179,13 @@ describe("search", () => {
     expect(matchesQuery(row, "proxy")).toBe(false);
   });
   it("never shows a hidden row, even when it matches", () => {
-    expect(visibleRows("updates", "")).toContain("update_check");
+    expect(visibleRows("advanced", "")).toContain("update_check");
     expect(visibleRows(null, "windows").every((id) => READY[id] !== false)).toBe(true);
   });
   it("searches every section when a query is given", () => {
     const found = visibleRows(null, "timeout");
     expect(found).toContain("connect_timeout_s");
-    expect(visibleRows("general", "")).toContain("close_to_tray");
+    expect(visibleRows("advanced", "")).toContain("close_to_tray");
   });
 });
 
@@ -172,7 +200,7 @@ describe("restore defaults", () => {
     onboarding_done: true,
   };
   it("resets only the fields of that section", () => {
-    const out = restoreSection(changed, DEFAULTS, "general");
+    const out = restoreSection(changed, DEFAULTS, "advanced");
     expect(out.close_to_tray).toBe(true);
     expect(out.notify_failed).toBe(true);
     expect(out.max_connections).toBe(16);
@@ -189,9 +217,9 @@ describe("restore defaults", () => {
     expect(out.category_folders).not.toBe(DEFAULTS.category_folders);
   });
   it("is offered only where a section has visible settings", () => {
-    expect(sectionHasRestore("general")).toBe(true);
-    expect(sectionHasRestore("updates")).toBe(true);
+    expect(sectionHasRestore("downloads")).toBe(true);
     expect(sectionHasRestore("advanced")).toBe(true);
+    expect(sectionHasRestore("essentials")).toBe(false);
   });
   it("reset all keeps the finished welcome screen", () => {
     const out = resetAll(changed, DEFAULTS);
@@ -202,7 +230,7 @@ describe("restore defaults", () => {
   });
   it("undo puts back only what the restore changed, keeping later edits", () => {
     const before = changed;
-    const after = restoreSection(before, DEFAULTS, "general");
+    const after = restoreSection(before, DEFAULTS, "advanced");
     // Within the 5 s window the user changes a setting in another section.
     const current: Settings = { ...after, max_connections: 4 };
     const out = undoRestore(before, after, current);

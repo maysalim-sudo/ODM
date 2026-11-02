@@ -24,7 +24,7 @@
   import { downloads } from "./lib/downloads.svelte";
   import { integration } from "./lib/integration.svelte";
   import { queueSchedule } from "./lib/queueSchedule.svelte";
-  import { SECTIONS, type SectionId } from "./lib/settingsPage";
+  import { sectionFor, type SectionId } from "./lib/settingsPage";
   import type { RowAction } from "./lib/home";
   import { isRiskyFile, problemInfo, type Row } from "./lib/model";
   import type { ListView } from "./lib/types";
@@ -65,7 +65,7 @@
     void queueSchedule.init().then((un) => (gone ? un() : (offQueue = un)));
     void api
       .onOpenSettings((id) => {
-        settingsSection = SECTIONS.find((s) => s.id === id)?.id;
+        settingsSection = sectionFor(id);
         settingsOpen = true;
       })
       .then((un) => (gone ? un() : (off = un)));
@@ -223,7 +223,7 @@
   <StatusBar
     onbrowser={() => (browserOpen = true)}
     onnotes={() => {
-      settingsSection = "updates";
+      settingsSection = "advanced";
       settingsOpen = true;
     }}
   />
