@@ -1,7 +1,7 @@
 //! Merges downloaded HLS segments into one mp4 with FFmpeg.
 use odm_core::{ErrorKind, OdmError};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::EngineConfig;
@@ -113,8 +113,24 @@ pub async fn merge(
         ]
     };
 
+    let (status, log) = run_ffmpeg(ffmpeg, &args, dir, cancel, merge_failed).await?;
+    let out = dir.join("out.mp4");
+    if !status.success() || !out.is_file() {
+        return Err(merge_failed(&stderr_tail(&log, 20)));
+    }
+    Ok(out)
+}
+
+/// Runs FFmpeg in `dir` until it exits or `cancel` fires; returns its status and stderr.
+pub async fn run_ffmpeg(
+    ffmpeg: &Path,
+    args: &[&str],
+    dir: &Path,
+    cancel: &CancellationToken,
+    failed: fn(&str) -> OdmError,
+) -> Result<(ExitStatus, String), OdmError> {
     let mut cmd = tokio::process::Command::new(ffmpeg);
-    cmd.args(&args)
+    cmd.args(args)
         .current_dir(dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -122,7 +138,7 @@ pub async fn merge(
         .kill_on_drop(true);
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    let mut child = cmd.spawn().map_err(|e| merge_failed(&e.to_string()))?;
+    let mut child = cmd.spawn().map_err(|e| failed(&e.to_string()))?;
     let mut stderr = child.stderr.take().expect("piped stderr");
     let reader = tokio::spawn(async move {
         use tokio::io::AsyncReadExt;
@@ -136,14 +152,9 @@ pub async fn merge(
             let _ = child.kill().await;
             return Err(OdmError::new(ErrorKind::Cancelled, "cancelled"));
         }
-        s = child.wait() => s.map_err(|e| merge_failed(&e.to_string()))?,
+        s = child.wait() => s.map_err(|e| failed(&e.to_string()))?,
     };
-    let log = reader.await.unwrap_or_default();
-    let out = dir.join("out.mp4");
-    if !status.success() || !out.is_file() {
-        return Err(merge_failed(&stderr_tail(&log, 20)));
-    }
-    Ok(out)
+    Ok((status, reader.await.unwrap_or_default()))
 }
 
 #[cfg(test)]

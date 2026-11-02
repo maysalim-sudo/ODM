@@ -16,7 +16,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::chunks::{plan_chunks, ChunkRef, ChunkTable};
 use crate::config::{EngineConfig, ExistsPolicy, ProxyConfig};
+use crate::convert::{mp3_name, to_mp3, wants_mp3};
 use crate::events::{ChunkViewState, EngineEvent, ProgressSnapshot};
+use crate::hls::merge::resolve_ffmpeg;
 use crate::probe::{probe, ProbeResult};
 use crate::retry::{backoff_delay, io_err};
 use crate::speed::{eta, SpeedMeter};
@@ -312,7 +314,7 @@ async fn run_inner(
 
         if rec.size == Some(0) {
             File::create(&part).map_err(io_err)?;
-            return finish(env, &rec, &part).await;
+            return finish(env, &rec, &part, cancel).await;
         }
 
         let file = std::fs::OpenOptions::new()
@@ -348,7 +350,7 @@ async fn run_inner(
             .unwrap_or_else(|p| p.into_inner())
             .remove(id);
         match moved {
-            Ok(()) => return finish(env, &rec, &part).await,
+            Ok(()) => return finish(env, &rec, &part, cancel).await,
             Err(e)
                 if restarts < env.config.max_attempts
                     && !cancel.is_cancelled()
@@ -754,14 +756,44 @@ fn verify_checksum(path: &Path, spec: &str) -> Result<(), OdmError> {
     }
 }
 
-async fn finish(env: &DownloadEnv, rec: &DownloadRecord, part: &Path) -> Result<Placed, OdmError> {
+async fn finish(
+    env: &DownloadEnv,
+    rec: &DownloadRecord,
+    part: &Path,
+    cancel: &CancellationToken,
+) -> Result<Placed, OdmError> {
     if let Some(spec) = rec.checksum.clone() {
         let p = part.to_path_buf();
         tokio::task::spawn_blocking(move || verify_checksum(&p, &spec))
             .await
             .map_err(|e| OdmError::new(ErrorKind::Other, e.to_string()))??;
     }
+    if wants_mp3(rec) {
+        return finish_as_mp3(env, rec, part, cancel).await;
+    }
     finalize(env, rec, part, &rec.filename, None).await
+}
+
+/// The part file stays until the MP3 exists, so a failed conversion can be tried again.
+async fn finish_as_mp3(
+    env: &DownloadEnv,
+    rec: &DownloadRecord,
+    part: &Path,
+    cancel: &CancellationToken,
+) -> Result<Placed, OdmError> {
+    transition(env, &rec.id, DownloadState::Merging, None).await;
+    let ffmpeg = resolve_ffmpeg(&env.config).ok_or_else(|| {
+        OdmError::new(
+            ErrorKind::Other,
+            "FFmpeg not found — set its path in Settings.",
+        )
+    })?;
+    let mut mp3 = part.as_os_str().to_owned();
+    mp3.push(".mp3");
+    let mp3 = PathBuf::from(mp3);
+    to_mp3(&ffmpeg, part, &mp3, cancel).await?;
+    let _ = std::fs::remove_file(part);
+    finalize(env, rec, &mp3, &mp3_name(&rec.filename), None).await
 }
 
 /// Moves the finished file `staged` into the download's folder as `name`, following the

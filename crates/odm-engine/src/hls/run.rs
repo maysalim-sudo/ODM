@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 use super::crypto::{decrypt_aes128, iv_for};
 use super::merge::{merge, resolve_ffmpeg};
 use super::playlist::{best_variant, parse, Key, KeyMethod, MediaPlaylist, Playlist};
+use crate::convert::{mp3_name, to_mp3, wants_mp3};
 use crate::download::{finalize, header_map, transition, DownloadEnv, Outcome, Placed};
 use crate::events::{EngineEvent, ProgressSnapshot, SegmentProgress};
 use crate::retry::{backoff_delay, classify_status, http_err, io_err, parse_retry_after};
@@ -458,5 +459,10 @@ async fn run_inner(
     let ffmpeg = resolve_ffmpeg(&env.config)
         .ok_or_else(|| other("FFmpeg not found — set its path in Settings."))?;
     let out = merge(&ffmpeg, &dir, total, media.map_url.is_some(), cancel).await?;
+    if wants_mp3(&rec) {
+        let mp3 = dir.join("out.mp3");
+        to_mp3(&ffmpeg, &out, &mp3, cancel).await?;
+        return finalize(env, &rec, &mp3, &mp3_name(&rec.filename), Some(dir)).await;
+    }
     finalize(env, &rec, &out, &rec.filename, Some(dir)).await
 }

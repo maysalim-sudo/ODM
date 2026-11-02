@@ -1,5 +1,6 @@
 //! ODM download engine.
 pub mod chunks;
+pub mod convert;
 pub mod limiter;
 pub mod retry;
 
