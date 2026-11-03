@@ -219,6 +219,11 @@ class DownloadsStore {
     this.pruneSelection();
   }
 
+  /** Ctrl+A: every row the current tab and type show. */
+  selectAll(): void {
+    this.selected = new Set(this.visible.map((r) => r.id));
+  }
+
   /** Plain click selects one; ctrl toggles; shift extends from the last selected row. */
   select(id: string, mode: "one" | "toggle" | "range", order: string[] = this.visible.map((r) => r.id)): void {
     if (mode === "one") {

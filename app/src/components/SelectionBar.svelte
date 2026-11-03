@@ -13,7 +13,8 @@
   const resumable = (r: Row) => canResume(r, queueSchedule.wait !== null);
 </script>
 
-{#if rows.length > 0}
+<!-- One selected download has its actions in the bottom panel; the bar is for acting on several. -->
+{#if rows.length > 1}
   <div class="bar" role="toolbar" aria-label="Selected downloads">
     <span class="n">{rows.length} selected</span>
     {#if rows.some(resumable)}

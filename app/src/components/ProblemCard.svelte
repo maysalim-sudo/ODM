@@ -8,7 +8,7 @@
     row,
     onaction,
     onselect,
-  }: { row: Row; onaction: (a: RowAction) => void; onselect: (mode: "toggle" | "range") => void } = $props();
+  }: { row: Row; onaction: (a: RowAction) => void; onselect: (mode: "one" | "toggle" | "range") => void } = $props();
 
   const ICONS: Record<ProblemFix, string> = { "new-link": "refresh", tools: "video", retry: "alert" };
 
@@ -23,12 +23,12 @@
   function click(e: MouseEvent) {
     if (e.shiftKey) onselect("range");
     else if (e.ctrlKey || e.metaKey) onselect("toggle");
-    else onaction("details");
+    else onselect("one");
   }
 
   function key(e: KeyboardEvent) {
     if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter") onaction("details");
+    if (e.key === "Enter") onselect("one");
     if (e.key === " ") {
       e.preventDefault();
       onselect("toggle");

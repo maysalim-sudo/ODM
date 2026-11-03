@@ -3,7 +3,7 @@
   import AddPanel from "./components/AddPanel.svelte";
   import CancelDialog from "./components/CancelDialog.svelte";
   import BatchDialog from "./components/BatchDialog.svelte";
-  import DetailPanel from "./components/DetailPanel.svelte";
+  import BottomPanel from "./components/BottomPanel.svelte";
   import DownloadList from "./components/DownloadList.svelte";
   import DownloadTable from "./components/DownloadTable.svelte";
   import OpenProgramDialog from "./components/OpenProgramDialog.svelte";
@@ -29,10 +29,11 @@
   import type { RowAction } from "./lib/home";
   import { isRiskyFile, problemInfo, type Row } from "./lib/model";
   import type { ListView } from "./lib/types";
+  import { speedHistory } from "./lib/speedHistory.svelte";
   import { updates } from "./lib/updates.svelte";
 
-  let detailId = $state<string | null>(null);
   let addPanel = $state<AddPanel>();
+  let bottomPanel = $state<BottomPanel>();
   let batchOpen = $state(false);
   let settingsOpen = $state(false);
   let removeOpen = $state(false);
@@ -43,9 +44,9 @@
   let welcomeOpen = $state(false);
   let settingsSection = $state<SectionId | undefined>(undefined);
   let listView = $state<ListView>("cards");
-  /** The row a card's action applies to; the details panel's row otherwise. */
+  /** The row a dialog's action applies to. */
   let actionId = $state<string | null>(null);
-  const targetId = $derived(actionId ?? detailId);
+  const targetId = $derived(actionId);
   const targetName = $derived(targetId ? (downloads.rows.get(targetId)?.filename ?? "") : "");
 
   onMount(() => {
@@ -78,12 +79,14 @@
       })
       .then((un) => (gone ? un() : (offDrop = un)));
     const stop = integration.startPolling();
+    const stopSpeeds = speedHistory.start();
     return () => {
       gone = true;
       off?.();
       offQueue?.();
       offDrop?.();
       stop();
+      stopSpeeds();
     };
   });
 
@@ -96,7 +99,8 @@
     const only = () => (downloads.selected = new Set([row.id]));
     switch (a) {
       case "details":
-        detailId = row.id;
+        only();
+        bottomPanel?.showInfo();
         break;
       case "pause":
         void downloads.run(() => api.pause([row.id]));
@@ -165,7 +169,6 @@
     }
     if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
-      detailId = null;
       addPanel?.focus();
       return;
     }
@@ -177,7 +180,11 @@
       (t instanceof HTMLElement && t.isContentEditable);
     if (typing) return;
     if (e.key === "Delete" && downloads.selected.size > 0) removeOpen = true;
-    if (e.key === "Escape") detailId = null;
+    // Text fields keep their own Ctrl+A (returned above).
+    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      downloads.selectAll();
+    }
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
       batchOpen = true;
@@ -195,7 +202,7 @@
       settingsOpen = true;
     }}
   >
-    <AddPanel bind:this={addPanel} blocked={dialogOpen || detailId !== null} />
+    <AddPanel bind:this={addPanel} blocked={dialogOpen} />
   </Header>
   {#if downloads.error}
     <div class="error" role="alert">
@@ -209,15 +216,21 @@
       {#if listView === "cards"}
         <DownloadList onaction={rowAction} onremove={() => (removeOpen = true)} onbrowser={() => (browserOpen = true)} />
       {:else}
-        <DownloadTable onopen={(id) => (detailId = id)} />
+        <DownloadTable
+          onopen={(id) => {
+            // Double-click opens a finished file; other rows are already in the panel.
+            const row = downloads.rows.get(id);
+            if (row?.state === "completed") rowAction(row, "open");
+          }}
+        />
       {/if}
       <SelectionBar oncancel={() => (cancelOpen = true)} onremove={() => (removeOpen = true)} />
     </div>
-    <DetailPanel
-      id={detailId}
-      onclose={() => (detailId = null)}
+    <BottomPanel
+      bind:this={bottomPanel}
       onaction={(a) => {
-        const row = detailId ? downloads.rows.get(detailId) : undefined;
+        const id = downloads.selected.size === 1 ? [...downloads.selected][0] : undefined;
+        const row = id ? downloads.rows.get(id) : undefined;
         if (row) rowAction(row, a);
       }}
     />
@@ -270,12 +283,14 @@
   .body {
     flex: 1;
     display: flex;
+    flex-direction: column;
     min-height: 0;
   }
   .main {
     position: relative;
     flex: 1;
     min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
   }

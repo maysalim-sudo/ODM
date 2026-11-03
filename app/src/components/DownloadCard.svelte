@@ -28,7 +28,7 @@
     dragging?: boolean;
     dropEdge?: "top" | "bottom" | null;
     onaction: (a: RowAction) => void;
-    onselect: (mode: "toggle" | "range") => void;
+    onselect: (mode: "one" | "toggle" | "range") => void;
   } = $props();
 
   const TILES: Record<string, string> = {
@@ -55,7 +55,13 @@
   function click(e: MouseEvent) {
     if (e.shiftKey) onselect("range");
     else if (e.ctrlKey || e.metaKey) onselect("toggle");
-    else onaction("details");
+    else onselect("one");
+  }
+
+  // Double-click opens a finished file, as in the table.
+  function dblclick(e: MouseEvent) {
+    if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+    if (row.state === "completed") onaction("open");
   }
 
   function key(e: KeyboardEvent) {
@@ -66,7 +72,7 @@
       if (moves.includes(move)) onaction(move);
       return;
     }
-    if (e.key === "Enter") onaction("details");
+    if (e.key === "Enter") onselect("one");
     if (e.key === " ") {
       e.preventDefault();
       onselect("toggle");
@@ -93,6 +99,7 @@
   tabindex="0"
   aria-label={`${row.filename}. ${summary}`}
   onclick={click}
+  ondblclick={dblclick}
   onkeydown={key}
 >
   {#if grip}
