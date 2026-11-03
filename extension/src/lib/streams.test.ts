@@ -1,5 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { MIN_VIDEO_BYTES, SentHeaderCache, StreamStore, classify, responseSize, streamLabel, videoLabel, toStreamPayload, toVideoFilePayload } from "./streams";
+import { MIN_VIDEO_BYTES, SentHeaderCache, StreamStore, classify, responseSize, streamLabel, videoLabel, videoSource, toStreamPayload, toVideoFilePayload } from "./streams";
+
+describe("videoSource", () => {
+  it("treats a playlist the browser plays itself as a stream, not a file", () => {
+    expect(videoSource("https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", [])).toMatchObject({
+      url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+      kind: "hls",
+      supported: true,
+    });
+  });
+
+  it("uses what the tab saw for a playlist without the .m3u8 extension", () => {
+    const listed = [{ url: "https://cdn.x/play?id=1", kind: "hls" as const, label: "x", supported: true }];
+    expect(videoSource("https://cdn.x/play?id=1#t=5", listed)?.kind).toBe("hls");
+  });
+
+  it("keeps a plain video source as a file", () => {
+    expect(videoSource("https://cdn.x/v/clip.mp4", [])?.kind).toBe("file");
+  });
+
+  it("has nothing for a blob or empty source", () => {
+    expect(videoSource("blob:https://x/1", [])).toBeNull();
+    expect(videoSource("", [])).toBeNull();
+  });
+});
 
 describe("classify", () => {
   it("detects HLS by path, ignoring the query", () => {

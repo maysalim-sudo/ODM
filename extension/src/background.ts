@@ -18,7 +18,7 @@ import { errorText, readFormat, type VideoFormat } from "./lib/protocol";
 import { isSitePage, toPagePayload } from "./lib/sites";
 import { isMagnet, isTorrentDownload, toTorrentPayload } from "./lib/torrent";
 import { BADGE, BADGE_ERROR } from "./lib/theme";
-import { SentHeaderCache, StreamStore, classify, responseSize, toStreamPayload, toVideoFilePayload, type Stream } from "./lib/streams";
+import { SentHeaderCache, StreamStore, classify, responseSize, toStreamPayload, toVideoFilePayload, videoSource, type Stream } from "./lib/streams";
 
 const alt = new AltTracker();
 // Settings for turning video detection off; the first answer waits for the first load.
@@ -89,6 +89,11 @@ async function addStream(tabId: number | undefined, url: string | undefined, tab
   if (tabId === undefined || !stream) return { ok: false, message: "That video is no longer listed. Reload the page." };
   const page = await pageOf(tabId, tab);
   if (!page) return { ok: false, message: "The tab is gone." };
+  return sendStream(stream, page, format);
+}
+
+/** Sends a stream, or a plain file, to ODM. */
+async function sendStream(stream: Stream, page: chrome.tabs.Tab, format?: VideoFormat): Promise<Reply> {
   if (stream.kind === "file") return sendFile(stream, page, format);
   const pageUrl = page.url ?? "";
   const storeId = (page as { cookieStoreId?: string }).cookieStoreId;
@@ -123,9 +128,8 @@ async function addVideo(tabId: number | undefined, src: string | undefined, tab?
   if (tabId === undefined) return { ok: false, message: NOT_SEEN };
   const page = await pageOf(tabId, tab);
   if (!page) return { ok: false, message: "The tab is gone." };
-  if (src && isHttp(src)) {
-    return sendFile({ url: src, kind: "file", label: src, supported: true }, page, format);
-  }
+  const source = src ? videoSource(src, streams.list(tabId)) : null;
+  if (source) return sendStream(source, page, format);
   const supported = streams.list(tabId).filter((s) => s.supported);
   const hls = supported.find((s) => s.kind === "hls");
   const largest = supported
