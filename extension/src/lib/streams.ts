@@ -48,6 +48,19 @@ export function classify(url: string, contentType: string | undefined, size?: nu
   return null;
 }
 
+/**
+ * What a `<video>`'s own source is. Browsers that play HLS themselves put the playlist there, so a
+ * playlist (by what the tab saw, else by its path) is a stream; any other http(s) source is a file.
+ */
+export function videoSource(src: string, listed: Stream[]): Stream | null {
+  if (!/^https?:/i.test(src)) return null;
+  const key = withoutFragment(src);
+  const seen = listed.find((s) => s.supported && s.kind === "hls" && withoutFragment(s.url) === key);
+  if (seen) return seen;
+  if (classify(src, undefined) === "hls") return { url: src, kind: "hls", label: streamLabel(src), supported: true };
+  return { url: src, kind: "file", label: src, supported: true };
+}
+
 /** `<last path segment> · <host>`, with the size between them when known, for telling items apart in a list. */
 export function streamLabel(url: string, size?: number): string {
   try {

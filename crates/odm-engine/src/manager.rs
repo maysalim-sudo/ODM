@@ -758,6 +758,10 @@ impl Manager {
         rec.page_url = req.page_url;
         rec.page_title = req.page_title;
         rec.video_override = req.video_override.and_then(VideoOverride::to_stored);
+        // Named as what it ends up as, so the list and the New download dialog say MP3.
+        if crate::convert::wants_mp3(&rec) {
+            rec.filename = crate::convert::mp3_name(&rec.filename);
+        }
         if req.start_paused {
             rec.state = DownloadState::Paused;
         }
