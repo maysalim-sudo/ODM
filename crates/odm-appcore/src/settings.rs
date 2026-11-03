@@ -94,6 +94,8 @@ pub enum OnComplete {
     Nothing,
     OpenFolder,
     OpenFile,
+    /// Ask each time: open the file, its folder, or neither.
+    Ask,
 }
 
 /// Whether new downloads start right away or are added paused.

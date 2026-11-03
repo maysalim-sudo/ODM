@@ -446,6 +446,7 @@
                               { value: "nothing", label: "Nothing" },
                               { value: "open_folder", label: "Open folder" },
                               { value: "open_file", label: "Open file" },
+                              { value: "ask", label: "Ask" },
                             ]}
                             onchange={(v) => set("on_complete", v)}
                           />

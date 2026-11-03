@@ -1,6 +1,6 @@
 import * as api from "./api";
 import { queueOrder } from "./home";
-import { ReloadGate, addOffer, addPrompt, applyEvent, counts, keepVisible, nextConfirm, visible, type Filter, type Row, type SortDir, type SortKey, type StatusFilter } from "./model";
+import { ReloadGate, addFinished, addOffer, addPrompt, applyEvent, counts, keepVisible, nextConfirm, nextFinished, visible, type Filter, type Row, type SortDir, type SortKey, type StatusFilter } from "./model";
 import type { AfterQueue, ConfirmArgs, ExistsChoice, ExistsPrompt, Offer, UiEvent } from "./types";
 
 class DownloadsStore {
@@ -26,6 +26,11 @@ class DownloadsStore {
 
   /** Finished downloads whose file name is taken, waiting for Replace, Keep both or Cancel. */
   prompts = $state<ExistsPrompt[]>([]);
+
+  /** Finished downloads waiting for "Open file, Open folder or neither?", oldest first. */
+  finished = $state<string[]>([]);
+  /** The download the "Download finished" dialog is about, if any. */
+  finishedRow = $derived(nextFinished(this.finished, [...this.rows.values()]));
 
   /** The "When the queue is done" countdown: what happens and when (epoch ms), or null. */
   afterQueue = $state<{ action: Exclude<AfterQueue, "nothing">; at: number } | null>(null);
@@ -123,6 +128,11 @@ class DownloadsStore {
     }
   }
 
+  /** The "Download finished" question for `id` is answered or closed. */
+  dropFinished(id: string): void {
+    this.finished = this.finished.filter((x) => x !== id);
+  }
+
   async reload(): Promise<void> {
     const ticket = this.gate.begin();
     try {
@@ -160,6 +170,10 @@ class DownloadsStore {
         this.filter = { status: "all", category: null };
         this.select(ev.id, "one");
       }
+      return;
+    }
+    if (ev.type === "ask_open") {
+      this.finished = addFinished(this.finished, ev.id);
       return;
     }
     if (ev.type === "exists_prompt") {

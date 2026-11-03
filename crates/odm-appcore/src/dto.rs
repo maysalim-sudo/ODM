@@ -177,6 +177,10 @@ pub enum UiEvent {
     Focus {
         id: String,
     },
+    /// "When a download finishes: Ask": ask whether to open the file or its folder.
+    AskOpen {
+        id: String,
+    },
     /// A finished download's file name is taken: ask Replace, Keep both or Cancel.
     ExistsPrompt {
         id: String,

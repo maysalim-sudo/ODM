@@ -18,6 +18,8 @@ import {
   addOffer,
   addPrompt,
   nextConfirm,
+  nextFinished,
+  addFinished,
   counts,
   COL,
   NAME_MIN,
@@ -521,6 +523,22 @@ describe("confirms", () => {
     expect(nextConfirm(["gone", "a", "c", "b"], rows)?.id).toBe("c");
     expect(nextConfirm(["gone", "a"], rows)).toBeUndefined();
     expect(nextConfirm([], rows)).toBeUndefined();
+  });
+
+  it("nextFinished returns the first asked-about download that is still complete", () => {
+    const rows = [
+      toRow(dl("a", { state: "downloading" })),
+      toRow(dl("b", { state: "completed" })),
+      toRow(dl("c", { state: "completed" })),
+    ];
+    expect(nextFinished(["gone", "a", "c", "b"], rows)?.id).toBe("c");
+    expect(nextFinished(["gone", "a"], rows)).toBeUndefined();
+  });
+
+  it("addFinished keeps one question per download", () => {
+    const once = addFinished([], "a");
+    expect(addFinished(once, "a")).toBe(once);
+    expect(addFinished(once, "b")).toEqual(["a", "b"]);
   });
 });
 

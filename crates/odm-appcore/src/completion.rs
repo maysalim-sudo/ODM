@@ -12,7 +12,8 @@ pub enum CompletionAction {
 /// (a program, a script) never opens by itself: its folder opens instead.
 pub fn completion_action(on_complete: OnComplete, filename: &str) -> Option<CompletionAction> {
     match on_complete {
-        OnComplete::Nothing => None,
+        // The UI asks; see `UiEvent::AskOpen`.
+        OnComplete::Nothing | OnComplete::Ask => None,
         OnComplete::OpenFolder => Some(CompletionAction::OpenFolder),
         OnComplete::OpenFile if odm_core::filename::is_risky(filename) => {
             Some(CompletionAction::OpenFolder)
@@ -48,5 +49,10 @@ mod tests {
             );
         }
         assert_eq!(completion_action(OnComplete::Nothing, "setup.exe"), None);
+    }
+
+    #[test]
+    fn ask_opens_nothing_by_itself() {
+        assert_eq!(completion_action(OnComplete::Ask, "a.pdf"), None);
     }
 }

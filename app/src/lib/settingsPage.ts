@@ -76,7 +76,7 @@ export const ROWS: RowDef[] = [
   row("downloads", "download_dir", "Download folder", "Where new downloads are saved.", ["download_dir"]),
   row("downloads", "sort_by_type", "Sort into folders by type", "Each type gets its own folder inside the download folder.", ["sort_by_type", "category_folders"]),
   row("downloads", "on_exists", "When a file already exists", "Rename keeps both files by adding a number.", ["on_exists"]),
-  row("downloads", "on_complete", "When a download finishes", "Open its folder or the file itself.", ["on_complete"]),
+  row("downloads", "on_complete", "When a download finishes", "Open its folder or the file itself, or ask each time.", ["on_complete"]),
   row("downloads", "start_mode", "Start new downloads", "Paused downloads wait until you press Resume.", ["start_mode"]),
   row("downloads", "max_concurrent", "Downloads at once", "The rest wait in the queue.", ["max_concurrent"]),
   row("downloads", "history_days", "Remove finished downloads from the list", "Only the list entry goes. The file stays.", ["history_days"]),

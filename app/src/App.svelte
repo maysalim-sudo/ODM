@@ -14,6 +14,7 @@
   import WelcomeDialog from "./components/WelcomeDialog.svelte";
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
   import ExistsDialog from "./components/ExistsDialog.svelte";
+  import FinishedDialog from "./components/FinishedDialog.svelte";
   import AfterQueueDialog from "./components/AfterQueueDialog.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
   import Header from "./components/Header.svelte";
@@ -257,6 +258,7 @@
 <ReuseDialog />
 <ConfirmDialog />
 <ExistsDialog />
+<FinishedDialog />
 <AfterQueueDialog />
 
 <style>

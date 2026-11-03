@@ -122,6 +122,7 @@ export type UiEvent =
   | { type: "focus"; id: string }
   | { type: "tools_progress"; stage: string; done: number; total: number }
   | { type: "exists_prompt"; id: string; name: string }
+  | { type: "ask_open"; id: string }
   | { type: "after_queue_pending"; action: Exclude<AfterQueue, "nothing">; seconds: number }
   | { type: "after_queue_cancelled" }
   | { type: "after_queue_done" }
@@ -226,7 +227,7 @@ export interface Settings {
 }
 
 export type OnExists = "rename" | "overwrite" | "ask";
-export type OnComplete = "nothing" | "open_folder" | "open_file";
+export type OnComplete = "nothing" | "open_folder" | "open_file" | "ask";
 export type StartMode = "now" | "paused";
 export type AfterQueue = "nothing" | "sleep" | "shutdown" | "quit";
 export type VideoQuality = "best" | "1080p" | "720p" | "480p" | "audio";

@@ -1,7 +1,7 @@
 use odm_appcore::completion::{completion_action, CompletionAction};
 use odm_appcore::dto::{DownloadDto, Finished, UiEvent};
 use odm_appcore::power::{self, PowerActions, SystemPower};
-use odm_appcore::settings::AfterQueue;
+use odm_appcore::settings::{AfterQueue, OnComplete};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Emitter, Manager, Window, WindowEvent, Wry};
@@ -249,6 +249,16 @@ pub fn on_ui_event(app: &AppHandle, ev: &UiEvent) {
     };
     if let Some(action) = on_complete.and_then(|c| completion_action(c, &download.filename)) {
         open_finished(app, download, action);
+    }
+    if on_complete == Some(OnComplete::Ask) {
+        // The window asks what to open; bring it forward, even from the tray.
+        let ask = UiEvent::AskOpen {
+            id: download.id.clone(),
+        };
+        if let Err(e) = app.emit(crate::EVENT, &ask) {
+            tracing::warn!("could not ask what to open: {e}");
+        }
+        show_on_main_thread(app);
     }
     if wanted {
         notify(app, title, &download.filename);

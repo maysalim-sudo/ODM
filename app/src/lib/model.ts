@@ -118,6 +118,7 @@ export function applyEvent(rows: Map<string, Row>, ev: UiEvent): { rows: Map<str
     case "focus":
     case "tools_progress":
     case "exists_prompt":
+    case "ask_open":
     case "update_available":
     case "update_progress":
     case "update_ready":
@@ -245,6 +246,21 @@ export function addOffer(list: Offer[], o: Offer): Offer[] {
 /** "<name> already exists" prompts waiting for an answer, one per download, oldest first. */
 export function addPrompt(list: ExistsPrompt[], p: ExistsPrompt): ExistsPrompt[] {
   return list.some((x) => x.id === p.id) ? list : [...list, p];
+}
+
+/** "When a download finishes: Ask" questions waiting, one per download, oldest first. */
+export function addFinished(ids: string[], id: string): string[] {
+  return ids.includes(id) ? ids : [...ids, id];
+}
+
+/** The first asked-about id whose row is still complete, i.e. the next "Download finished" dialog. */
+export function nextFinished(ids: string[], rows: Row[]): Row | undefined {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  for (const id of ids) {
+    const row = byId.get(id);
+    if (row?.state === "completed") return row;
+  }
+  return undefined;
 }
 
 /** The first pending id whose row is paused, i.e. the next "New download" dialog to show. */

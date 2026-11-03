@@ -401,6 +401,9 @@ fn choice_fields_use_snake_case_and_fall_back_when_unknown() {
     let json = serde_json::to_value(&s).unwrap();
     assert_eq!(json["on_complete"], "open_folder");
     assert_eq!(json["video_quality"], "720p");
+    let (s, w) = Settings::from_json(r#"{"on_complete": "ask"}"#);
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(s.on_complete, OnComplete::Ask);
     for q in ["best", "1080p", "480p", "audio"] {
         let (s, w) = Settings::from_json(&format!(r#"{{"video_quality": "{q}"}}"#));
         assert!(w.is_empty(), "{q}: {w:?}");
