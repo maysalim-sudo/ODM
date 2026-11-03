@@ -8,6 +8,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Quality;
+use crate::convert::asks_mp3;
 use crate::download::{
     build_client, finalize, part_path, pause_with_reason, run_download, transition, DownloadEnv,
     Outcome, Placed,
@@ -691,10 +692,13 @@ impl Manager {
             .map(filename::sanitize)
             .or_else(|| filename::from_url(&req.url))
             .unwrap_or_else(|| "download".into());
-        let cat = req
-            .category
-            .clone()
-            .unwrap_or_else(|| category::detect(&name, None).as_str().to_string());
+        let cat = req.category.clone().unwrap_or_else(|| {
+            if asks_mp3(req.video_override.as_ref()) {
+                "audio".into()
+            } else {
+                category::detect(&name, None).as_str().to_string()
+            }
+        });
         let dir = req
             .save_dir
             .clone()
@@ -702,7 +706,10 @@ impl Manager {
 
         let mut rec = DownloadRecord::new_file(&id, &req.url, &name, &dir.to_string_lossy());
         rec.category = cat;
-        rec.auto_place = req.category.is_none() && req.save_dir.is_none();
+        // An MP3 stays with the audio, whatever the server says the file is.
+        rec.auto_place = req.category.is_none()
+            && req.save_dir.is_none()
+            && !asks_mp3(req.video_override.as_ref());
         rec.filename_locked = req.filename.is_some();
         rec.max_connections = req
             .max_connections
@@ -746,13 +753,18 @@ impl Manager {
             req.page_title.as_deref(),
             &req.playlist_url,
         );
+        let cat = if asks_mp3(req.video_override.as_ref()) {
+            "audio"
+        } else {
+            "video"
+        };
         let dir = req
             .save_dir
             .clone()
-            .unwrap_or_else(|| self.env.config.save_dir_for("video"));
+            .unwrap_or_else(|| self.env.config.save_dir_for(cat));
         let mut rec =
             DownloadRecord::new_hls(&id, &req.playlist_url, &name, &dir.to_string_lossy());
-        rec.category = "video".into();
+        rec.category = cat.into();
         rec.filename_locked = req.filename.is_some();
         rec.max_connections = self.env.config.max_connections.clamp(1, 32);
         rec.page_url = req.page_url;
@@ -808,12 +820,13 @@ impl Manager {
             == Quality::Audio;
         let name =
             crate::site::output_name(req.filename.as_deref(), req.page_title.as_deref(), audio);
+        let cat = if audio { "audio" } else { "video" };
         let dir = req
             .save_dir
             .clone()
-            .unwrap_or_else(|| self.env.config.save_dir_for("video"));
+            .unwrap_or_else(|| self.env.config.save_dir_for(cat));
         let mut rec = DownloadRecord::new_site(&id, &req.page_url, &name, &dir.to_string_lossy());
-        rec.category = "video".into();
+        rec.category = cat.into();
         rec.filename_locked = req.filename.is_some();
         rec.max_connections = self.env.config.max_connections.clamp(1, 32);
         rec.video_override = req.video_override.and_then(VideoOverride::to_stored);

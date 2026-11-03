@@ -14,6 +14,11 @@ pub fn wants_mp3(rec: &DownloadRecord) -> bool {
             == Quality::Audio
 }
 
+/// True when a new download's own options ask for audio, before it has a record.
+pub fn asks_mp3(o: Option<&crate::VideoOverride>) -> bool {
+    o.and_then(|o| o.quality) == Some(Quality::Audio)
+}
+
 /// `clip.mp4` becomes `clip.mp3`.
 pub fn mp3_name(name: &str) -> String {
     Path::new(name)

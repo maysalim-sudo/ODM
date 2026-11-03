@@ -1,7 +1,9 @@
 //! Saving a download as MP3: plain files go through FFmpeg before they are placed.
 use odm_core::DownloadState;
 use odm_engine::config::Quality;
-use odm_engine::{AddRequest, EngineConfig, ManagerHandle, StreamRequest, VideoOverride};
+use odm_engine::{
+    AddRequest, EngineConfig, ManagerHandle, SiteRequest, StreamRequest, VideoOverride,
+};
 use odm_store::{DownloadRecord, Store};
 use odm_testserver::{Faults, TestServer};
 use std::path::{Path, PathBuf};
@@ -108,6 +110,28 @@ async fn a_plain_file_ends_up_as_an_mp3() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_plain_file_saved_as_mp3_stays_in_the_audio_folder() {
+    let tools = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let s = TestServer::start(SIZE, Faults::default()).await;
+    let c = cfg(out.path(), stub_ffmpeg(tools.path(), true));
+    let music = c.save_dir_for("audio");
+    let m = ManagerHandle::start(c, Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let id = m
+        .add(AddRequest {
+            save_dir: None,
+            ..mp3_request(s.url("/file"), out.path())
+        })
+        .await
+        .unwrap();
+    let r = wait_for(m.store(), &id, DownloadState::Completed).await;
+    assert_eq!(std::path::PathBuf::from(&r.save_dir), music);
+    assert!(music.join("clip.mp3").is_file());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_taken_mp3_name_follows_the_exists_rule() {
     let tools = tempfile::tempdir().unwrap();
     let out = tempfile::tempdir().unwrap();
@@ -197,6 +221,59 @@ async fn a_stream_saved_as_mp3_is_named_mp3_from_the_start() {
         .unwrap();
     let r = m.store().get_download(&id).await.unwrap().unwrap();
     assert_eq!(r.filename, "x36xhzz.mp3");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn mp3_goes_to_the_audio_folder() {
+    let out = tempfile::tempdir().unwrap();
+    let c = cfg(out.path(), "Z:/nope/ffmpeg.exe".into());
+    let want = c.save_dir_for("audio");
+    assert_ne!(want, c.save_dir_for("video"));
+    let m = ManagerHandle::start(c, Store::open_in_memory().unwrap())
+        .await
+        .unwrap();
+    let audio = || {
+        Some(VideoOverride {
+            quality: Some(Quality::Audio),
+            ..VideoOverride::default()
+        })
+    };
+    let stream = m
+        .add_stream(StreamRequest {
+            playlist_url: "https://e.com/a.m3u8".into(),
+            start_paused: true,
+            video_override: audio(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let site = m
+        .add_site(SiteRequest {
+            page_url: "https://www.youtube.com/watch?v=abc".into(),
+            start_paused: true,
+            video_override: audio(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let file = m
+        .add(AddRequest {
+            filename: Some("clip.mp4".into()),
+            start_paused: true,
+            video_override: audio(),
+            ..AddRequest::new("https://e.com/clip.mp4")
+        })
+        .await
+        .unwrap();
+    for id in [stream, site, file] {
+        let r = m.store().get_download(&id).await.unwrap().unwrap();
+        assert_eq!(
+            (r.category.as_str(), std::path::PathBuf::from(&r.save_dir)),
+            ("audio", want.clone()),
+            "{}",
+            r.kind
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
