@@ -1,7 +1,7 @@
 //! Saving a download as MP3: plain files go through FFmpeg before they are placed.
 use odm_core::DownloadState;
 use odm_engine::config::Quality;
-use odm_engine::{AddRequest, EngineConfig, ManagerHandle, VideoOverride};
+use odm_engine::{AddRequest, EngineConfig, ManagerHandle, StreamRequest, VideoOverride};
 use odm_store::{DownloadRecord, Store};
 use odm_testserver::{Faults, TestServer};
 use std::path::{Path, PathBuf};
@@ -172,6 +172,31 @@ async fn no_ffmpeg_says_so_in_the_words_the_app_looks_for() {
         .unwrap();
     let r = wait_for(m.store(), &id, DownloadState::Failed).await;
     assert!(r.error_msg.unwrap().starts_with("FFmpeg not found"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stream_saved_as_mp3_is_named_mp3_from_the_start() {
+    let out = tempfile::tempdir().unwrap();
+    let m = ManagerHandle::start(
+        cfg(out.path(), "Z:/nope/ffmpeg.exe".into()),
+        Store::open_in_memory().unwrap(),
+    )
+    .await
+    .unwrap();
+    let id = m
+        .add_stream(StreamRequest {
+            playlist_url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8".into(),
+            start_paused: true,
+            video_override: Some(VideoOverride {
+                quality: Some(Quality::Audio),
+                ..VideoOverride::default()
+            }),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let r = m.store().get_download(&id).await.unwrap().unwrap();
+    assert_eq!(r.filename, "x36xhzz.mp3");
 }
 
 #[tokio::test(flavor = "multi_thread")]
