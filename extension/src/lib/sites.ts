@@ -48,14 +48,44 @@ export function isSitePage(url: string): boolean {
 
 const FACEBOOK_VIDEO_PATHS = ["/videos/", "/reel/", "/watch/?v="];
 
+/** One YouTube video: `/watch?v=`, `/shorts/…`, `/live/…`, or a youtu.be link. */
+function isYoutubeVideo(u: URL): boolean {
+  if (hostIs(u, "youtu.be")) return u.pathname.length > 1;
+  if (!hostIs(u, "youtube.com")) return false;
+  if (u.pathname === "/watch") return !!u.searchParams.get("v");
+  return /^\/(shorts|live)\/[^/]+/.test(u.pathname);
+}
+
+/**
+ * YouTube's home, search and channel pages play previews of many videos, and yt-dlp given such a
+ * page downloads every video on it. So the preview's own link wins, then the page when it is one
+ * video; otherwise there is nothing to send.
+ */
+function youtubeAddress(page: URL, candidateHrefs: string[]): string | null {
+  for (const href of candidateHrefs) {
+    let u: URL;
+    try {
+      u = new URL(href, page);
+    } catch {
+      continue;
+    }
+    if (!isYoutubeVideo(u)) continue;
+    if (u.pathname === "/watch") return `${u.origin}/watch?v=${u.searchParams.get("v")}`;
+    return `${u.origin}${u.pathname}`;
+  }
+  return isYoutubeVideo(page) ? page.href : null;
+}
+
 /**
  * The best page address for a video element on a site. On facebook.com a feed shows many videos on
  * one page, so the first `/videos/`, `/reel/` or `/watch/?v=` link of the video's post wins (made
- * absolute); everywhere else, and when there is no such link, it is the page address itself.
+ * absolute); on YouTube see `youtubeAddress`, which may give null; everywhere else, and when there
+ * is no such link, it is the page address itself.
  * Pure: takes the candidate hrefs of the post and the page URL.
  */
-export function pageAddress(pageUrl: string, candidateHrefs: string[]): string {
+export function pageAddress(pageUrl: string, candidateHrefs: string[]): string | null {
   const page = parse(pageUrl);
+  if (page && (hostIs(page, "youtube.com") || hostIs(page, "youtu.be"))) return youtubeAddress(page, candidateHrefs);
   if (!page || !hostIs(page, "facebook.com")) return pageUrl;
   for (const href of candidateHrefs) {
     let absolute: URL;

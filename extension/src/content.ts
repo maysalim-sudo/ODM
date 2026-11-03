@@ -290,8 +290,12 @@ const MESSAGE_MS = 4000;
   let ui: { host: HTMLElement; wrap: HTMLElement; button: HTMLButtonElement; mp3: HTMLButtonElement; msg: HTMLElement } | null = null;
 
   /** The links of the post (feed item) that holds the video, for finding the video's own page. */
+  // A Facebook post, or the YouTube card or hover preview the video plays in. YouTube's main
+  // player is in none of these, so the watch page itself is used there.
   const postLinks = (v: HTMLVideoElement): string[] => {
-    const post = v.closest('[role="article"]');
+    const post = v.closest(
+      '[role="article"], ytd-video-preview, ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-reel-item-renderer',
+    );
     return post ? Array.from(post.querySelectorAll("a[href]"), (a) => (a as HTMLAnchorElement).href) : [];
   };
 
@@ -366,11 +370,16 @@ const MESSAGE_MS = 4000;
       let reply: AddReply;
       try {
         // On a video site the page is the thing to download (yt-dlp finds the media); elsewhere the file or stream.
-        const message = isSitePage(location.href)
-          ? { type: "odm-add-page", url: pageAddress(location.href, postLinks(video)), format }
-          : { type: "odm-add-video", src: video.currentSrc, format };
-        const r = (await chrome.runtime.sendMessage(message)) as AddReply | undefined;
-        reply = r ?? { ok: false, message: "ODM did not answer." };
+        const page = isSitePage(location.href) ? pageAddress(location.href, postLinks(video)) : undefined;
+        if (page === null) {
+          reply = { ok: false, message: "Open the video first, then try again." };
+        } else {
+          const message = page
+            ? { type: "odm-add-page", url: page, format }
+            : { type: "odm-add-video", src: video.currentSrc, format };
+          const r = (await chrome.runtime.sendMessage(message)) as AddReply | undefined;
+          reply = r ?? { ok: false, message: "ODM did not answer." };
+        }
       } catch {
         reply = { ok: false, message: "ODM did not answer." };
       }

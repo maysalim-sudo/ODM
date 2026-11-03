@@ -2,7 +2,7 @@ import { ext, send, sendDetailed } from "./lib/browser";
 import { STORAGE_KEY, detectionView, normalizeSettings, setSiteOff, type DetectionSettings } from "./lib/detection";
 import { statusLine } from "./lib/format";
 import { errorText, type SendFailure, type VideoFormat } from "./lib/protocol";
-import { isSitePage, visibleStreams } from "./lib/sites";
+import { isSitePage, pageAddress, visibleStreams } from "./lib/sites";
 import { videoLabel, type Stream } from "./lib/streams";
 
 const FAILURE_TEXT: Record<SendFailure, string> = {
@@ -112,7 +112,8 @@ async function showVideos(): Promise<void> {
   const found = (await ext.runtime.sendMessage({ type: "odm-list-streams", tabId })) as Stream[] | undefined;
   const pageUrl = tab.url ?? "";
   const list = visibleStreams(pageUrl, Array.isArray(found) ? found : []);
-  const sitePage = isSitePage(pageUrl);
+  // A YouTube home, search or channel page is many videos, so it is not offered as one.
+  const sitePage = isSitePage(pageUrl) && pageAddress(pageUrl, []) !== null;
   if (list.length === 0 && !sitePage) return;
   const ul = $("video-list");
   ul.textContent = "";

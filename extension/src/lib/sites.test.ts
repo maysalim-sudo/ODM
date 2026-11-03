@@ -48,6 +48,38 @@ describe("pageAddress", () => {
     expect(pageAddress(fb, ["/someone", "/photos/1"])).toBe(fb);
   });
 
+  it("on YouTube, a preview's own video link wins over the page", () => {
+    const watch = "https://www.youtube.com/watch?v=73h9xWoDEYw";
+    expect(pageAddress("https://www.youtube.com/", [`${watch}&pp=ygUGY2F0IHR2`])).toBe(watch);
+    expect(pageAddress("https://www.youtube.com/results?search_query=cat", ["/shorts/abc123"])).toBe(
+      "https://www.youtube.com/shorts/abc123",
+    );
+    expect(pageAddress("https://www.youtube.com/watch?v=main", [watch])).toBe(watch);
+  });
+
+  it("on YouTube, a video page is used as it is", () => {
+    for (const page of [
+      "https://www.youtube.com/watch?v=8dTcKPjJJbA&list=RD8dTcKPjJJbA&start_radio=1",
+      "https://www.youtube.com/shorts/abc",
+      "https://www.youtube.com/live/abc",
+      "https://youtu.be/abc",
+      "https://m.youtube.com/watch?v=abc",
+    ]) {
+      expect(pageAddress(page, []), page).toBe(page);
+    }
+  });
+
+  it("on YouTube, a page that is not one video gives nothing", () => {
+    for (const page of [
+      "https://www.youtube.com/",
+      "https://www.youtube.com/results?search_query=cat",
+      "https://www.youtube.com/@channel/videos",
+      "https://www.youtube.com/watch",
+    ]) {
+      expect(pageAddress(page, ["/@channel", "/feed/subscriptions"]), page).toBeNull();
+    }
+  });
+
   it("ignores candidates on other sites", () => {
     const yt = "https://www.youtube.com/watch?v=abc";
     expect(pageAddress(yt, ["/other/videos/1"])).toBe(yt);
