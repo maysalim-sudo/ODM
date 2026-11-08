@@ -6,6 +6,30 @@ The top versioned section becomes the "What's new" text of an update, so write i
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-08
+
+A download's details now sit in a panel under the list, and the MP3 and stream problems found in 0.4.0 are fixed. Update the ODM browser extension along with this version: the stream and YouTube fixes are in the extension.
+
+### Added
+
+- Details in a resizable panel under the list, with tabs for Info, Speed (the last two minutes), Parts, and Files and peers for torrents. One click shows a download there; several show their combined totals.
+- Ctrl+A selects every download in the current tab.
+- Double-click a finished download to open it.
+- "When a download finishes" can be set to Ask: ODM comes forward and asks whether to open the file, its folder, or neither.
+
+### Changed
+
+- The side drawer is gone; the panel under the list replaces it.
+- The floating selection bar appears only when two or more downloads are selected.
+
+### Fixed
+
+- MP3 downloads are saved in the Audio folder, not Videos.
+- A stream saved as MP3 is named .mp3 from the start.
+- HLS streams that the browser plays itself are saved as streams, not as the small playlist file.
+- On YouTube's home and search pages, the button over a preview saves that video instead of every video on the page.
+- The buttons on cards sit centred again.
+
 ## [0.4.0] - 2026-11-02
 
 A new look built to be easier to follow: each download now shows its own next step. Update the ODM browser extension along with this version: the new video buttons and controls are part of the extension.
