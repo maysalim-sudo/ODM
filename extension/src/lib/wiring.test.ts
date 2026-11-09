@@ -22,8 +22,12 @@ describe("content wiring", () => {
   test("magnet clicks fall back to the browser", () => expect(content).toMatch(/location\.href = href[\s\S]{0,300}type: "odm-magnet"[\s\S]{0,200}catch\(fallBack\)/));
   test("the bar is kept in view of the page, not the window with its scrollbar", () =>
     expect(content).toContain("width: document.documentElement.clientWidth, height: document.documentElement.clientHeight"));
-  test("both on-page controls can really hide: `all: initial` on the host beats the hidden attribute", () =>
-    expect(content.match(/:host\(\[hidden\]\) \{ display: none !important; \}/g)?.length).toBe(2));
+  test("every on-page control can really hide: `all: initial` on the host beats the hidden attribute", () =>
+    expect(content.match(/:host\(\[hidden\]\) \{ display: none !important; \}/g)?.length).toBe(3));
+  test("the thumbnail ↓ does not show while off", () =>
+    expect(content).toMatch(/const show = \(a: HTMLAnchorElement\) => \{[\s\S]{0,60}!detecting/));
+  test("a thumbnail's preview gets the ↓, not the video bar", () =>
+    expect(content).toMatch(/const show = \(video: HTMLVideoElement\) => \{[\s\S]{0,260}if \(previewLink\(video\)\) return;/));
   test("content asks for the detection state", () => expect(content).toContain('type: "odm-detection-state"'));
   test("content handles on/off messages", () => expect(content).toMatch(/m\?\.type === "odm-detection"/));
   test("the bar does not render while off", () => expect(content).toMatch(/const render = \(\) => \{[\s\S]{0,200}!detecting/));

@@ -1,6 +1,6 @@
 import { BAR_DEFAULT, BAR_KEY, clampBar, nudgeBar, readBar } from "./lib/barPosition";
 import type { VideoFormat } from "./lib/protocol";
-import { isSitePage, pageAddress, visibleStreams } from "./lib/sites";
+import { isSitePage, pageAddress, visibleStreams, youtubeVideoLink } from "./lib/sites";
 import { videoLabel, type StreamKind } from "./lib/streams";
 import { THEME } from "./lib/theme";
 import { isMagnet } from "./lib/torrent";
@@ -279,6 +279,30 @@ const MIN_VIDEO_WIDTH = 200;
 const MIN_VIDEO_HEIGHT = 120;
 const HIDE_DELAY_MS = 1500;
 const MESSAGE_MS = 4000;
+const MIN_THUMB_WIDTH = 120;
+
+const onYoutube = /(^|\.)(youtube\.com|youtu\.be)$/i.test(location.hostname);
+
+/**
+ * On YouTube, the link of the thumbnail (or hover preview) `el` sits in, when that link is one
+ * video. Found by what it is, not by YouTube's card names, which change: a link to one video
+ * that holds an image or a playing preview.
+ */
+function thumbnailLink(el: Element | null): HTMLAnchorElement | null {
+  if (!onYoutube || !el) return null;
+  const a = el.closest("a[href]") as HTMLAnchorElement | null;
+  if (!a || !youtubeVideoLink(a.href, location.href)) return null;
+  if (!a.querySelector("img, video, yt-image, yt-thumbnail-view-model")) return null;
+  return a.getBoundingClientRect().width >= MIN_THUMB_WIDTH ? a : null;
+}
+
+/** A hover preview's <video> belongs to a thumbnail; its link is in the preview's own box. */
+function previewLink(v: HTMLVideoElement): HTMLAnchorElement | null {
+  if (!onYoutube) return null;
+  const box = v.closest("ytd-video-preview");
+  const a = box?.querySelector('a[href*="/watch?v="], a[href*="/shorts/"]') ?? null;
+  return thumbnailLink(a ?? v);
+}
 
 {
   const watched = new WeakSet<HTMLVideoElement>();
@@ -401,6 +425,8 @@ const MESSAGE_MS = 4000;
     if (!detecting || hiddenHere) return;
     clearTimeout(hideTimer);
     if (document.fullscreenElement || !bigEnough(video)) return;
+    // A YouTube thumbnail's preview gets the thumbnail's ↓ instead (below).
+    if (previewLink(video)) return;
     if (!ui) build();
     if (!ui) return;
     current = video;
@@ -444,6 +470,164 @@ const MESSAGE_MS = 4000;
   document.addEventListener("fullscreenchange", () => {
     if (document.fullscreenElement) hide();
   });
+  detectionHooks.push((on) => {
+    if (!on) hide();
+  });
+}
+
+// ↓ on YouTube thumbnails (home, search, channels, playlists, the list beside a video, Shorts):
+// one small button that opens Video or MP3. Nothing is sent until one is picked.
+const THUMB_CSS = `
+  :host { all: initial; }
+  :host([hidden]) { display: none !important; }
+  .wrap { position: fixed; z-index: 2147483647; display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+    font: 13px/1.4 system-ui, sans-serif; color: ${THEME.text}; }
+  button { font: inherit; color: inherit; background: ${THEME.surface}; border: 1px solid ${THEME.border}; border-radius: 8px;
+    cursor: pointer; font-weight: 700; }
+  button:hover { background: ${THEME.surface2}; }
+  button:disabled { cursor: default; opacity: 0.7; }
+  .down { width: 32px; height: 32px; padding: 0; border-color: ${THEME.accent}; font-size: 16px; line-height: 1; }
+  .menu { display: flex; flex-direction: column; gap: 2px; padding: 4px; border: 1px solid ${THEME.border}; border-radius: 10px;
+    background: ${THEME.bg}; }
+  .menu button { padding: 6px 12px; border-color: transparent; background: transparent; text-align: left; font-weight: 600; }
+  .menu button:hover { background: ${THEME.surface2}; }
+  .msg { max-width: 220px; padding: 6px 8px; border: 1px solid ${THEME.border}; border-radius: 8px; background: ${THEME.bg};
+    font-size: 12px; overflow-wrap: anywhere; }
+  [hidden] { display: none !important; }
+`;
+
+if (onYoutube) {
+  let current: HTMLAnchorElement | null = null;
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
+  let messageTimer: ReturnType<typeof setTimeout> | undefined;
+  let sending = false;
+  let ui: { host: HTMLElement; wrap: HTMLElement; down: HTMLButtonElement; menu: HTMLElement; msg: HTMLElement } | null = null;
+
+  // Top-left: YouTube puts Watch later and Add to queue at the top-right.
+  const place = () => {
+    if (!ui || !current) return;
+    const r = current.getBoundingClientRect();
+    ui.wrap.style.top = `${Math.max(8, r.top + 6)}px`;
+    ui.wrap.style.left = `${Math.max(8, r.left + 6)}px`;
+  };
+
+  const hide = () => {
+    clearTimeout(hideTimer);
+    if (sending || !ui) return;
+    ui.host.hidden = true;
+    ui.menu.hidden = true;
+    ui.msg.hidden = true;
+    current = null;
+  };
+  const scheduleHide = () => {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hide, HIDE_DELAY_MS);
+  };
+
+  const build = () => {
+    const host = document.createElement("div");
+    const root = host.attachShadow({ mode: "closed" });
+    const style = document.createElement("style");
+    style.textContent = THUMB_CSS;
+    root.appendChild(style);
+    const wrap = document.createElement("div");
+    wrap.className = "wrap";
+    const down = document.createElement("button");
+    down.type = "button";
+    down.className = "down";
+    down.textContent = "↓";
+    down.title = "Save with ODM";
+    down.setAttribute("aria-label", "Save with ODM");
+    down.setAttribute("aria-haspopup", "menu");
+    const menu = document.createElement("div");
+    menu.className = "menu";
+    menu.setAttribute("role", "menu");
+    menu.hidden = true;
+    const msg = document.createElement("div");
+    msg.className = "msg";
+    msg.hidden = true;
+    const send = async (format: VideoFormat) => {
+      const url = current ? youtubeVideoLink(current.href, location.href) : null;
+      if (!url || sending) return;
+      sending = true;
+      menu.hidden = true;
+      down.disabled = true;
+      clearTimeout(messageTimer);
+      msg.textContent = "Sending…";
+      msg.hidden = false;
+      let reply: AddReply;
+      try {
+        const r = (await chrome.runtime.sendMessage({ type: "odm-add-page", url, format })) as AddReply | undefined;
+        reply = r ?? { ok: false, message: "ODM did not answer." };
+      } catch {
+        reply = { ok: false, message: "ODM did not answer." };
+      }
+      sending = false;
+      down.disabled = false;
+      msg.textContent = reply.message;
+      messageTimer = setTimeout(() => {
+        msg.hidden = true;
+      }, MESSAGE_MS);
+    };
+    for (const [label, format] of [
+      ["Video", "video"],
+      ["MP3", "mp3"],
+    ] as const) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("role", "menuitem");
+      b.textContent = label;
+      b.addEventListener("click", () => void send(format));
+      menu.appendChild(b);
+    }
+    down.addEventListener("click", () => {
+      menu.hidden = !menu.hidden;
+      msg.hidden = true;
+    });
+    wrap.append(down, menu, msg);
+    root.appendChild(wrap);
+    host.addEventListener("mouseenter", () => clearTimeout(hideTimer));
+    host.addEventListener("mouseleave", scheduleHide);
+    document.documentElement.appendChild(host);
+    ui = { host, wrap, down, menu, msg };
+  };
+
+  const show = (a: HTMLAnchorElement) => {
+    if (!detecting || document.fullscreenElement) return;
+    clearTimeout(hideTimer);
+    if (!ui) build();
+    if (!ui) return;
+    if (current !== a && !sending) {
+      ui.menu.hidden = true;
+      ui.msg.hidden = true;
+    }
+    if (!sending) current = a;
+    ui.host.hidden = false;
+    place();
+  };
+
+  document.addEventListener(
+    "mouseover",
+    (e) => {
+      const a = thumbnailLink(e.target as Element | null);
+      if (a) show(a);
+    },
+    true,
+  );
+  document.addEventListener(
+    "mouseout",
+    (e) => {
+      if (current && thumbnailLink(e.target as Element | null) === current) scheduleHide();
+    },
+    true,
+  );
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (!sending) hide();
+    },
+    true,
+  );
   detectionHooks.push((on) => {
     if (!on) hide();
   });

@@ -63,17 +63,29 @@ function isYoutubeVideo(u: URL): boolean {
  */
 function youtubeAddress(page: URL, candidateHrefs: string[]): string | null {
   for (const href of candidateHrefs) {
-    let u: URL;
-    try {
-      u = new URL(href, page);
-    } catch {
-      continue;
-    }
-    if (!isYoutubeVideo(u)) continue;
-    if (u.pathname === "/watch") return `${u.origin}/watch?v=${u.searchParams.get("v")}`;
-    return `${u.origin}${u.pathname}`;
+    const video = youtubeVideoLink(href, page.href);
+    if (video) return video;
   }
   return isYoutubeVideo(page) ? page.href : null;
+}
+
+/**
+ * A YouTube link (a thumbnail's, say) as its video's own address: `/watch?v=` with only the id, or
+ * `/shorts/…`, `/live/…`, youtu.be. Null for anything that isn't one video, including a playlist or
+ * Mix card. `base` resolves relative links.
+ */
+export function youtubeVideoLink(href: string, base: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(href, base);
+  } catch {
+    return null;
+  }
+  if (!href || !isYoutubeVideo(u)) return null;
+  // A playlist or Mix card links to its first video with `list=`; a video inside a list has `index=`.
+  if (u.searchParams.has("list") && !u.searchParams.has("index")) return null;
+  if (u.pathname === "/watch") return `${u.origin}/watch?v=${u.searchParams.get("v")}`;
+  return `${u.origin}${u.pathname}`;
 }
 
 /**

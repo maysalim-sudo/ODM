@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { SITE_HOSTS, isSitePage, pageAddress, toPagePayload, visibleStreams } from "./sites";
+import { SITE_HOSTS, isSitePage, pageAddress, toPagePayload, visibleStreams, youtubeVideoLink } from "./sites";
 
 describe("SITE_HOSTS", () => {
   it("lists the same sites as the app", () => {
@@ -28,6 +28,29 @@ describe("isSitePage", () => {
     expect(isSitePage("https://youtube.com.evil.example/")).toBe(false);
     expect(isSitePage("ftp://www.youtube.com/")).toBe(false);
     expect(isSitePage("not a url")).toBe(false);
+  });
+});
+
+describe("youtubeVideoLink", () => {
+  const page = "https://www.youtube.com/@usif2/videos";
+
+  it("turns a thumbnail's link into the video's own address", () => {
+    expect(youtubeVideoLink("/watch?v=abc123&pp=ygUGY2F0", page)).toBe("https://www.youtube.com/watch?v=abc123");
+    expect(youtubeVideoLink("/watch?v=abc123&list=PL1&index=3", page)).toBe("https://www.youtube.com/watch?v=abc123");
+    expect(youtubeVideoLink("https://www.youtube.com/shorts/xyz", page)).toBe("https://www.youtube.com/shorts/xyz");
+  });
+
+  it("gives nothing for a playlist or Mix card, which only links to its first video", () => {
+    expect(youtubeVideoLink("/watch?v=8dTcKPjJJbA&list=RD8dTcKPjJJbA&start_radio=1", page)).toBeNull();
+    expect(youtubeVideoLink("/watch?v=abc&list=PLxyz&pp=iAQB", page)).toBeNull();
+    // A video inside a playlist is still that one video.
+    expect(youtubeVideoLink("/watch?v=abc&list=PLxyz&index=4", page)).toBe("https://www.youtube.com/watch?v=abc");
+  });
+
+  it("gives nothing for links that aren't one video", () => {
+    for (const href of ["/@usif2", "/playlist?list=PL1", "/feed/subscriptions", "/watch", "https://example.com/watch?v=1", ""]) {
+      expect(youtubeVideoLink(href, page), href).toBeNull();
+    }
   });
 });
 
