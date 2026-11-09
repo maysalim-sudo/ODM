@@ -6,6 +6,18 @@ The top versioned section becomes the "What's new" text of an update, so write i
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-09
+
+Download straight from YouTube thumbnails, and no more update offer for video tools that are already current. Update the ODM browser extension along with this version: the thumbnail button is part of the extension.
+
+### Added
+
+- A ↓ on every YouTube thumbnail (home, search, channels, playlists, the list beside a video, Shorts) that saves the video as Video or MP3. Playlist and Mix cards don't get one.
+
+### Changed
+
+- Settings → Video offers "Update video tools" only when a newer yt-dlp or Deno is out, or FFmpeg is over four months old; otherwise it says "Up to date".
+
 ## [0.4.1] - 2026-11-08
 
 A download's details now sit in a panel under the list, and the MP3 and stream problems found in 0.4.0 are fixed. Update the ODM browser extension along with this version: the stream and YouTube fixes are in the extension.
