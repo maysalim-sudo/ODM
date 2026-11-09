@@ -307,6 +307,7 @@ pub fn run() {
             commands::open_store_page,
             commands::store_links,
             commands::tools_status,
+            commands::tools_outdated,
             commands::tools_install,
             commands::answer_exists,
             commands::set_download_limit,

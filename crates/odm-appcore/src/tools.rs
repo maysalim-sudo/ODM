@@ -108,6 +108,95 @@ pub fn parse_version(tool: &str, output: &str) -> Option<String> {
     }
 }
 
+/// The newest published yt-dlp and Deno versions; `None` when the check didn't get an answer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Latest {
+    pub ytdlp: Option<String>,
+    pub deno: Option<String>,
+}
+
+/// The version in a GitHub `/releases/tag/<tag>` address (where `/releases/latest` leads), without
+/// a leading `v`.
+pub fn tag_from_release_url(url: &str) -> Option<String> {
+    let (_, tag) = url.split_once("/releases/tag/")?;
+    let tag = tag.split(['?', '#', '/']).next()?.trim_start_matches('v');
+    (!tag.is_empty()).then(|| tag.to_string())
+}
+
+/// Days since 1970-01-01 for a calendar date (Howard Hinnant's `days_from_civil`).
+pub fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// The build day of a nightly FFmpeg (`N-128340-gf80a436ffd-20261102`), in days since 1970.
+pub fn ffmpeg_build_day(version: &str) -> Option<i64> {
+    let date = version.rsplit('-').next()?;
+    if date.len() != 8 || !date.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n = |r: std::ops::Range<usize>| date[r].parse::<i64>().ok();
+    Some(days_from_civil(n(0..4)?, n(4..6)?, n(6..8)?))
+}
+
+/// FFmpeg is fetched as a rolling nightly, so it is only offered again once this old.
+const FFMPEG_MAX_AGE_DAYS: i64 = 120;
+
+/// The tools in ODM's own folder that have a newer version: yt-dlp or Deno when a newer release
+/// is published, FFmpeg when its build is over 120 days old. Copies from Settings or `PATH` are
+/// the user's to update.
+pub fn outdated(status: &ToolsStatus, latest: &Latest, today: i64) -> Vec<&'static str> {
+    fn own(t: &Option<ToolInfo>) -> Option<&ToolInfo> {
+        t.as_ref().filter(|t| t.source == "ODM")
+    }
+    let behind = |t: &Option<ToolInfo>, newest: &Option<String>| {
+        own(t)
+            .zip(newest.as_ref())
+            .is_some_and(|(t, n)| &t.version != n)
+    };
+    let mut out = Vec::new();
+    if own(&status.ffmpeg)
+        .and_then(|t| ffmpeg_build_day(&t.version))
+        .is_some_and(|day| today - day > FFMPEG_MAX_AGE_DAYS)
+    {
+        out.push("FFmpeg");
+    }
+    if behind(&status.ytdlp, &latest.ytdlp) {
+        out.push("yt-dlp");
+    }
+    if behind(&status.deno, &latest.deno) {
+        out.push("Deno");
+    }
+    out
+}
+
+/// Asks GitHub for the newest yt-dlp and Deno: `/releases/latest` redirects to the release's tag.
+/// A version that can't be read stays `None`, so nothing is offered on its account.
+pub async fn check_latest(client: &reqwest::Client) -> Latest {
+    let (ytdlp, deno) = tokio::join!(
+        latest_tag(client, "yt-dlp/yt-dlp"),
+        latest_tag(client, "denoland/deno")
+    );
+    Latest { ytdlp, deno }
+}
+
+async fn latest_tag(client: &reqwest::Client, repo: &str) -> Option<String> {
+    let url = format!("https://github.com/{repo}/releases/latest");
+    let resp = client.head(&url).send().await.ok()?;
+    tag_from_release_url(resp.url().as_str())
+}
+
+/// Today in days since 1970, for `outdated`.
+pub fn today() -> i64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |d| (d.as_secs() / 86_400) as i64)
+}
+
 /// Whether a file last modified at `modified` is older than `max_age` at `now`.
 pub fn is_stale(modified: SystemTime, now: SystemTime, max_age: Duration) -> bool {
     now.duration_since(modified).is_ok_and(|age| age > max_age)
@@ -484,6 +573,97 @@ mod tests {
             Some(HASH_A)
         );
         assert_eq!(find_checksum("not a hash", "deno.zip"), None);
+    }
+
+    fn own(version: &str) -> Option<ToolInfo> {
+        Some(ToolInfo {
+            version: version.into(),
+            source: "ODM".into(),
+        })
+    }
+
+    /// 2026-11-09 as days since 1970-01-01.
+    const NOV_9_2026: i64 = 20_766;
+
+    fn current() -> ToolsStatus {
+        ToolsStatus {
+            ffmpeg: own("N-128340-gf80a436ffd-20261102"),
+            ytdlp: own("2026.10.26"),
+            deno: own("2.9.8"),
+        }
+    }
+
+    fn latest() -> Latest {
+        Latest {
+            ytdlp: Some("2026.10.26".into()),
+            deno: Some("2.9.8".into()),
+        }
+    }
+
+    #[test]
+    fn the_release_tag_comes_from_the_latest_releases_address() {
+        assert_eq!(
+            tag_from_release_url("https://github.com/yt-dlp/yt-dlp/releases/tag/2026.10.26")
+                .as_deref(),
+            Some("2026.10.26")
+        );
+        assert_eq!(
+            tag_from_release_url("https://github.com/denoland/deno/releases/tag/v2.9.8").as_deref(),
+            Some("2.9.8")
+        );
+        assert_eq!(
+            tag_from_release_url("https://github.com/denoland/deno/releases"),
+            None
+        );
+    }
+
+    #[test]
+    fn days_count_from_1970() {
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(days_from_civil(2026, 11, 9), NOV_9_2026);
+        assert_eq!(
+            ffmpeg_build_day("N-128340-gf80a436ffd-20261102"),
+            Some(NOV_9_2026 - 7)
+        );
+        assert_eq!(ffmpeg_build_day("7.1"), None);
+    }
+
+    #[test]
+    fn current_tools_need_nothing() {
+        assert!(outdated(&current(), &latest(), NOV_9_2026).is_empty());
+    }
+
+    #[test]
+    fn a_newer_release_or_an_old_ffmpeg_needs_an_update() {
+        let newer = Latest {
+            ytdlp: Some("2026.11.07".into()),
+            deno: Some("2.9.9".into()),
+        };
+        assert_eq!(
+            outdated(&current(), &newer, NOV_9_2026),
+            vec!["yt-dlp", "Deno"]
+        );
+        // FFmpeg's download is a rolling nightly: only an old copy counts.
+        assert_eq!(
+            outdated(&current(), &latest(), NOV_9_2026 + 125),
+            vec!["FFmpeg"]
+        );
+        assert!(outdated(&current(), &latest(), NOV_9_2026 + 100).is_empty());
+    }
+
+    #[test]
+    fn only_odms_own_copies_count_and_unknown_latest_is_not_newer() {
+        let mut s = current();
+        s.ytdlp = Some(ToolInfo {
+            version: "2020.01.01".into(),
+            source: "PATH".into(),
+        });
+        assert!(outdated(&s, &latest(), NOV_9_2026).is_empty());
+        let unknown = Latest {
+            ytdlp: None,
+            deno: None,
+        };
+        assert!(outdated(&current(), &unknown, NOV_9_2026).is_empty());
     }
 
     #[test]

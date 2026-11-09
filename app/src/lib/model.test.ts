@@ -36,6 +36,7 @@ import {
   chunkLegend,
   partTitle,
   toolsSummary,
+  toolsAction,
   toolsProgressText,
   needsVideoTools,
   WELCOME_BROWSERS,
@@ -693,6 +694,44 @@ describe("video tools", () => {
     expect(empty.own).toBe(false);
     const all = toolsSummary({ ffmpeg: info("7.1", "ODM"), ytdlp: info("1", "ODM"), deno: info("2.1.4", "ODM") });
     expect(all.complete).toBe(true);
+  });
+
+  describe("toolsAction", () => {
+    const own = { ffmpeg: info("7.1", "ODM"), ytdlp: info("1", "ODM"), deno: info("2.1.4", "ODM") };
+
+    it("offers the tools when some are missing", () => {
+      expect(toolsAction(none, [], false)).toEqual({ button: "Get video tools", note: "About 150 MB." });
+    });
+
+    it("offers nothing while checking or when everything is current", () => {
+      expect(toolsAction(own, undefined, false)).toEqual({ button: null, note: "Checking for newer versions…" });
+      expect(toolsAction(own, [], false)).toEqual({ button: null, note: "Up to date." });
+    });
+
+    it("offers the update and names what is newer", () => {
+      expect(toolsAction(own, ["yt-dlp", "Deno"], false)).toEqual({
+        button: "Update video tools",
+        note: "Newer yt-dlp and Deno available. About 150 MB.",
+      });
+      expect(toolsAction(own, ["FFmpeg"], false).note).toBe("Newer FFmpeg available. About 150 MB.");
+    });
+
+    it("still offers the update when the check fails", () => {
+      expect(toolsAction(own, null, false)).toEqual({ button: "Update video tools", note: "Couldn't check for newer versions." });
+    });
+
+    it("leaves copies from elsewhere alone", () => {
+      const outside = { ffmpeg: info("7.1", "PATH"), ytdlp: info("1", "PATH"), deno: info("2", "PATH") };
+      expect(toolsAction(outside, [], false)).toEqual({ button: null, note: "Using the copies already on this PC." });
+    });
+
+    it("on Linux it is only yt-dlp, a smaller download", () => {
+      const linux = { ffmpeg: info("6.1", "PATH"), ytdlp: info("1", "ODM"), deno: null };
+      expect(toolsAction(linux, ["yt-dlp"], true)).toEqual({ button: "Update yt-dlp", note: "Newer yt-dlp available. About 35 MB." });
+      expect(toolsAction(linux, [], true)).toEqual({ button: null, note: "Up to date." });
+      const missing = { ffmpeg: info("6.1", "PATH"), ytdlp: null, deno: null };
+      expect(toolsAction(missing, [], true)).toEqual({ button: "Get yt-dlp", note: "About 35 MB." });
+    });
   });
 
   it("toolsProgressText names the stage and the megabytes", () => {

@@ -71,6 +71,8 @@ export const openStorePage = (browser: string, url: string) => invoke<void>("ope
 export const storeLinks = () => invoke<StoreLinks>("store_links");
 
 export const toolsStatus = () => invoke<ToolsStatus>("tools_status");
+/** What of ODM's own video tools has a newer version; rejects when GitHub couldn't be asked. */
+export const toolsOutdated = () => invoke<string[]>("tools_outdated");
 /** Downloads FFmpeg, yt-dlp and Deno; progress arrives as `tools_progress` events. */
 export const toolsInstall = () => invoke<ToolsStatus>("tools_install");
 

@@ -448,6 +448,29 @@ export function toolsSummary(s: ToolsStatus): { lines: string[]; installed: bool
   };
 }
 
+/**
+ * The video tools card's button and the note beside it. `outdated` is what has a newer version
+ * (`[]` when current), `undefined` while ODM is still asking, `null` when it couldn't ask. On Linux
+ * only yt-dlp is ODM's; FFmpeg comes from the package manager.
+ */
+export function toolsAction(
+  s: ToolsStatus,
+  outdated: string[] | null | undefined,
+  linux: boolean,
+): { button: string | null; note: string } {
+  const size = linux ? "About 35 MB." : "About 150 MB.";
+  const missing = linux ? !s.ytdlp : !(s.ffmpeg && s.ytdlp && s.deno);
+  if (missing) return { button: linux ? "Get yt-dlp" : "Get video tools", note: size };
+  const own = [s.ffmpeg, s.ytdlp, s.deno].some((t) => t?.source === "ODM");
+  if (!own) return { button: null, note: "Using the copies already on this PC." };
+  const update = linux ? "Update yt-dlp" : "Update video tools";
+  if (outdated === undefined) return { button: null, note: "Checking for newer versions…" };
+  if (outdated === null) return { button: update, note: "Couldn't check for newer versions." };
+  if (outdated.length === 0) return { button: null, note: "Up to date." };
+  const names = outdated.length === 1 ? outdated[0] : `${outdated.slice(0, -1).join(", ")} and ${outdated.at(-1)}`;
+  return { button: update, note: `Newer ${names} available. ${size}` };
+}
+
 /** What the video-tools download is doing, e.g. "FFmpeg: 12.0 MB of 150 MB". */
 export function toolsProgressText(p: { stage: string; done: number; total: number }): string {
   if (p.stage === "Installing") return "Installing…";

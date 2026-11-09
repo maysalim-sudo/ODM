@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import * as api from "../lib/api";
-  import { toolsProgressText, toolsSummary } from "../lib/model";
+  import { toolsAction, toolsProgressText, toolsSummary } from "../lib/model";
   import { IS_LINUX } from "../lib/platform";
   import type { ToolsStatus } from "../lib/types";
 
@@ -20,7 +20,11 @@
   let error = $state<string | null>(null);
   let progress = $state<{ stage: string; done: number; total: number } | null>(null);
 
+  /** What has a newer version: undefined while asking, null when GitHub couldn't be asked. */
+  let outdated = $state<string[] | null | undefined>(undefined);
+
   const summary = $derived(status ? toolsSummary(status) : null);
+  const action = $derived(status ? toolsAction(status, outdated, IS_LINUX) : null);
   const pct = $derived(progress && progress.total > 0 ? Math.min(100, (progress.done / progress.total) * 100) : null);
 
   onMount(() => {
@@ -28,6 +32,10 @@
       .toolsStatus()
       .then((s) => (status = s))
       .catch((e) => (error = api.errorText(e)));
+    api
+      .toolsOutdated()
+      .then((o) => (outdated = o))
+      .catch(() => (outdated = null));
     let off: (() => void) | null = null;
     let closed = false;
     api
@@ -67,6 +75,8 @@
     progress = null;
     try {
       status = await api.toolsInstall();
+      // Just fetched from the newest releases.
+      outdated = [];
       oninstalled?.(status);
     } catch (e) {
       error = api.errorText(e);
@@ -96,18 +106,14 @@
     {/if}
   {/if}
   <div class="controls">
-    {#if IS_LINUX}
-      <button class="primary" onclick={install} disabled={busy}>
-        {busy ? "Downloading…" : summary?.own ? "Update yt-dlp" : "Get yt-dlp"}
-      </button>
-      {#if !busy && status && !status.ffmpeg}<button onclick={recheck} disabled={checking}>{checking ? "Checking…" : "Check again"}</button>{/if}
-      {#if !compact && !busy}<span class="hint">About 35 MB.</span>{/if}
-    {:else}
-      <button class="primary" onclick={install} disabled={busy}>
-        {busy ? "Downloading…" : summary?.own ? "Update video tools" : "Get video tools"}
-      </button>
-      {#if !compact && !busy}<span class="hint">About 150 MB.</span>{/if}
+    <!-- The button only when there's something to get: missing tools or a newer version. -->
+    {#if busy}
+      <button class="primary" disabled>Downloading…</button>
+    {:else if action?.button}
+      <button class="primary" onclick={install}>{action.button}</button>
     {/if}
+    {#if IS_LINUX && !busy && status && !status.ffmpeg}<button onclick={recheck} disabled={checking}>{checking ? "Checking…" : "Check again"}</button>{/if}
+    {#if !compact && !busy && action}<span class="hint">{action.note}</span>{/if}
   </div>
   {#if busy}
     <div

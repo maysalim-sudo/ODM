@@ -499,6 +499,25 @@ pub async fn tools_status(state: State<'_, AppState>) -> Res<ToolsStatus> {
         .map_err(|e| e.to_string())
 }
 
+/// The tools in ODM's own folder that have something newer ("FFmpeg", "yt-dlp", "Deno"), empty
+/// when they're current. Asks GitHub, so an error means it couldn't check.
+#[tauri::command]
+pub async fn tools_outdated(state: State<'_, AppState>) -> Res<Vec<String>> {
+    let cfg = state.settings.lock().unwrap().to_engine_config();
+    let proxy = cfg.proxy.clone();
+    let status = tauri::async_runtime::spawn_blocking(move || tools::status(&cfg))
+        .await
+        .map_err(|e| e.to_string())?;
+    let latest = tools::check_latest(&tools::http_client(&proxy)).await;
+    if latest.ytdlp.is_none() && latest.deno.is_none() {
+        return Err("ODM couldn't check for newer video tools.".into());
+    }
+    Ok(tools::outdated(&status, &latest, tools::today())
+        .into_iter()
+        .map(String::from)
+        .collect())
+}
+
 /// Downloads FFmpeg, yt-dlp and Deno (Linux: yt-dlp) into ODM's tools folder, reporting progress as
 /// `UiEvent::ToolsProgress`. Resolves with the versions found afterwards.
 #[tauri::command]
