@@ -248,8 +248,32 @@ async fn a_plain_file_saved_as_mp3_is_named_mp3_from_the_start() {
         .await
         .unwrap();
     for (id, want) in [(named, "clip.mp3"), (from_link, "movie.mp3")] {
-        assert_eq!(m.store().get_download(&id).await.unwrap().unwrap().filename, want);
+        assert_eq!(
+            m.store().get_download(&id).await.unwrap().unwrap().filename,
+            want
+        );
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_youtube_page_of_many_videos_is_refused() {
+    let out = tempfile::tempdir().unwrap();
+    let m = ManagerHandle::start(
+        cfg(out.path(), "Z:/nope/ffmpeg.exe".into()),
+        Store::open_in_memory().unwrap(),
+    )
+    .await
+    .unwrap();
+    let err = m
+        .add_site(SiteRequest {
+            page_url: "https://www.youtube.com/@usif2/videos".into(),
+            start_paused: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.message, odm_engine::site::MANY_VIDEOS);
+    assert!(m.list().await.unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

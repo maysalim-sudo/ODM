@@ -819,6 +819,10 @@ impl Manager {
                 "only http(s) URLs are supported",
             ));
         }
+        // yt-dlp would download every video on it.
+        if crate::site::is_youtube_list_page(&req.page_url) {
+            return Err(OdmError::new(ErrorKind::Other, crate::site::MANY_VIDEOS));
+        }
         let id = uuid::Uuid::new_v4().simple().to_string();
         let audio = req
             .video_override

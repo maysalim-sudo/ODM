@@ -883,3 +883,21 @@ async fn start_now_bypasses_a_closed_queue_window() {
     let (r, _) = m.get(&waits).await.unwrap().unwrap();
     assert_eq!(r.state, DownloadState::Queued);
 }
+
+#[tokio::test]
+async fn a_youtube_channel_is_flagged_and_not_added() {
+    let one = api::suggest(
+        "https://www.youtube.com/watch?v=abc",
+        &EngineConfig::default(),
+    )
+    .await
+    .unwrap();
+    assert!(one.is_page && !one.many_videos);
+    let channel = api::suggest(
+        "https://www.youtube.com/@usif2/videos",
+        &EngineConfig::default(),
+    )
+    .await
+    .unwrap();
+    assert!(channel.is_page && channel.many_videos);
+}

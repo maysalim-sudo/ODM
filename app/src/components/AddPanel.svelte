@@ -293,6 +293,8 @@
               Magnet link · you choose which files to download next
             {:else if checking}
               Checking the address…
+            {:else if suggestion?.many_videos}
+              <span class="warn">This YouTube page lists many videos. Open the one you want and paste its address.</span>
             {:else if suggestion?.is_page}
               Video from a web page · downloaded with yt-dlp
             {:else if suggestion?.is_stream}
@@ -392,9 +394,9 @@
         <span class="spacer"></span>
         <button type="button" class="plain" onclick={close}>Cancel</button>
         {#if waits && !isMagnet}
-          <button type="button" disabled={!validUrl || busy || limitError !== null} onclick={() => add(true)}>Start now</button>
+          <button type="button" disabled={!validUrl || busy || limitError !== null || !!suggestion?.many_videos} onclick={() => add(true)}>Start now</button>
         {/if}
-        <button type="submit" class="primary" disabled={!(validUrl || isMagnet) || busy || (!isMagnet && limitError !== null)}>
+        <button type="submit" class="primary" disabled={!(validUrl || isMagnet) || busy || (!isMagnet && limitError !== null) || !!suggestion?.many_videos}>
           {primary}
         </button>
       </div>
@@ -462,6 +464,9 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--surface);
+  }
+  .warn {
+    color: var(--accent);
   }
   .recent {
     display: flex;

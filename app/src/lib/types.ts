@@ -291,6 +291,8 @@ export interface Suggestion {
   is_stream: boolean;
   /** `url` is a page of a video site; yt-dlp finds the media. */
   is_page: boolean;
+  /** A YouTube page that lists many videos: ODM won't download it. */
+  many_videos?: boolean;
 }
 
 export interface Variant {

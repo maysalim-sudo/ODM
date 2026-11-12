@@ -54,6 +54,69 @@ pub fn is_site_page_url(url: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// What ODM says instead of downloading a YouTube page that lists many videos.
+pub const MANY_VIDEOS: &str =
+    "This YouTube page lists many videos. Open the one you want and paste its address.";
+
+/// A YouTube page that isn't one video: home, a channel, search, a playlist. yt-dlp would
+/// download every video on it. One video is `/watch?v=`, `/shorts/…`, `/live/…` or youtu.be.
+pub fn is_youtube_list_page(url: &str) -> bool {
+    let Ok(u) = reqwest::Url::parse(url.trim()) else {
+        return false;
+    };
+    let host = u.host_str().unwrap_or("").to_ascii_lowercase();
+    let is = |h: &str| host == h || host.ends_with(&format!(".{h}"));
+    if is("youtu.be") {
+        return u.path().len() <= 1;
+    }
+    if !is("youtube.com") {
+        return false;
+    }
+    let path = u.path();
+    if path == "/watch" {
+        return !u.query_pairs().any(|(k, v)| k == "v" && !v.is_empty());
+    }
+    let one = ["/shorts/", "/live/"]
+        .iter()
+        .any(|p| path.strip_prefix(p).is_some_and(|rest| !rest.is_empty()));
+    !one
+}
+
+#[cfg(test)]
+mod list_page_tests {
+    use super::is_youtube_list_page;
+
+    #[test]
+    fn one_video_is_not_a_list() {
+        for u in [
+            "https://www.youtube.com/watch?v=abc",
+            "https://www.youtube.com/watch?v=abc&list=RDabc&start_radio=1",
+            "https://m.youtube.com/watch?v=abc",
+            "https://www.youtube.com/shorts/abc",
+            "https://www.youtube.com/live/abc",
+            "https://youtu.be/abc",
+            "https://vimeo.com/123",
+        ] {
+            assert!(!is_youtube_list_page(u), "{u}");
+        }
+    }
+
+    #[test]
+    fn home_channels_search_and_playlists_are_lists() {
+        for u in [
+            "https://www.youtube.com/",
+            "https://www.youtube.com/@usif2/videos",
+            "https://www.youtube.com/@usif2",
+            "https://www.youtube.com/results?search_query=cat",
+            "https://www.youtube.com/playlist?list=PL1",
+            "https://www.youtube.com/watch",
+            "https://youtu.be/",
+        ] {
+            assert!(is_youtube_list_page(u), "{u}");
+        }
+    }
+}
+
 #[cfg(windows)]
 const YTDLP_EXE: &str = "yt-dlp.exe";
 #[cfg(not(windows))]

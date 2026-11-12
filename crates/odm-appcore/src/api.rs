@@ -308,6 +308,8 @@ pub struct Suggestion {
     pub is_stream: bool,
     /// `url` is a page of a video site that yt-dlp downloads; nothing was probed.
     pub is_page: bool,
+    /// A YouTube page that lists many videos (a channel, search, home): ODM won't download it.
+    pub many_videos: bool,
 }
 
 /// `"1280×720 · 2.5 Mbit/s"`, or just the speed when the resolution is unknown.
@@ -380,6 +382,7 @@ fn stream_suggestion(url: &str, playlist: Playlist) -> Suggestion {
         variants,
         is_stream: true,
         is_page: false,
+        many_videos: false,
     }
 }
 
@@ -396,6 +399,7 @@ pub async fn suggest(url: &str, cfg: &EngineConfig) -> Result<Suggestion, String
             variants: Vec::new(),
             is_stream: false,
             is_page: true,
+            many_videos: odm_engine::site::is_youtube_list_page(url),
         });
     }
     let client = build_client(cfg);
@@ -427,6 +431,7 @@ pub async fn suggest(url: &str, cfg: &EngineConfig) -> Result<Suggestion, String
         variants: Vec::new(),
         is_stream: false,
         is_page: false,
+        many_videos: false,
     })
 }
 
