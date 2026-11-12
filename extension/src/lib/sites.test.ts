@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { SITE_HOSTS, isSitePage, pageAddress, toPagePayload, visibleStreams, youtubeVideoLink } from "./sites";
+import { SITE_HOSTS, isSitePage, pageAddress, thumbnailVideoLink, toPagePayload, visibleStreams, youtubeVideoLink } from "./sites";
 
 describe("SITE_HOSTS", () => {
   it("lists the same sites as the app", () => {
@@ -28,6 +28,26 @@ describe("isSitePage", () => {
     expect(isSitePage("https://youtube.com.evil.example/")).toBe(false);
     expect(isSitePage("ftp://www.youtube.com/")).toBe(false);
     expect(isSitePage("not a url")).toBe(false);
+  });
+});
+
+describe("thumbnailVideoLink", () => {
+  it("takes YouTube videos", () => {
+    expect(thumbnailVideoLink("/watch?v=abc&pp=x", "https://www.youtube.com/")).toBe("https://www.youtube.com/watch?v=abc");
+  });
+
+  it("takes the black-and-orange site's video pages, with only the key", () => {
+    const base = "https://www.pornhub.com/video?o=mv";
+    expect(thumbnailVideoLink("/view_video.php?viewkey=ph5f1a&pkey=99", base)).toBe("https://www.pornhub.com/view_video.php?viewkey=ph5f1a");
+    expect(thumbnailVideoLink("https://de.pornhub.com/view_video.php?viewkey=65ab", base)).toBe("https://de.pornhub.com/view_video.php?viewkey=65ab");
+  });
+
+  it("gives nothing for its other links or other sites", () => {
+    const base = "https://www.pornhub.com/";
+    expect(thumbnailVideoLink("/view_video.php", base)).toBeNull();
+    expect(thumbnailVideoLink("/model/someone", base)).toBeNull();
+    expect(thumbnailVideoLink("/playlist/123", base)).toBeNull();
+    expect(thumbnailVideoLink("https://example.com/view_video.php?viewkey=1", base)).toBeNull();
   });
 });
 

@@ -89,6 +89,25 @@ export function youtubeVideoLink(href: string, base: string): string | null {
 }
 
 /**
+ * A thumbnail's link as the address of its one video, on the sites that get a ↓ on thumbnails:
+ * YouTube (see `youtubeVideoLink`) and pornhub.com, whose video pages are
+ * `/view_video.php?viewkey=…` (kept with only the key). Null for anything else.
+ */
+export function thumbnailVideoLink(href: string, base: string): string | null {
+  const yt = youtubeVideoLink(href, base);
+  if (yt) return yt;
+  let u: URL;
+  try {
+    u = new URL(href, base);
+  } catch {
+    return null;
+  }
+  const key = u.searchParams.get("viewkey");
+  if (!hostIs(u, "pornhub.com") || u.pathname !== "/view_video.php" || !key) return null;
+  return `${u.origin}/view_video.php?viewkey=${encodeURIComponent(key)}`;
+}
+
+/**
  * The best page address for a video element on a site. On facebook.com a feed shows many videos on
  * one page, so the first `/videos/`, `/reel/` or `/watch/?v=` link of the video's post wins (made
  * absolute); on YouTube see `youtubeAddress`, which may give null; everywhere else, and when there

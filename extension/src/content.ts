@@ -1,6 +1,6 @@
 import { BAR_DEFAULT, BAR_KEY, clampBar, nudgeBar, readBar } from "./lib/barPosition";
 import type { VideoFormat } from "./lib/protocol";
-import { isSitePage, pageAddress, visibleStreams, youtubeVideoLink } from "./lib/sites";
+import { isSitePage, pageAddress, thumbnailVideoLink, visibleStreams } from "./lib/sites";
 import { videoLabel, type StreamKind } from "./lib/streams";
 import { THEME } from "./lib/theme";
 import { isMagnet } from "./lib/torrent";
@@ -282,23 +282,25 @@ const MESSAGE_MS = 4000;
 const MIN_THUMB_WIDTH = 120;
 
 const onYoutube = /(^|\.)(youtube\.com|youtu\.be)$/i.test(location.hostname);
+/** Sites whose thumbnails get a ↓: YouTube and the black-and-orange one. */
+const onThumbSite = onYoutube || /(^|\.)pornhub\.com$/i.test(location.hostname);
 
 /**
- * On YouTube, the link of the thumbnail (or hover preview) `el` sits in, when that link is one
- * video. Found by what it is, not by YouTube's card names, which change: a link to one video
- * that holds an image or a playing preview.
+ * The link of the thumbnail (or hover preview) `el` sits in, when that link is one video. Found by
+ * what it is, not by the sites' card names, which change: a link to one video that holds an image
+ * or a playing preview.
  */
 function thumbnailLink(el: Element | null): HTMLAnchorElement | null {
-  if (!onYoutube || !el) return null;
+  if (!onThumbSite || !el) return null;
   const a = el.closest("a[href]") as HTMLAnchorElement | null;
-  if (!a || !youtubeVideoLink(a.href, location.href)) return null;
+  if (!a || !thumbnailVideoLink(a.href, location.href)) return null;
   if (!a.querySelector("img, video, yt-image, yt-thumbnail-view-model")) return null;
   return a.getBoundingClientRect().width >= MIN_THUMB_WIDTH ? a : null;
 }
 
 /** A hover preview's <video> belongs to a thumbnail; its link is in the preview's own box. */
 function previewLink(v: HTMLVideoElement): HTMLAnchorElement | null {
-  if (!onYoutube) return null;
+  if (!onYoutube) return thumbnailLink(v);
   const box = v.closest("ytd-video-preview");
   const a = box?.querySelector('a[href*="/watch?v="], a[href*="/shorts/"]') ?? null;
   return thumbnailLink(a ?? v);
@@ -496,7 +498,7 @@ const THUMB_CSS = `
   [hidden] { display: none !important; }
 `;
 
-if (onYoutube) {
+if (onThumbSite) {
   let current: HTMLAnchorElement | null = null;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   let messageTimer: ReturnType<typeof setTimeout> | undefined;
@@ -547,7 +549,7 @@ if (onYoutube) {
     msg.className = "msg";
     msg.hidden = true;
     const send = async (format: VideoFormat) => {
-      const url = current ? youtubeVideoLink(current.href, location.href) : null;
+      const url = current ? thumbnailVideoLink(current.href, location.href) : null;
       if (!url || sending) return;
       sending = true;
       menu.hidden = true;
