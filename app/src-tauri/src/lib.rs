@@ -178,6 +178,9 @@ pub fn run() {
             // Keep the log flushing for as long as the app runs.
             app.manage(Mutex::new(log_guard));
 
+            // 95% of the screen, centred, before the window is first shown.
+            shell::fit_main(app.handle());
+
             let handle = app.handle().clone();
             let power_handle = handle.clone();
             tauri::async_runtime::spawn(odm_appcore::power::run(

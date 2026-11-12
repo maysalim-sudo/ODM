@@ -22,6 +22,44 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
+/// The window's share of the screen it opens on, leaving a small border around it.
+const SCREEN_SHARE: f64 = 0.95;
+/// Never smaller than `minWidth` / `minHeight` in tauri.conf.json.
+const MIN_SIZE: (u32, u32) = (900, 560);
+
+/// Position and size (x, y, width, height) for a window `share` of `work` (the screen minus the
+/// taskbar), centred in it, and at least `min` when the screen allows.
+pub fn fitted(work: (i32, i32, u32, u32), share: f64, min: (u32, u32)) -> (i32, i32, u32, u32) {
+    let (x, y, w, h) = work;
+    let size =
+        |total: u32, least: u32| ((f64::from(total) * share).round() as u32).max(least.min(total));
+    let (fw, fh) = (size(w, min.0), size(h, min.1));
+    (x + ((w - fw) / 2) as i32, y + ((h - fh) / 2) as i32, fw, fh)
+}
+
+/// Sizes the main window to 95% of the screen it's on, centred, before it is first shown.
+pub fn fit_main(app: &AppHandle) {
+    let Some(w) = app.get_webview_window("main") else {
+        return;
+    };
+    let Ok(Some(monitor)) = w.current_monitor().or_else(|_| w.primary_monitor()) else {
+        return;
+    };
+    let area = monitor.work_area();
+    let (x, y, width, height) = fitted(
+        (
+            area.position.x,
+            area.position.y,
+            area.size.width,
+            area.size.height,
+        ),
+        SCREEN_SHARE,
+        MIN_SIZE,
+    );
+    let _ = w.set_size(tauri::PhysicalSize::new(width, height));
+    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
 /// The checkable items of the tray's "Speed limit" submenu: the presets, then Custom.
 struct SpeedItems(Vec<(&'static str, CheckMenuItem<Wry>)>);
 
@@ -322,5 +360,33 @@ impl PowerActions for ShellPower {
     fn announce(&self, action: AfterQueue) {
         notify(&self.app, "The queue is done", power::pending_text(action));
         show_on_main_thread(&self.app);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fitted;
+
+    #[test]
+    fn the_window_takes_95_percent_of_the_screen_centred() {
+        // A 1920x1080 screen with a 40 px taskbar at the bottom.
+        let (x, y, w, h) = fitted((0, 0, 1920, 1040), 0.95, (900, 560));
+        assert_eq!((w, h), (1824, 988));
+        assert_eq!((x, y), (48, 26));
+    }
+
+    #[test]
+    fn a_second_screen_keeps_its_offset() {
+        let (x, y, _, _) = fitted((1920, 0, 2560, 1400), 0.95, (900, 560));
+        assert_eq!((x, y), (1920 + 64, 35));
+    }
+
+    #[test]
+    fn a_small_screen_still_gets_the_minimum_but_never_more_than_the_screen() {
+        assert_eq!(fitted((0, 0, 800, 500), 0.95, (900, 560)), (0, 0, 800, 500));
+        assert_eq!(
+            fitted((0, 0, 920, 580), 0.95, (900, 560)),
+            (10, 10, 900, 560)
+        );
     }
 }
