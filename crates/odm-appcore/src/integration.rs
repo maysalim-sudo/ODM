@@ -150,11 +150,17 @@ pub fn extension_old(ext: &str, app: &str) -> bool {
 
 #[cfg(windows)]
 pub fn status(host_exe: &Path, pipe_running: bool, contact: &Contact) -> IntegrationStatus {
+    status_from(host_exe, pipe_running, contact, browser_checks(host_exe))
+}
+
+/// Each browser's key: is it there, and does its manifest start `host_exe`?
+#[cfg(windows)]
+pub fn browser_checks(host_exe: &Path) -> Vec<BrowserCheck> {
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let browsers = BROWSER_KEYS
+    BROWSER_KEYS
         .iter()
         .map(|(name, key)| {
             let manifest = hkcu
@@ -169,8 +175,7 @@ pub fn status(host_exe: &Path, pipe_running: bool, contact: &Contact) -> Integra
                 host_exe,
             )
         })
-        .collect();
-    status_from(host_exe, pipe_running, contact, browsers)
+        .collect()
 }
 
 /// Linux: each installed browser's manifest file, where `odm-host --register` writes it.

@@ -62,7 +62,15 @@ pub fn registration_needed(
     !(same("HostPath", host_exe) && same("AppPath", app_exe))
 }
 
-/// Reads HKCU\Software\ODM; if needed, runs `<host_exe> --register --app <app_exe>` and logs the outcome.
+/// Some browser can't reach this copy: its key is missing, damaged, or starts another copy's
+/// helper (a test build run since, say).
+pub fn browsers_need_registering(checks: &[crate::integration::BrowserCheck]) -> bool {
+    checks
+        .iter()
+        .any(|c| c.status != crate::integration::Check::Ok)
+}
+
+/// Reads HKCU\Software\ODM and each browser's key; if needed, runs `<host_exe> --register --app <app_exe>` and logs the outcome.
 #[cfg(windows)]
 pub fn ensure_registered(host_exe: &Path, app_exe: &Path) {
     use std::os::windows::process::CommandExt;
@@ -79,7 +87,9 @@ pub fn ensure_registered(host_exe: &Path, app_exe: &Path) {
         key.as_ref()
             .and_then(|k| k.get_value::<String, _>(name).ok())
     };
-    if !registration_needed(host_exe, app_exe, read) {
+    if !registration_needed(host_exe, app_exe, read)
+        && !browsers_need_registering(&crate::integration::browser_checks(host_exe))
+    {
         tracing::debug!("browser integration is already registered");
         return;
     }
@@ -180,6 +190,20 @@ mod tests {
         stable_paths(&app, &host, Some(&appimage), &data).unwrap();
         assert_eq!(std::fs::read(&got_host).unwrap(), b"helper v2");
         assert!(!data.join("bin").join("odm-host.part").exists());
+    }
+
+    #[test]
+    fn a_browser_left_on_another_copy_needs_registering() {
+        use crate::integration::{BrowserCheck, Check};
+        let row = |status| BrowserCheck {
+            browser: "Chrome".into(),
+            status,
+            detail: String::new(),
+        };
+        assert!(!browsers_need_registering(&[row(Check::Ok), row(Check::Ok)]));
+        for bad in [Check::Missing, Check::WrongPath, Check::Broken] {
+            assert!(browsers_need_registering(&[row(Check::Ok), row(bad)]));
+        }
     }
 
     #[test]
