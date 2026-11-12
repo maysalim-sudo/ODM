@@ -322,6 +322,10 @@ export interface IntegrationStatus {
   /** Epoch ms of the last request from a browser. */
   last_contact_ms: number | null;
   last_command: string | null;
+  /** The version the extension last sent; "" for one too old to say it. */
+  extension_version: string | null;
+  /** That extension is older than this ODM. */
+  extension_old: boolean;
 }
 
 /** Store listings of the extension; null = not published yet. */

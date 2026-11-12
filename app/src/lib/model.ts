@@ -405,7 +405,11 @@ export function integrationProblem(s: IntegrationStatus): string | null {
   if (!s.host_found) return "The browser helper is missing next to ODM.";
   if (!s.pipe_running) return "ODM couldn't open its connection for browsers. Another copy of ODM may be running.";
   const bad = s.browsers.find((b) => b.status !== "ok");
-  if (!bad) return null;
+  if (!bad) {
+    if (!s.extension_old) return null;
+    const v = s.extension_version ? ` (${s.extension_version})` : "";
+    return `The ODM browser extension${v} is older than this ODM. Update it from your browser's extensions page.`;
+  }
   if (bad.status === "missing") return `${bad.browser} is not registered.`;
   if (bad.status === "wrong_path") return `${bad.browser} is registered for another copy of ODM.`;
   return `The registration file for ${bad.browser} is damaged.`;

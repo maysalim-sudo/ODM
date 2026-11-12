@@ -16,7 +16,7 @@ export async function sendDetailed<T>(
   });
   try {
     const response = await Promise.race([
-      ext.runtime.sendNativeMessage(HOST_NAME, makeRequest(cmd, payload)) as Promise<OdmResponse<T>>,
+      ext.runtime.sendNativeMessage(HOST_NAME, makeRequest(cmd, payload, ext.runtime.getManifest?.().version)) as Promise<OdmResponse<T>>,
       timeout,
     ]);
     return { response };

@@ -53,8 +53,24 @@ export type AddPagePayload = {
   format?: VideoFormat;
 };
 
-export function makeRequest(cmd: string, payload: object = {}): { id: string; cmd: string; payload: object } {
-  return { id: crypto.randomUUID(), cmd, payload };
+export type OdmRequest = { id: string; cmd: string; payload: object; ext?: string };
+
+/** One message to ODM; `ext` is this extension's version, so ODM can tell when it is out of date. */
+export function makeRequest(cmd: string, payload: object = {}, ext?: string): OdmRequest {
+  return ext ? { id: crypto.randomUUID(), cmd, payload, ext } : { id: crypto.randomUUID(), cmd, payload };
+}
+
+/** Version `a` is older than `b`, compared number by number; anything that isn't numbers is not. */
+export function olderThan(a: string, b: string): boolean {
+  const parts = (v: string) => v.split(".").map((p) => (/^\d+$/.test(p) ? Number(p) : NaN));
+  const x = parts(a);
+  const y = parts(b);
+  if ([...x, ...y].some(Number.isNaN)) return false;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d !== 0) return d < 0;
+  }
+  return false;
 }
 
 export function errorText(r: OdmResponse | null | undefined): string {

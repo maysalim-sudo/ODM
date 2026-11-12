@@ -1,7 +1,7 @@
 import { ext, send, sendDetailed } from "./lib/browser";
 import { STORAGE_KEY, detectionView, normalizeSettings, setSiteOff, type DetectionSettings } from "./lib/detection";
 import { statusLine } from "./lib/format";
-import { errorText, type SendFailure, type VideoFormat } from "./lib/protocol";
+import { errorText, olderThan, type SendFailure, type VideoFormat } from "./lib/protocol";
 import { isSitePage, pageAddress, visibleStreams } from "./lib/sites";
 import { videoLabel, type Stream } from "./lib/streams";
 
@@ -30,7 +30,13 @@ async function init(): Promise<void> {
     // The browser's own reason helps when the helper can't be started.
     setStatus(failure === "other" && detail ? `${FAILURE_TEXT.other} (${detail})` : FAILURE_TEXT[failure ?? "other"]);
   } else if (r.ok) {
-    setStatus(`Connected to ODM ${r.payload?.version ?? ""}`.trim());
+    const odm = r.payload?.version ?? "";
+    setStatus(`Connected to ODM ${odm}`.trim());
+    const mine = ext.runtime.getManifest().version;
+    if (odm && olderThan(mine, odm)) {
+      $("problem-text").textContent = `This extension (${mine}) is older than ODM ${odm}. Update it from your browser's extensions page.`;
+      $("problem").hidden = false;
+    }
     await refreshSummary();
   } else if (r.error?.code === "app_not_running") {
     setStatus("ODM is not running.");

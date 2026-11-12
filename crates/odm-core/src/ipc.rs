@@ -45,6 +45,9 @@ pub struct Request {
     pub cmd: String,
     #[serde(default)]
     pub payload: serde_json::Value,
+    /// The browser extension's version, sent since 0.4.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ext: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

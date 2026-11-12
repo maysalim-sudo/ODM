@@ -449,6 +449,15 @@ async fn dispatched_requests_update_contact() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn dispatch_notes_the_extension_version() {
+    let f = fixture().await;
+    let mut r = req(cmd::GET_SUMMARY, json!({}));
+    r.ext = Some("0.4.3".into());
+    dispatch(&f.ctx, r).await;
+    assert_eq!(f.ctx.contact.extension(), Some("0.4.3".into()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn add_download_passes_filesize_hint() {
     let f = fixture().await;
     f.ctx.settings.lock().unwrap().confirm_browser_downloads = true;

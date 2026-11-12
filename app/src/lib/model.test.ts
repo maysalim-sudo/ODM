@@ -618,10 +618,22 @@ describe("integrationProblem", () => {
     browsers: [ok("Chrome"), ok("Edge")],
     last_contact_ms: null,
     last_command: null,
+    extension_version: null,
+    extension_old: false,
   };
 
   it("is null when everything is ready", () => {
     expect(integrationProblem(base)).toBeNull();
+  });
+
+  it("asks for an extension update last", () => {
+    expect(integrationProblem({ ...base, extension_version: "0.4.2", extension_old: true })).toBe(
+      "The ODM browser extension (0.4.2) is older than this ODM. Update it from your browser's extensions page.",
+    );
+    expect(integrationProblem({ ...base, extension_version: "", extension_old: true })).toBe(
+      "The ODM browser extension is older than this ODM. Update it from your browser's extensions page.",
+    );
+    expect(integrationProblem({ ...base, pipe_running: false, extension_old: true })).toMatch(/^ODM couldn't/);
   });
 
   it("names the missing helper first", () => {
@@ -811,6 +823,8 @@ describe("first-run setup", () => {
       browsers: [],
       last_contact_ms: null,
       last_command: null,
+      extension_version: null,
+      extension_old: false,
     };
     expect(browserConnected(st)).toBe(false);
     expect(browserConnected(null)).toBe(false);

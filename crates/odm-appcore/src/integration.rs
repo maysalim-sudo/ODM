@@ -33,6 +33,10 @@ pub struct IntegrationStatus {
     /// Epoch ms of the last IPC request from a browser.
     pub last_contact_ms: Option<u64>,
     pub last_command: Option<String>,
+    /// The version the extension last sent; "" when an extension too old to say it talked to ODM.
+    pub extension_version: Option<String>,
+    /// That extension is older than this ODM.
+    pub extension_old: bool,
 }
 
 /// Registry keys (under HKCU) whose `\com.odm.host` default value is the manifest path.
@@ -100,6 +104,7 @@ pub fn check_browser(
 #[derive(Default)]
 pub struct Contact {
     last: Mutex<Option<(u64, String)>>,
+    extension: Mutex<Option<String>>,
 }
 
 impl Contact {
@@ -110,6 +115,36 @@ impl Contact {
 
     pub fn get(&self) -> Option<(u64, String)> {
         self.last.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Notes the extension's version from a request. ODM's own test PING carries none and is
+    /// skipped; any other request without one came from an extension older than 0.4.3.
+    pub fn record_extension(&self, cmd: &str, version: Option<&str>) {
+        let mut known = self.extension.lock().unwrap_or_else(|e| e.into_inner());
+        match version {
+            Some(v) => *known = Some(v.chars().take(32).collect()),
+            None if cmd != cmd::PING && known.is_none() => *known = Some(String::new()),
+            None => {}
+        }
+    }
+
+    pub fn extension(&self) -> Option<String> {
+        self.extension.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+/// `ext` is older than `app`. An empty `ext` is an extension too old to send its version;
+/// a version that isn't numbers gets no warning.
+pub fn extension_old(ext: &str, app: &str) -> bool {
+    fn parts(v: &str) -> Option<Vec<u64>> {
+        v.split('.').map(|p| p.parse().ok()).collect()
+    }
+    if ext.is_empty() {
+        return true;
+    }
+    match (parts(ext), parts(app)) {
+        (Some(e), Some(a)) => e < a,
+        _ => false,
     }
 }
 
@@ -175,12 +210,17 @@ fn status_from(
     browsers: Vec<BrowserCheck>,
 ) -> IntegrationStatus {
     let last = contact.get();
+    let extension = contact.extension();
     IntegrationStatus {
         host_found: host_exe.exists(),
         pipe_running,
         browsers,
         last_contact_ms: last.as_ref().map(|(t, _)| *t),
         last_command: last.map(|(_, c)| c),
+        extension_old: extension
+            .as_deref()
+            .is_some_and(|v| extension_old(v, env!("CARGO_PKG_VERSION"))),
+        extension_version: extension,
     }
 }
 
@@ -222,6 +262,7 @@ pub fn self_test(host_exe: &Path) -> Result<String, String> {
         id: Some("self-test".into()),
         cmd: cmd::PING.into(),
         payload: serde_json::json!({}),
+        ext: None,
     };
     let body = serde_json::to_vec(&ping).unwrap_or_default();
     let (tx, rx) = mpsc::channel();
@@ -355,6 +396,46 @@ mod tests {
         let (t, cmd) = c.get().unwrap();
         assert_eq!(cmd, "ADD_DOWNLOAD");
         assert!(now_ms().abs_diff(t) < 1000);
+    }
+
+    #[test]
+    fn contact_remembers_the_extension_version() {
+        let c = Contact::default();
+        // ODM's own test PING says nothing about the extension.
+        c.record_extension("PING", None);
+        assert_eq!(c.extension(), None);
+        // An extension too old to say its version.
+        c.record_extension("ADD_DOWNLOAD", None);
+        assert_eq!(c.extension(), Some(String::new()));
+        c.record_extension("PING", Some("0.4.3"));
+        assert_eq!(c.extension(), Some("0.4.3".into()));
+        // A later message without a version doesn't forget it.
+        c.record_extension("GET_SUMMARY", None);
+        assert_eq!(c.extension(), Some("0.4.3".into()));
+    }
+
+    #[test]
+    fn extension_old_compares_numbers() {
+        assert!(extension_old("", "0.4.3"));
+        assert!(extension_old("0.4.2", "0.4.3"));
+        assert!(extension_old("0.4.9", "0.10.0"));
+        assert!(!extension_old("0.4.3", "0.4.3"));
+        assert!(!extension_old("0.5.0", "0.4.3"));
+        // Junk isn't worth a warning.
+        assert!(!extension_old("abc", "0.4.3"));
+    }
+
+    #[test]
+    fn status_reports_an_old_extension() {
+        let c = Contact::default();
+        let s = status_from(Path::new(HOST), true, &c, Vec::new());
+        assert_eq!((s.extension_version.clone(), s.extension_old), (None, false));
+        c.record_extension("ADD_PAGE", None);
+        let s = status_from(Path::new(HOST), true, &c, Vec::new());
+        assert_eq!((s.extension_version, s.extension_old), (Some(String::new()), true));
+        c.record_extension("PING", Some(env!("CARGO_PKG_VERSION")));
+        let s = status_from(Path::new(HOST), true, &c, Vec::new());
+        assert!(!s.extension_old);
     }
 
     #[test]

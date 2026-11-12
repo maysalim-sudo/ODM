@@ -56,6 +56,7 @@ fn internal(id: Option<String>, e: &odm_core::OdmError) -> Response {
 pub async fn dispatch(ctx: &IpcContext, req: Request) -> Response {
     let id = req.id.clone();
     ctx.contact.record(&req.cmd);
+    ctx.contact.record_extension(&req.cmd, req.ext.as_deref());
     match req.cmd.as_str() {
         cmd::PING => reply(
             id,

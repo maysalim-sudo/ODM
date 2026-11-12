@@ -91,5 +91,6 @@ pub fn req(cmd: &str, payload: Value) -> Request {
         id: Some("r1".into()),
         cmd: cmd.into(),
         payload,
+        ext: None,
     }
 }
