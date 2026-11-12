@@ -41,6 +41,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <li
   class="card"
+  data-row={row.id}
   class:selected={downloads.selected.has(row.id)}
   tabindex="0"
   aria-label={`${info.title}. ${row.filename}`}

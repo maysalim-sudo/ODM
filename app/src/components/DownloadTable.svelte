@@ -58,6 +58,7 @@
           {@const pct = row.segments || row.size ? progressPct(row) : null}
           <tr
             class:selected={downloads.selected.has(row.id)}
+            data-row={row.id}
             tabindex="0"
             aria-selected={downloads.selected.has(row.id)}
             onclick={(e) => click(e, row.id)}

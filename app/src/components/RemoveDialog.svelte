@@ -3,7 +3,8 @@
   import { downloads } from "../lib/downloads.svelte";
   import Modal from "./Modal.svelte";
 
-  let { open, onclose }: { open: boolean; onclose: () => void } = $props();
+  /** `withFiles`: opened from "Delete with file", so the box starts ticked. */
+  let { open, withFiles = false, onclose }: { open: boolean; withFiles?: boolean; onclose: () => void } = $props();
 
   let deleteFile = $state(false);
   let busy = $state(false);
@@ -11,7 +12,7 @@
 
   $effect(() => {
     if (open) {
-      deleteFile = false;
+      deleteFile = withFiles;
       busy = false;
     }
   });

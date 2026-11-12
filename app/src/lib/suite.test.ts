@@ -4,7 +4,7 @@ import problemCard from "../components/ProblemCard.svelte?raw";
 import bottomPanel from "../components/BottomPanel.svelte?raw";
 import downloadCard from "../components/DownloadCard.svelte?raw";
 import downloadList from "../components/DownloadList.svelte?raw";
-import selectionBar from "../components/SelectionBar.svelte?raw";
+import actionBar from "../components/ActionBar.svelte?raw";
 
 describe("the bottom panel replaces the details drawer", () => {
   it("is always in the window, under the list", () => {
@@ -24,8 +24,16 @@ describe("the bottom panel replaces the details drawer", () => {
     expect(appSvelte).toMatch(/if \(typing\) return;[\s\S]*e\.key\.toLowerCase\(\) === "a"\) \{\s*e\.preventDefault\(\);\s*downloads\.selectAll\(\);/);
   });
 
-  it("the floating bar is only for several, so one click doesn't cover the list", () => {
-    expect(selectionBar).toContain("{#if rows.length > 1}");
+  it("the action bar above the list replaces the floating bar, always there", () => {
+    expect(appSvelte).toContain("<ActionBar onaction={selAction} />");
+    expect(appSvelte).not.toContain("SelectionBar");
+    expect(actionBar).not.toMatch(/\{#if rows\.length > 0\}\s*<div class="bar"/);
+  });
+
+  it("a right-click on a download opens the menu for the selection", () => {
+    expect(appSvelte).toContain('closest<HTMLElement>("[data-row]")');
+    expect(appSvelte).toMatch(/if \(!downloads\.selected\.has\(id\)\) downloads\.select\(id, "one"\);/);
+    expect(appSvelte).toContain("items={contextMenu(downloads.selectedRows");
   });
 
   it("double-click opens only a finished file", () => {

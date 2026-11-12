@@ -18,7 +18,9 @@
   import AfterQueueDialog from "./components/AfterQueueDialog.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
   import Header from "./components/Header.svelte";
-  import SelectionBar from "./components/SelectionBar.svelte";
+  import ActionBar from "./components/ActionBar.svelte";
+  import PopMenu from "./components/PopMenu.svelte";
+  import SpeedDialog from "./components/SpeedDialog.svelte";
   import StatusBar from "./components/StatusBar.svelte";
   import Tabs from "./components/Tabs.svelte";
   import * as api from "./lib/api";
@@ -28,6 +30,9 @@
   import { sectionFor, type SectionId } from "./lib/settingsPage";
   import type { RowAction } from "./lib/home";
   import { isRiskyFile, problemInfo, type Row } from "./lib/model";
+  import { joinPath } from "./lib/format";
+  import { queueOrder } from "./lib/home";
+  import { LOW_KBPS, againArgs, contextMenu, moveManyInQueue, targets, type SelAction } from "./lib/selection";
   import type { ListView } from "./lib/types";
   import { speedHistory } from "./lib/speedHistory.svelte";
   import { updates } from "./lib/updates.svelte";
@@ -37,6 +42,10 @@
   let batchOpen = $state(false);
   let settingsOpen = $state(false);
   let removeOpen = $state(false);
+  let removeWithFiles = $state(false);
+  let speedOpen = $state(false);
+  /** The right-click menu: where it opened. */
+  let context = $state<{ x: number; y: number } | null>(null);
   let cancelOpen = $state(false);
   let refreshOpen = $state(false);
   let programOpen = $state(false);
@@ -149,6 +158,7 @@
     batchOpen ||
       settingsOpen ||
       removeOpen ||
+      speedOpen ||
       cancelOpen ||
       refreshOpen ||
       programOpen ||
@@ -159,6 +169,105 @@
       downloads.prompts.length > 0 ||
       downloads.afterQueue !== null,
   );
+
+  /** The selected rows an action applies to, while the queue schedule is or isn't closed. */
+  const selTargets = (a: SelAction) => targets(downloads.selectedRows, a, queueSchedule.wait !== null);
+
+  /** Sets this limit (KB/s, null = none) on each row, then reloads so the list shows it. */
+  async function limitAll(rows: Row[], kbps: number | null) {
+    await downloads.run(() => Promise.all(rows.map((r) => api.setDownloadLimit(r.id, kbps))));
+    void downloads.reload();
+  }
+
+  async function moveAll(rows: Row[], to: "top" | "up" | "down" | "bottom") {
+    const queue = queueOrder([...downloads.rows.values()]).map((r) => r.id);
+    await downloads.reorder(
+      moveManyInQueue(
+        queue,
+        rows.map((r) => r.id),
+        to,
+      ),
+    );
+  }
+
+  /** What the action bar and the right-click menu do with the selection. */
+  function selAction(a: SelAction) {
+    const rows = selTargets(a);
+    const ids = rows.map((r) => r.id);
+    const single = rows.length === 1 ? rows[0] : undefined;
+    switch (a) {
+      case "open":
+      case "open-folder":
+      case "new-link":
+        if (single) rowAction(single, a);
+        break;
+      case "resume":
+      case "start-now":
+      case "retry":
+        void downloads.run(() => api.resume(ids));
+        break;
+      case "pause":
+        void downloads.run(() => api.pause(ids));
+        break;
+      case "stop":
+        downloads.selected = new Set(ids);
+        cancelOpen = true;
+        break;
+      case "move-top":
+      case "move-up":
+      case "move-down":
+      case "move-bottom":
+        void moveAll(rows, a === "move-bottom" ? "bottom" : (a.slice(5) as "top" | "up" | "down"));
+        break;
+      case "low":
+        // Low is both: last in line, and slow.
+        void moveAll(selTargets("move-bottom"), "bottom").then(() => limitAll(rows, LOW_KBPS));
+        break;
+      case "normal":
+      case "speed-unlimited":
+        void limitAll(rows, null);
+        break;
+      case "speed-low":
+        void limitAll(rows, LOW_KBPS);
+        break;
+      case "speed-custom":
+        speedOpen = true;
+        break;
+      case "copy-link":
+        void downloads.run(() => navigator.clipboard.writeText(rows.map((r) => r.url).join("\n")));
+        break;
+      case "copy-name":
+        void downloads.run(() => navigator.clipboard.writeText(rows.map((r) => r.filename).join("\n")));
+        break;
+      case "copy-path":
+        void downloads.run(() => navigator.clipboard.writeText(rows.map((r) => joinPath(r.save_dir, r.filename)).join("\n")));
+        break;
+      case "again":
+        for (const r of rows) {
+          const args = againArgs(r);
+          if (args) void downloads.run(() => api.addDownload(args));
+        }
+        break;
+      case "select-all":
+        downloads.selectAll();
+        break;
+      case "remove":
+      case "delete":
+        removeWithFiles = a === "delete";
+        removeOpen = true;
+        break;
+    }
+  }
+
+  /** Right-click on a download: it joins the selection (or becomes it), and the menu opens there. */
+  function oncontextmenu(e: MouseEvent) {
+    const el = (e.target as Element | null)?.closest<HTMLElement>("[data-row]");
+    const id = el?.dataset.row;
+    if (!id || !downloads.rows.has(id)) return;
+    e.preventDefault();
+    if (!downloads.selected.has(id)) downloads.select(id, "one");
+    context = { x: e.clientX, y: e.clientY };
+  }
 
   function onkeydown(e: KeyboardEvent) {
     if (dialogOpen) return;
@@ -211,8 +320,10 @@
     </div>
   {/if}
   <Tabs view={listView} onview={(v) => void setListView(v)} />
+  <ActionBar onaction={selAction} />
   <div class="body">
-    <div class="main">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="main" {oncontextmenu}>
       {#if listView === "cards"}
         <DownloadList onaction={rowAction} onremove={() => (removeOpen = true)} onbrowser={() => (browserOpen = true)} />
       {:else}
@@ -224,7 +335,6 @@
           }}
         />
       {/if}
-      <SelectionBar oncancel={() => (cancelOpen = true)} onremove={() => (removeOpen = true)} />
     </div>
     <BottomPanel
       bind:this={bottomPanel}
@@ -246,7 +356,31 @@
 
 <BatchDialog open={batchOpen} onclose={() => (batchOpen = false)} />
 <CancelDialog open={cancelOpen} onclose={() => (cancelOpen = false)} />
-<RemoveDialog open={removeOpen} onclose={() => (removeOpen = false)} />
+<RemoveDialog
+  open={removeOpen}
+  withFiles={removeWithFiles}
+  onclose={() => {
+    removeOpen = false;
+    removeWithFiles = false;
+  }}
+/>
+<SpeedDialog
+  open={speedOpen}
+  count={selTargets("speed-custom").length}
+  onapply={(kbps) => void limitAll(selTargets("speed-custom"), kbps)}
+  onclose={() => (speedOpen = false)}
+/>
+{#if context}
+  <PopMenu
+    items={contextMenu(downloads.selectedRows, queueSchedule.wait !== null)}
+    enabled={() => true}
+    x={context.x}
+    y={context.y}
+    label="Download actions"
+    onchoose={selAction}
+    onclose={() => (context = null)}
+  />
+{/if}
 <RefreshUrlDialog open={refreshOpen} id={targetId} onclose={() => (refreshOpen = false)} />
 <OpenProgramDialog open={programOpen} id={targetId} name={targetName} onclose={() => (programOpen = false)} />
 <WelcomeDialog open={welcomeOpen} onclose={() => (welcomeOpen = false)} />
