@@ -425,7 +425,9 @@
     flex: none;
     display: flex;
     flex-direction: column;
-    border-top: 1px solid var(--border);
+    margin: 10px 20px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
     background: var(--surface);
     user-select: text;
   }

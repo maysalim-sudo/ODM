@@ -326,7 +326,7 @@
   <ActionBar onaction={selAction} />
   <div class="body">
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="main" {oncontextmenu}>
+    <div class="main" class:card={listView !== "cards"} {oncontextmenu}>
       {#if listView === "cards"}
         <DownloadList onaction={rowAction} onremove={() => (removeOpen = true)} onbrowser={() => (browserOpen = true)} />
       {:else}
@@ -430,6 +430,14 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+  /* The table sits in a rounded card, lined up with the paste bar above. */
+  .main.card {
+    margin: 0 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+    overflow: hidden;
   }
   .error {
     display: flex;
