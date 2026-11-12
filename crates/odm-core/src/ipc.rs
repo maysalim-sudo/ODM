@@ -28,6 +28,8 @@ pub mod code {
     pub const SKIPPED: &str = "skipped";
     pub const EXPIRED: &str = "expired";
     pub const ADD_FAILED: &str = "add_failed";
+    /// The same address, with the same video or MP3 choice, is already in the list.
+    pub const DUPLICATE: &str = "duplicate";
     pub const NOT_SUPPORTED: &str = "not_supported";
     pub const APP_NOT_RUNNING: &str = "app_not_running";
     pub const APP_START_FAILED: &str = "app_start_failed";

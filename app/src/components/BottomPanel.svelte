@@ -8,6 +8,7 @@
   import { canRefresh, canResume, isActive, needsVideoTools, problemInfo, progressPct, rowStatus } from "../lib/model";
   import { checkSpeed } from "../lib/settingsPage";
   import { SPEED_SAMPLES, speedHistory } from "../lib/speedHistory.svelte";
+  import { expiryNote, linkExpiry } from "../lib/newDownload";
   import type { Detail } from "../lib/types";
   import ChunkMap from "./ChunkMap.svelte";
   import Icon from "./Icon.svelte";
@@ -124,6 +125,12 @@
   const primaryLabel = $derived(primary === "fix" && problem ? FIX_LABELS[problem.action] : primary ? ACTION_LABELS[primary] : "");
   const chunks = $derived(row?.chunks ?? detail?.chunks ?? []);
   const pct = $derived(row && (row.segments || row.size) ? progressPct(row) : null);
+  /** A waiting plain file's or stream's link that says when it expires. */
+  const expiry = $derived(
+    row && (row.state === "queued" || row.state === "paused") && row.kind !== "site" && row.kind !== "torrent"
+      ? expiryNote(linkExpiry(row.url))
+      : null,
+  );
   let filesError = $state<string | null>(null);
   const selectedFiles = $derived(new Set((detail?.torrent?.files ?? []).filter((f) => f.selected).map((f) => f.idx)));
 
@@ -287,12 +294,18 @@
             {:else}
               <p class="status">{rowStatus(row, waiting, queueSchedule.wait)}</p>
             {/if}
+            {#if expiry}
+              <p class="status">{expiry}</p>
+            {/if}
             <div class="actions">
               {#if primary}
                 <button class="primary" onclick={() => onaction(primary)}>{primaryLabel}</button>
               {/if}
               {#if canRefresh(row) && problem?.action !== "new-link"}
                 <button onclick={() => onaction("new-link")}>Paste new link</button>
+              {/if}
+              {#if canRefresh(row) && row.page_url}
+                <button onclick={() => onaction("open-page")}>Open the page</button>
               {/if}
               <button onclick={() => onaction("open-folder")}><Icon name="folder" /> Open folder</button>
               <button class="square" onclick={copyUrl} aria-label={copied ? "Link copied" : "Copy link"} title={copied ? "Copied" : "Copy link"}>

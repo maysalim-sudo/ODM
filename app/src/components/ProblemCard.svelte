@@ -55,6 +55,10 @@
     <div class="body">{info.body}</div>
   </div>
   <button class="primary" aria-label={`${FIX_LABELS[info.action]} ${row.filename}`} onclick={(e) => act(e, "fix")}>{FIX_LABELS[info.action]}</button>
+  {#if info.action === "new-link" && row.page_url}
+    <!-- An expired link: the page it came from has a fresh one. -->
+    <button aria-label={`Open the page of ${row.filename}`} onclick={(e) => act(e, "open-page")}>Open the page</button>
+  {/if}
   <button class="plain" aria-label={`Remove ${row.filename}`} onclick={(e) => act(e, "remove")}>Remove</button>
 </li>
 

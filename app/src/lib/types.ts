@@ -40,6 +40,14 @@ export interface Download {
   /** Torrents only: the info hash, and whether the file list is known yet. */
   info_hash?: string | null;
   has_meta?: boolean | null;
+  /** Saved as MP3. */
+  audio?: boolean;
+}
+
+/** Whether a file name is taken in its folder (on disk or by another download), and a free one. */
+export interface NameCheck {
+  taken: boolean;
+  free: string;
 }
 
 export interface ChunkView {

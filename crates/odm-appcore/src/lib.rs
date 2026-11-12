@@ -7,6 +7,7 @@ pub mod capture;
 pub mod completion;
 pub mod confirm;
 pub mod dto;
+pub mod duplicates;
 pub mod integration;
 pub mod ipc;
 pub mod logging;

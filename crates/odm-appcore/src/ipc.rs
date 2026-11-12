@@ -1,6 +1,7 @@
 //! The IPC command dispatcher: plain async logic against `ManagerHandle`, no transport.
 use crate::capture::{normalize_headers, skip_reason};
 use crate::confirm::Pending;
+use crate::duplicates::{asks_mp3, duplicate_of};
 use crate::integration::Contact;
 use crate::messages::user_message;
 use crate::offers::{find_reusable, OfferDto, Offers};
@@ -14,6 +15,7 @@ use odm_core::ipc::{
 use odm_core::{filename, redact_url, DownloadState};
 use odm_engine::config::{Container, Quality};
 use odm_engine::{AddRequest, ManagerHandle, SiteRequest, StreamRequest, VideoOverride};
+use odm_store::DownloadRecord;
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -157,6 +159,29 @@ fn format_override(
     override_for(format, site, quality)
 }
 
+/// Without the New download dialog, a click for something already in the list adds nothing and
+/// says so. With the dialog, the dialog shows the duplicate instead.
+async fn refuse_duplicate(
+    ctx: &IpcContext,
+    id: &Option<String>,
+    url: &str,
+    video_override: Option<&VideoOverride>,
+) -> Option<Response> {
+    if confirm_wanted(ctx) {
+        return None;
+    }
+    let rows: Vec<DownloadRecord> = ctx
+        .manager
+        .list()
+        .await
+        .ok()?
+        .into_iter()
+        .map(|(r, _)| r)
+        .collect();
+    duplicate_of(&rows, url, asks_mp3(video_override))
+        .map(|_| Response::err(id.clone(), code::DUPLICATE, "Already in ODM."))
+}
+
 /// The download was added paused: queue it for the "New download" dialog and bring the window up.
 fn ask_to_confirm(ctx: &IpcContext, download_id: &str) {
     ctx.pending.push(download_id.to_string());
@@ -192,6 +217,9 @@ async fn add_stream(ctx: &IpcContext, id: Option<String>, payload: Value) -> Res
         headers.push(("Cookie".into(), c.to_string()));
     }
     let video_override = format_override(ctx, p.format, false);
+    if let Some(r) = refuse_duplicate(ctx, &id, &p.playlist_url, video_override.as_ref()).await {
+        return r;
+    }
     let mut req = StreamRequest {
         video_override,
         playlist_url: p.playlist_url,
@@ -239,9 +267,13 @@ async fn add_page(ctx: &IpcContext, id: Option<String>, payload: Value) -> Respo
     if let Some(c) = p.cookies.as_deref().filter(|c| !c.is_empty()) {
         headers.push(("Cookie".into(), c.to_string()));
     }
+    let video_override = format_override(ctx, p.format, true);
+    if let Some(r) = refuse_duplicate(ctx, &id, &p.page_url, video_override.as_ref()).await {
+        return r;
+    }
     let confirm = confirm_wanted(ctx);
     let req = SiteRequest {
-        video_override: format_override(ctx, p.format, true),
+        video_override,
         page_url: p.page_url,
         page_title: p.page_title.filter(|t| !t.trim().is_empty()),
         headers: normalize_headers(headers),
@@ -410,6 +442,12 @@ async fn add_download(ctx: &IpcContext, id: Option<String>, payload: Value) -> R
         }
     }
 
+    // A taken-over browser download isn't refused: the browser would then download it itself.
+    if p.source != Source::Capture {
+        if let Some(r) = refuse_duplicate(ctx, &id, &req.url, req.video_override.as_ref()).await {
+            return r;
+        }
+    }
     let confirm = confirm_wanted(ctx);
     req.start_paused = confirm || paused_wanted(ctx);
     match ctx.manager.add(req).await {

@@ -298,6 +298,55 @@ async fn confirm_setting_adds_paused_and_asks() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_second_click_without_the_dialog_adds_nothing() {
+    let f = fixture().await;
+    f.ctx.settings.lock().unwrap().confirm_browser_downloads = false;
+    let stream = |format: &str| {
+        req(
+            cmd::ADD_STREAM,
+            json!({"page_url": "https://p", "playlist_url": "http://127.0.0.1:9/a.m3u8", "format": format}),
+        )
+    };
+    assert!(dispatch(&f.ctx, stream("video")).await.ok);
+    let again = dispatch(&f.ctx, stream("video")).await;
+    let err = again.error.expect("refused");
+    assert_eq!(err.code, code::DUPLICATE);
+    assert_eq!(err.message, "Already in ODM.");
+    // MP3 of the same stream is a different file.
+    assert!(dispatch(&f.ctx, stream("mp3")).await.ok);
+    let page = || {
+        req(
+            cmd::ADD_PAGE,
+            json!({"page_url": "https://www.youtube.com/watch?v=1", "format": "mp3"}),
+        )
+    };
+    assert!(dispatch(&f.ctx, page()).await.ok);
+    assert_eq!(
+        dispatch(&f.ctx, page()).await.error.unwrap().code,
+        code::DUPLICATE
+    );
+    assert_eq!(f.ctx.manager.list().await.unwrap().len(), 3);
+    for (r, _) in f.ctx.manager.list().await.unwrap() {
+        let _ = f.ctx.manager.cancel(&r.id, true).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn with_the_dialog_a_second_click_still_asks() {
+    let f = fixture().await;
+    f.ctx.settings.lock().unwrap().confirm_browser_downloads = true;
+    let stream = || {
+        req(
+            cmd::ADD_STREAM,
+            json!({"page_url": "https://p", "playlist_url": "http://127.0.0.1:9/a.m3u8"}),
+        )
+    };
+    assert!(dispatch(&f.ctx, stream()).await.ok);
+    assert!(dispatch(&f.ctx, stream()).await.ok);
+    assert_eq!(f.ctx.pending.list().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn confirm_setting_applies_to_streams_too() {
     let f = fixture().await;
     f.ctx.settings.lock().unwrap().confirm_browser_downloads = true;

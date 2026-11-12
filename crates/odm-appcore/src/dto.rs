@@ -36,6 +36,8 @@ pub struct DownloadDto {
     /// Torrents only: the info hash, and whether the file list is known yet.
     pub info_hash: Option<String>,
     pub has_meta: Option<bool>,
+    /// Saved as MP3 (this download asked for audio).
+    pub audio: bool,
 }
 
 /// The stored failure text, rewritten in plain language when its code is known.
@@ -80,6 +82,7 @@ pub fn to_dto(r: &DownloadRecord, bytes: u64) -> DownloadDto {
         info_hash: r.info_hash.clone(),
         // A torrent gets its size from the file list.
         has_meta: (r.kind == "torrent").then_some(r.size.is_some()),
+        audio: odm_engine::convert::wants_mp3(r),
     }
 }
 
@@ -344,6 +347,14 @@ mod message_tests {
         r.error_kind = kind.map(String::from);
         r.error_msg = Some(msg.into());
         r
+    }
+
+    #[test]
+    fn a_download_says_whether_it_is_saved_as_mp3() {
+        let mut r = DownloadRecord::new_file("a", "https://e.com/f", "f", "C:/dl");
+        assert!(!to_dto(&r, 0).audio);
+        r.video_override = Some(r#"{"quality":"audio"}"#.into());
+        assert!(to_dto(&r, 0).audio);
     }
 
     #[test]

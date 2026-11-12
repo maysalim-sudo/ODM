@@ -304,6 +304,24 @@ pub async fn open_file(app: AppHandle, state: State<'_, AppState>, id: String) -
 }
 
 #[tauri::command]
+pub async fn open_page(app: AppHandle, state: State<'_, AppState>, id: String) -> Res<()> {
+    let (rec, _) = state
+        .manager
+        .get(&id)
+        .await
+        .map_err(msg)?
+        .ok_or("That download is gone.")?;
+    // Only a web page the download came from, never a file or another scheme.
+    let page = rec
+        .page_url
+        .filter(|u| u.starts_with("https://") || u.starts_with("http://"))
+        .ok_or("ODM doesn't know the page this came from.")?;
+    app.opener()
+        .open_url(page, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn open_folder(app: AppHandle, state: State<'_, AppState>, id: String) -> Res<()> {
     let (file, dir) = file_path(&state, &id).await?;
     if file.exists() {
@@ -497,6 +515,30 @@ pub async fn tools_status(state: State<'_, AppState>) -> Res<ToolsStatus> {
     tauri::async_runtime::spawn_blocking(move || tools::status(&cfg))
         .await
         .map_err(|e| e.to_string())
+}
+
+/// For the New download dialog: whether `name` is taken in `dir` (on disk or by `others`, the
+/// names of the other downloads going there), and a free name if it is.
+#[tauri::command]
+pub fn name_check(
+    dir: String,
+    name: String,
+    others: Vec<String>,
+) -> odm_appcore::duplicates::NameCheck {
+    odm_appcore::duplicates::check_name(std::path::Path::new(&dir), &name, &others)
+}
+
+/// A waiting file's size from its server, for the dialog's "Later"; null when it can't be known yet.
+#[tauri::command]
+pub async fn measure_download(state: State<'_, AppState>, id: String) -> Res<Option<u64>> {
+    let cfg = state.settings.lock().unwrap().to_engine_config();
+    Ok(odm_appcore::duplicates::measure(&state.manager, &cfg, &id).await)
+}
+
+/// Free bytes on the drive that holds `dir`; null when the system can't say.
+#[tauri::command]
+pub fn free_space(dir: String) -> Option<u64> {
+    odm_appcore::duplicates::free_space(std::path::Path::new(&dir))
 }
 
 /// The tools in ODM's own folder that have something newer ("FFmpeg", "yt-dlp", "Deno"), empty

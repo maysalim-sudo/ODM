@@ -9,6 +9,7 @@ import type {
   Download,
   ExistsChoice,
   IntegrationStatus,
+  NameCheck,
   Offer,
   Settings,
   StoreLinks,
@@ -52,6 +53,8 @@ export const getSettings = () => invoke<Settings>("get_settings");
 export const saveSettings = (settings: Settings) => invoke<Settings>("save_settings", { settings });
 export const openFile = (id: string) => invoke<void>("open_file", { id });
 export const openFolder = (id: string) => invoke<void>("open_folder", { id });
+/** Opens the web page a download came from, so a fresh link can be copied. */
+export const openPage = (id: string) => invoke<void>("open_page", { id });
 export const pickFolder = (start: string | null) => invoke<string | null>("pick_folder", { start });
 export const listOffers = () => invoke<Offer[]>("list_offers");
 export const resolveOffer = (offerId: string, reuse: boolean) => invoke<string>("resolve_offer", { offerId, reuse });
@@ -72,6 +75,12 @@ export const storeLinks = () => invoke<StoreLinks>("store_links");
 
 export const toolsStatus = () => invoke<ToolsStatus>("tools_status");
 /** What of ODM's own video tools has a newer version; rejects when GitHub couldn't be asked. */
+/** Whether `name` is taken in `dir` (on disk or among `others`), and a free name. */
+export const nameCheck = (dir: string, name: string, others: string[]) => invoke<NameCheck>("name_check", { dir, name, others });
+/** A waiting file's size from its server; null when it can't be known before it runs. */
+export const measureDownload = (id: string) => invoke<number | null>("measure_download", { id });
+/** Free bytes on the drive that holds `dir`; null when unknown. */
+export const freeSpace = (dir: string) => invoke<number | null>("free_space", { dir });
 export const toolsOutdated = () => invoke<string[]>("tools_outdated");
 /** Downloads FFmpeg, yt-dlp and Deno; progress arrives as `tools_progress` events. */
 export const toolsInstall = () => invoke<ToolsStatus>("tools_install");

@@ -139,6 +139,9 @@
       case "copy-link":
         void downloads.run(() => navigator.clipboard.writeText(row.url));
         break;
+      case "open-page":
+        void downloads.run(() => api.openPage(row.id));
+        break;
       case "new-link":
         actionId = row.id;
         refreshOpen = true;

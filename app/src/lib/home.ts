@@ -14,6 +14,7 @@ export type RowAction =
   | "details"
   | "copy-link"
   | "new-link"
+  | "open-page"
   | "cancel"
   | "remove"
   | "move-top"
@@ -31,6 +32,7 @@ export const ACTION_LABELS: Record<RowAction, string> = {
   details: "Details",
   "copy-link": "Copy link",
   "new-link": "Paste new link",
+  "open-page": "Open the page",
   cancel: "Cancel download",
   remove: "Remove from list",
   "move-top": "Move to top",

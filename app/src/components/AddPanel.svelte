@@ -5,6 +5,8 @@
   import { CATEGORIES, nextFilename, pastedAddress, toInt } from "../lib/model";
   import { queueSchedule } from "../lib/queueSchedule.svelte";
   import { checkSpeed } from "../lib/settingsPage";
+  import { downloads } from "../lib/downloads.svelte";
+  import { recentLinks } from "../lib/newDownload";
   import type { Suggestion, VideoQuality } from "../lib/types";
   import Icon from "./Icon.svelte";
 
@@ -55,6 +57,8 @@
   let before: HTMLElement | null = null;
 
   const open = $derived(url.trim() !== "");
+  /** The links downloaded lately, offered under the empty bar. */
+  const recent = $derived(focused && !open ? recentLinks([...downloads.rows.values()], 5) : []);
   const validUrl = $derived(/^https?:\/\/[^/]/i.test(url.trim()));
   /** A magnet link: added as a torrent; its files are chosen in the next window. */
   const isMagnet = $derived(/^magnet:\?/i.test(url.trim()));
@@ -262,6 +266,18 @@
 
   {#if focused && !open}
     <div class="under">
+      {#if recent.length > 0}
+        <div class="recent" role="group" aria-label="Recent links">
+          <span class="label">Recent</span>
+          {#each recent as link (link.url)}
+            <!-- Focus stays in the bar: choosing a link fills it, as pasting does. -->
+            <button type="button" class="recent-link" title={link.url} onmousedown={(e) => e.preventDefault()} onclick={() => (url = link.url)}>
+              <span class="recent-name">{link.name}</span>
+              <span class="recent-url">{link.url}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
       <button type="button" class="link" onmousedown={(e) => e.preventDefault()} onclick={pickTorrent}>Or choose a .torrent file…</button>
     </div>
   {/if}
@@ -446,6 +462,46 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--surface);
+  }
+  .recent {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: min(560px, 80vw);
+    margin: 4px 0 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .recent .label {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .recent-link {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    padding: 4px 8px;
+    border-color: transparent;
+    background: transparent;
+    font-weight: 400;
+    text-align: left;
+    transition: none;
+  }
+  .recent-link:hover,
+  .recent-link:focus-visible {
+    background: var(--surface-2);
+  }
+  .recent-name,
+  .recent-url {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .recent-url {
+    color: var(--muted);
+    font-size: 11px;
   }
   .panel {
     position: absolute;

@@ -166,10 +166,7 @@ class DownloadsStore {
     }
     if (ev.type === "focus") {
       // A torrent already in the list was added again: show its row.
-      if (this.rows.has(ev.id)) {
-        this.filter = { status: "all", category: null };
-        this.select(ev.id, "one");
-      }
+      this.show(ev.id);
       return;
     }
     if (ev.type === "ask_open") {
@@ -217,6 +214,13 @@ class DownloadsStore {
   setCategory(category: string | null): void {
     this.filter = { ...this.filter, category };
     this.pruneSelection();
+  }
+
+  /** Shows one download: every tab and type, with it selected. */
+  show(id: string): void {
+    if (!this.rows.has(id)) return;
+    this.filter = { status: "all", category: null };
+    this.select(id, "one");
   }
 
   /** Ctrl+A: every row the current tab and type show. */
