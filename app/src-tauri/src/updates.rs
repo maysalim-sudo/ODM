@@ -509,6 +509,13 @@ async fn stop_for_install(app: &AppHandle) {
     state.manager.shutdown().await;
 }
 
+/// The update is in place and ODM should restart into it. On Windows the installer exits ODM
+/// itself, so `install` coming back at all means it failed; on Linux it replaces the AppImage
+/// or installs the package and returns.
+fn installed(r: &Result<(), String>, windows: bool) -> bool {
+    r.is_ok() && !windows
+}
+
 /// "Update" in the banner: downloads if needed, stops the downloads, then runs the installer
 /// (passive) which restarts ODM. Only returns on failure.
 pub async fn install_now(app: &AppHandle) -> Result<(), String> {
@@ -523,11 +530,16 @@ pub async fn install_now(app: &AppHandle) -> Result<(), String> {
     // The restarted ODM (and `app.restart()` below) must come back with its window.
     leave_show_marker(&app.state::<AppState>().paths.data_dir);
     let r = tauri::async_runtime::spawn_blocking(move || update.install(bytes)).await;
-    // `install` exits ODM once the installer runs; reaching this line means it did not.
+    let r = r
+        .map_err(|e| format!("update install task failed: {e}"))
+        .and_then(|r| r.map_err(|e| format!("update install failed: {e}")));
+    if installed(&r, cfg!(windows)) {
+        tracing::info!("update installed; restarting");
+        app.restart();
+    }
     match r {
-        Ok(Err(e)) => tracing::error!("update install failed: {e}"),
-        Ok(Ok(())) => tracing::error!("update install returned without exiting"),
-        Err(e) => tracing::error!("update install task failed: {e}"),
+        Err(e) => tracing::error!("{e}"),
+        Ok(()) => tracing::error!("update install returned without exiting"),
     }
     let dialog_app = app.clone();
     let _ = tauri::async_runtime::spawn_blocking(move || {
@@ -594,6 +606,15 @@ pub async fn update_install(app: AppHandle) -> Res<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_finished_linux_install_restarts_instead_of_failing() {
+        // Windows: the installer exits ODM, so coming back at all is a failure.
+        assert!(!installed(&Ok(()), true));
+        // Linux replaces the AppImage or installs the package, then returns.
+        assert!(installed(&Ok(()), false));
+        assert!(!installed(&Err("no".into()), false));
+    }
 
     const TEST_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVGMEYzMTBCNTk5RjM4RDEKUldUUk9KOVpDekVQWDFKblZYc0dNeWZ5Ylg4ZVlYREtCZ2dFTEZlQjZMWG1zcHl0WVdUdHpUQzIK";
 

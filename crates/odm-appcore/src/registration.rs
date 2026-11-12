@@ -200,7 +200,10 @@ mod tests {
             status,
             detail: String::new(),
         };
-        assert!(!browsers_need_registering(&[row(Check::Ok), row(Check::Ok)]));
+        assert!(!browsers_need_registering(&[
+            row(Check::Ok),
+            row(Check::Ok)
+        ]));
         for bad in [Check::Missing, Check::WrongPath, Check::Broken] {
             assert!(browsers_need_registering(&[row(Check::Ok), row(bad)]));
         }

@@ -101,8 +101,9 @@ Choose a password. This writes the private key to `%USERPROFILE%\.tauri\odm-upda
 **Linux packages** (`.deb`, `.rpm`, `.AppImage`), on Ubuntu, Kubuntu or Debian:
 
 1. Once per machine: `bash scripts/linux-setup.sh` (asks your password once, for `apt`; installs the build libraries, Rust, Node and pnpm for your user).
-2. In the repo: `node scripts/release.mjs --updater-pubkey app/src-tauri/odm-updater.pub`. It writes `target/release-assets-linux/`: `ODM-amd64.deb`, `ODM-x86_64.rpm` and `ODM-x86_64.AppImage`, with the update key compiled in so they can verify later updates. Nothing is signed on Linux; the private key stays on the Windows machine.
-3. Add those three files to the same GitHub release as the Windows files.
+2. In the repo: `node scripts/release.mjs --updater-pubkey app/src-tauri/odm-updater.pub`. It writes `target/release-assets-linux/`: `ODM-amd64.deb`, `ODM-x86_64.rpm` and `ODM-x86_64.AppImage` for the website, the same three as `ODM_<version>_amd64.AppImage`, `ODM_<version>_amd64.deb` and `ODM_<version>_x86_64.rpm` for the updater, with the update key compiled in so they can verify later updates. Nothing is signed on Linux; the private key stays on the Windows machine.
+3. Copy that folder to `target\release-assets-linux\` on the Windows machine **before** the signed Windows build. That build then signs the three versioned packages too, copies them and their `.sig` files into `target\release-assets\`, and lists them in `latest.json` (`linux-x86_64-appimage`, `-deb`, `-rpm`), so Linux copies update in the app: an AppImage replaces itself, a `.deb` or `.rpm` install asks for the system password. Without the folder, `latest.json` covers Windows only.
+4. Add all of the Linux files to the same GitHub release as the Windows files.
 
 `app/src-tauri/odm-updater.pub` is the public half of the update key. When the key changes, copy the new `.pub` over it and commit; the signed Windows build refuses to run while they differ.
 

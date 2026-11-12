@@ -48,8 +48,23 @@ export function topSection(changelog) {
   return { version, notes: body.join("\n").trim() };
 }
 
-/** The latest.json object for one Windows x64 release. */
-export function buildLatestJson({ version, changelog, signature, date }) {
+/** The Linux packages the updater can install, each as itself. */
+export const LINUX_PACKAGES = ["appimage", "deb", "rpm"];
+
+/** The versioned file name of a Linux package, as attached to the release. */
+export function linuxPackageName(version, pkg) {
+  return {
+    appimage: `ODM_${version}_amd64.AppImage`,
+    deb: `ODM_${version}_amd64.deb`,
+    rpm: `ODM_${version}_x86_64.rpm`,
+  }[pkg];
+}
+
+/**
+ * The latest.json object for one release: Windows x64, and with `linux` (each package's
+ * signature, by LINUX_PACKAGES name) the Linux packages too.
+ */
+export function buildLatestJson({ version, changelog, signature, date, linux }) {
   const top = topSection(changelog);
   if (!top) throw new Error("CHANGELOG.md has no versioned section.");
   if (top.version !== version) {
@@ -57,12 +72,15 @@ export function buildLatestJson({ version, changelog, signature, date }) {
   }
   const sig = signature.trim();
   if (!sig) throw new Error("The installer's signature is empty.");
-  return {
-    version,
-    notes: top.notes,
-    pub_date: rfc3339(date),
-    platforms: {
-      "windows-x86_64": { signature: sig, url: installerUrl(version) },
-    },
-  };
+  const platforms = { "windows-x86_64": { signature: sig, url: installerUrl(version) } };
+  if (linux) {
+    for (const pkg of LINUX_PACKAGES) {
+      const s = (linux[pkg] ?? "").trim();
+      if (!s) throw new Error(`The ${pkg} package's signature is empty.`);
+      platforms[`linux-x86_64-${pkg}`] = { signature: s, url: `${RELEASES}/v${version}/${linuxPackageName(version, pkg)}` };
+    }
+    // Builds that don't know their package type fall back to this key.
+    platforms["linux-x86_64"] = platforms["linux-x86_64-appimage"];
+  }
+  return { version, notes: top.notes, pub_date: rfc3339(date), platforms };
 }

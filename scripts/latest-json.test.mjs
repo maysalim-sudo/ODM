@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { join } from "node:path";
-import { buildLatestJson, installerUrl, rfc3339, staleReleaseFiles, topSection } from "./latest-json.mjs";
+import { buildLatestJson, installerUrl, LINUX_PACKAGES, linuxPackageName, rfc3339, staleReleaseFiles, topSection } from "./latest-json.mjs";
 
 const CHANGELOG = `# Changelog
 
@@ -75,6 +75,33 @@ describe("buildLatestJson", () => {
         },
       },
     });
+  });
+  it("adds each Linux package, so an AppImage, .deb or .rpm install updates as itself", () => {
+    const json = buildLatestJson({
+      version: "0.2.0",
+      changelog: CHANGELOG,
+      signature: "win",
+      date: new Date(Date.UTC(2026, 9, 20, 12, 0, 0)),
+      linux: { appimage: "a" + String.fromCharCode(10), deb: "d", rpm: "r" },
+    });
+    const url = (f) => `https://github.com/maysalim-sudo/ODM/releases/download/v0.2.0/${f}`;
+    expect(json.platforms).toEqual({
+      "windows-x86_64": { signature: "win", url: url("ODM_0.2.0_x64-setup.exe") },
+      "linux-x86_64-appimage": { signature: "a", url: url("ODM_0.2.0_amd64.AppImage") },
+      "linux-x86_64-deb": { signature: "d", url: url("ODM_0.2.0_amd64.deb") },
+      "linux-x86_64-rpm": { signature: "r", url: url("ODM_0.2.0_x86_64.rpm") },
+      // A build that doesn't know its package type gets the AppImage, which installs anywhere.
+      "linux-x86_64": { signature: "a", url: url("ODM_0.2.0_amd64.AppImage") },
+    });
+  });
+  it("refuses a Linux package without its signature", () => {
+    expect(() =>
+      buildLatestJson({ version: "0.2.0", changelog: CHANGELOG, signature: "w", date: new Date(), linux: { appimage: "a", deb: " ", rpm: "r" } }),
+    ).toThrow("The deb package's signature is empty.");
+  });
+  it("names the Linux packages by version", () => {
+    expect(LINUX_PACKAGES).toEqual(["appimage", "deb", "rpm"]);
+    expect(linuxPackageName("0.4.3", "deb")).toBe("ODM_0.4.3_amd64.deb");
   });
   it("refuses when the top section is for another version", () => {
     expect(() => buildLatestJson({ version: "0.3.0", changelog: CHANGELOG, signature: "x", date: new Date() })).toThrow(

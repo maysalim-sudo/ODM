@@ -129,7 +129,10 @@ impl Contact {
     }
 
     pub fn extension(&self) -> Option<String> {
-        self.extension.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.extension
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 }
 
@@ -434,10 +437,16 @@ mod tests {
     fn status_reports_an_old_extension() {
         let c = Contact::default();
         let s = status_from(Path::new(HOST), true, &c, Vec::new());
-        assert_eq!((s.extension_version.clone(), s.extension_old), (None, false));
+        assert_eq!(
+            (s.extension_version.clone(), s.extension_old),
+            (None, false)
+        );
         c.record_extension("ADD_PAGE", None);
         let s = status_from(Path::new(HOST), true, &c, Vec::new());
-        assert_eq!((s.extension_version, s.extension_old), (Some(String::new()), true));
+        assert_eq!(
+            (s.extension_version, s.extension_old),
+            (Some(String::new()), true)
+        );
         c.record_extension("PING", Some(env!("CARGO_PKG_VERSION")));
         let s = status_from(Path::new(HOST), true, &c, Vec::new());
         assert!(!s.extension_old);

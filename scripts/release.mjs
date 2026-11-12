@@ -13,7 +13,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildLatestJson, staleReleaseFiles } from "./latest-json.mjs";
+import { buildLatestJson, LINUX_PACKAGES, linuxPackageName, staleReleaseFiles } from "./latest-json.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const shell = process.platform === "win32";
@@ -156,6 +156,9 @@ if (isLinux) {
     [pick("rpm", ".rpm"), "ODM-x86_64.rpm"],
     [pick("appimage", ".AppImage"), "ODM-x86_64.AppImage"],
   ];
+  // The versioned copies are what the updater downloads; the signed Windows build signs them.
+  const built = { deb: outputs[0][0], rpm: outputs[1][0], appimage: outputs[2][0] };
+  outputs.push(...LINUX_PACKAGES.map((pkg) => [built[pkg], linuxPackageName(version, pkg)]));
   for (const [from, name] of outputs) copyFileSync(from, join(linuxAssets, name));
   console.log("\nDone.");
   for (const [from, name] of outputs) console.log(`${name}  <-  ${from}`);
@@ -207,12 +210,43 @@ if (!existsSync(setup)) fail("find the installer", `no ${setupName} in ${nsisDir
 // The website links to ODM-setup.exe, which always is the latest version.
 copyFileSync(setup, join(assets, "ODM-setup.exe"));
 
+/**
+ * With --publish-ready: signs this version's Linux packages from target/release-assets-linux
+ * (built first, in Docker) and copies them to the release assets. Returns their signatures, or
+ * null when none were built, so Linux keeps updating by hand.
+ */
+function signLinux(assets) {
+  const dir = join(root, "target", "release-assets-linux");
+  const files = LINUX_PACKAGES.map((pkg) => [pkg, linuxPackageName(version, pkg)]);
+  const found = files.filter(([, name]) => existsSync(join(dir, name)));
+  if (found.length === 0) return null;
+  if (found.length < files.length) {
+    const missing = files.filter(([, n]) => !existsSync(join(dir, n))).map(([, n]) => n);
+    fail("Linux packages", `${dir} has some ${version} packages but not ${missing.join(", ")}. Rebuild Linux or empty that folder.`);
+  }
+  const env = {
+    ...process.env,
+    TAURI_SIGNING_PRIVATE_KEY: readFileSync(key.keyPath, "utf8").trim(),
+    TAURI_SIGNING_PRIVATE_KEY_PASSWORD: key.password,
+  };
+  const sigs = {};
+  for (const [pkg, name] of files) {
+    copyFileSync(join(dir, name), join(assets, name));
+    rmSync(join(assets, `${name}.sig`), { force: true });
+    run(`sign ${name}`, "pnpm", ["tauri", "signer", "sign", relative(app, join(assets, name))], app, env);
+    sigs[pkg] = readFileSync(join(assets, `${name}.sig`), "utf8");
+  }
+  return sigs;
+}
+
 if (publishReady) {
   const sigPath = `${setup}.sig`;
   if (!existsSync(sigPath)) fail("updater signature", `no ${sigPath}; the build was not signed`);
+  const linux = signLinux(assets);
+  if (!linux) console.log("\nNo Linux packages for this version in target/release-assets-linux: latest.json covers Windows only.");
   let manifest;
   try {
-    manifest = buildLatestJson({ version, changelog, signature: readFileSync(sigPath, "utf8"), date: new Date() });
+    manifest = buildLatestJson({ version, changelog, signature: readFileSync(sigPath, "utf8"), date: new Date(), linux: linux ?? undefined });
   } catch (e) {
     fail("latest.json", e.message);
   }
@@ -227,6 +261,9 @@ console.log(`Website copy: ${join(assets, "ODM-setup.exe")}`);
 if (publishReady) {
   console.log(`Release assets (upload all to the v${version} release): ${assets}`);
   console.log(`  latest.json, ${setupName}, ${setupName}.sig, ODM-setup.exe`);
+  if (existsSync(join(assets, `${linuxPackageName(version, "deb")}.sig`))) {
+    console.log(`  and each of ${LINUX_PACKAGES.map((p) => linuxPackageName(version, p)).join(", ")} with its .sig`);
+  }
 }
 console.log(`Extension (Chromium): ${join(ext, "dist", "chromium")}`);
 console.log(`Extension (Firefox):  ${join(ext, "dist", "firefox")}`);
