@@ -692,6 +692,13 @@ impl Manager {
             .map(filename::sanitize)
             .or_else(|| filename::from_url(&req.url))
             .unwrap_or_else(|| "download".into());
+        // Named as what it ends up as. A failed conversion keeps the download as its part file,
+        // so nothing that isn't MP3 is ever placed under this name.
+        let name = if asks_mp3(req.video_override.as_ref()) {
+            crate::convert::mp3_name(&name)
+        } else {
+            name
+        };
         let cat = req.category.clone().unwrap_or_else(|| {
             if asks_mp3(req.video_override.as_ref()) {
                 "audio".into()

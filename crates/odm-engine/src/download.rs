@@ -278,7 +278,12 @@ async fn run_inner(
                         mime: p.mime.clone(),
                         etag: p.etag.clone(),
                         last_modified: p.last_modified.clone(),
-                        filename: p.filename.clone(),
+                        // The server's name, still ending in .mp3 when it will be converted.
+                        filename: if wants_mp3(&rec) {
+                            p.filename.as_deref().map(mp3_name)
+                        } else {
+                            p.filename.clone()
+                        },
                     },
                 )
                 .await

@@ -224,6 +224,35 @@ async fn a_stream_saved_as_mp3_is_named_mp3_from_the_start() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_plain_file_saved_as_mp3_is_named_mp3_from_the_start() {
+    let out = tempfile::tempdir().unwrap();
+    let m = ManagerHandle::start(
+        cfg(out.path(), "Z:/nope/ffmpeg.exe".into()),
+        Store::open_in_memory().unwrap(),
+    )
+    .await
+    .unwrap();
+    let named = m
+        .add(AddRequest {
+            start_paused: true,
+            ..mp3_request("https://e.com/v/clip.mp4".into(), out.path())
+        })
+        .await
+        .unwrap();
+    let from_link = m
+        .add(AddRequest {
+            filename: None,
+            start_paused: true,
+            ..mp3_request("https://e.com/v/movie.webm".into(), out.path())
+        })
+        .await
+        .unwrap();
+    for (id, want) in [(named, "clip.mp3"), (from_link, "movie.mp3")] {
+        assert_eq!(m.store().get_download(&id).await.unwrap().unwrap().filename, want);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn mp3_goes_to_the_audio_folder() {
     let out = tempfile::tempdir().unwrap();
     let c = cfg(out.path(), "Z:/nope/ffmpeg.exe".into());
