@@ -6,6 +6,32 @@ The top versioned section becomes the "What's new" text of an update, so write i
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-11-13
+
+An action bar and a right-click menu for many downloads at once, duplicates caught before they start, and Linux copies that update themselves from the next version on. Update the ODM browser extension along with this version.
+
+### Added
+
+- An action bar above the list: Resume, Pause and Stop, plus Queue, Low, Speed and More menus for the selected downloads. It replaces the floating "N selected" bar.
+- A right-click menu on downloads, acting on the whole selection.
+- The new download dialog warns when a link is already in your list (Show it, or add it anyway) and suggests a free name when the file name is taken.
+- Recent save folders under Save to, and recent links under the empty paste bar.
+- Choosing Later shows the file's size, warns when the drive is too full, and says when the link expires, with Open the page to get a fresh one.
+- ODM says when the browser extension is older than ODM.
+- The ↓ on Pornhub thumbnails, as on YouTube.
+- Linux: AppImage, .deb and .rpm copies update from inside ODM, starting with the next version.
+
+### Changed
+
+- ODM opens at 95% of the screen, centred.
+- The download table and the details panel sit in rounded cards, off the window's edges.
+
+### Fixed
+
+- A plain video file saved as MP3 is named .mp3 from the start.
+- Pasting a YouTube channel or home address no longer downloads every video on it.
+- At start-up, ODM repairs a browser still pointing at another copy of ODM.
+
 ## [0.4.2] - 2026-11-09
 
 Download straight from YouTube thumbnails, and no more update offer for video tools that are already current. Update the ODM browser extension along with this version: the thumbnail button is part of the extension.

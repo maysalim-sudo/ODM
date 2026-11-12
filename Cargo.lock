@@ -3708,7 +3708,7 @@ dependencies = [
 
 [[package]]
 name = "odm-app"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "base64 0.22.1",
  "odm-appcore",
@@ -3735,7 +3735,7 @@ dependencies = [
 
 [[package]]
 name = "odm-appcore"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "axum",
  "bytes",
@@ -3764,7 +3764,7 @@ dependencies = [
 
 [[package]]
 name = "odm-cli"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "clap",
  "odm-core",
@@ -3778,7 +3778,7 @@ dependencies = [
 
 [[package]]
 name = "odm-core"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "libc",
  "percent-encoding",
@@ -3789,7 +3789,7 @@ dependencies = [
 
 [[package]]
 name = "odm-engine"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "aes",
  "bytes",
@@ -3816,7 +3816,7 @@ dependencies = [
 
 [[package]]
 name = "odm-host"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "odm-core",
  "serde_json",
@@ -3828,7 +3828,7 @@ dependencies = [
 
 [[package]]
 name = "odm-store"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "odm-core",
  "rusqlite",
@@ -3840,7 +3840,7 @@ dependencies = [
 
 [[package]]
 name = "odm-testserver"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "aes",
  "axum",
@@ -3856,7 +3856,7 @@ dependencies = [
 
 [[package]]
 name = "odm-torrent"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "async-trait",
