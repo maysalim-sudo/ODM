@@ -229,6 +229,8 @@ function signLinux(assets) {
     TAURI_SIGNING_PRIVATE_KEY: readFileSync(key.keyPath, "utf8").trim(),
     TAURI_SIGNING_PRIVATE_KEY_PASSWORD: key.password,
   };
+  // The path is set too (sign-release.ps1), and `tauri signer sign` refuses a key and a path at once.
+  delete env.TAURI_SIGNING_PRIVATE_KEY_PATH;
   const sigs = {};
   for (const [pkg, name] of files) {
     copyFileSync(join(dir, name), join(assets, name));
