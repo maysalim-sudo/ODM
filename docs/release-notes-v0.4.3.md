@@ -8,7 +8,7 @@ ODM 0.4.3 adds an action bar and a right-click menu for handling many downloads 
 - **Recent folders and links:** Save to offers the folders you used lately, and the empty paste bar offers the links you downloaded lately.
 - **A safer Later:** when you choose Later, ODM finds the file's size, warns if the drive is too full, and shows when the link expires. An expired link offers **Open the page** to get a fresh one.
 - **Old extension warning:** ODM and the extension's own popup tell you when the browser extension is older than ODM.
-- **Pornhub thumbnails:** hover a thumbnail and click the ↓ to save it as Video or MP3, as on YouTube.
+- **More video sites:** hover a thumbnail and click the ↓ to save it as Video or MP3, as on YouTube.
 - **Linux updates in the app:** from the next version, AppImage, .deb and .rpm copies update from inside ODM. A .deb or .rpm copy asks for your system password.
 
 ## Changed

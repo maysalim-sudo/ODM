@@ -18,7 +18,7 @@ An action bar and a right-click menu for many downloads at once, duplicates caug
 - Recent save folders under Save to, and recent links under the empty paste bar.
 - Choosing Later shows the file's size, warns when the drive is too full, and says when the link expires, with Open the page to get a fresh one.
 - ODM says when the browser extension is older than ODM.
-- The ↓ on Pornhub thumbnails, as on YouTube.
+- The ↓ on thumbnails on more video sites, as on YouTube.
 - Linux: AppImage, .deb and .rpm copies update from inside ODM, starting with the next version.
 
 ### Changed
