@@ -1,8 +1,8 @@
 # ODM (Open Downloader Manager)
 
-A personal download manager for Windows. It downloads files over several connections at once, resumes after a pause or a crash, and keeps a queue with speed and concurrency limits.
+A free download manager for Windows and Linux. It downloads files over several connections at once, resumes after a pause or a crash, and keeps a queue with speed and concurrency limits. It also downloads torrents and magnet links.
 
-It takes over downloads from Chrome, Edge, Brave, Vivaldi, Opera, Firefox and Floorp. It also finds the videos a page plays and downloads them: plain video files, HLS streams, and, through yt-dlp, videos on YouTube, Facebook, Instagram, X, TikTok, Vimeo and more.
+It takes over downloads from Chrome, Edge, Brave, Vivaldi, Opera, Firefox and Floorp. It also finds the videos a page plays and downloads them as video or MP3: plain video files, HLS streams, and, through yt-dlp, videos on YouTube, Facebook, Instagram, X, TikTok, Vimeo and more.
 
 ![The ODM download list: downloads by category, progress, speed and time left](docs/screenshots/1-list.png)
 
@@ -14,7 +14,9 @@ ODM is a personal project, shared as is. The installer is not code-signed. ODM u
 
 ## Quick start (no building)
 
-1. **Install the app.** Download [`ODM-setup.exe`](../../releases/latest/download/ODM-setup.exe) from the latest release and run it. It installs for your user only and needs no admin rights. Because it is unsigned, Windows SmartScreen may warn you: choose **More info → Run anyway**.
+1. **Install the app.**
+   - Windows: download [`ODM-setup.exe`](../../releases/latest/download/ODM-setup.exe) from the latest release and run it. It installs for your user only and needs no admin rights. Because it is unsigned, Windows SmartScreen may warn you: choose **More info → Run anyway**.
+   - Linux: download [`ODM-amd64.deb`](../../releases/latest/download/ODM-amd64.deb) (Ubuntu, Debian, Mint), [`ODM-x86_64.rpm`](../../releases/latest/download/ODM-x86_64.rpm) (Fedora, openSUSE) or [`ODM-x86_64.AppImage`](../../releases/latest/download/ODM-x86_64.AppImage) (most others; make it executable and run it).
 2. **Start ODM.** It registers its browser helper, and a welcome screen walks you through the rest.
 3. **Add the extension.** Pick your browser on the welcome screen. It opens the extension folder and your browser's extensions page, and shows "Connected" once the extension talks to ODM.
    - Chrome, Edge, Vivaldi and other Chromium browsers: on the extensions page, turn on **Developer mode**, choose **Load unpacked** and pick the folder ODM opened.
@@ -25,34 +27,50 @@ After that ODM keeps itself up to date (see "Updates").
 
 Only download what you have the right to. Respect each site's terms.
 
+Update the app and the browser extension together: ODM says when the extension is older than the app.
+
+## Using ODM
+
+- **Add a download:** press **Ctrl+V** anywhere to paste a link, or drop a link, a `.torrent` file or a magnet link on the window. ODM reads the link and asks only for what it needs; the rest is under **More options**. It warns when the link is already in your list, suggests a free name when the file name is taken, and offers your recent folders under **Save to**. Choosing **Later** shows the file's size, warns when the drive is too full, and says when the link expires.
+- **The list** groups downloads into Needs you, Downloading, Up next and Finished, and each one has its own buttons. The view switch shows the detailed table instead.
+- **Many downloads at once:** select them (Ctrl+A selects all) and use the action bar above the list (Resume, Pause, Stop, and the Queue, Low, Speed and More menus), or right-click. **Low** puts a download last in line and slows it down.
+- **What downloads next:** drag rows in Up next, use Move to top, Move up and Move down, or press **Alt+Up** and **Alt+Down**.
+- **Details:** click a download to see it in the panel under the list, with tabs for Info, Speed, Parts, and Files and peers for torrents. Double-click a finished download to open it.
+- **Videos:** on YouTube, hover a thumbnail and click the ↓ to save it as video or MP3 without opening it. On other pages, use the button over a video, the page's video list or the extension's popup. MP3s go to your Music folder and need FFmpeg from the video tools.
+- **Torrents:** choose which files to download before it starts, and change them later in the Files and peers tab. ODM is a downloader, not a seeding client: a torrent stops sharing once its files are complete.
+
 ## Settings
 
-Open **Settings** from the header, the tray, or with **Ctrl+,**. Changes apply at once. **Restore defaults** resets one section, and the search box finds any option.
+Open **Settings** from the header, the tray, or with **Ctrl+,**. Changes apply at once. **Restore defaults** resets one section, and the search box finds any option. There are six sections:
 
-- **General:** start ODM with Windows (it starts in the tray), start minimized, keep running in the tray when the window is closed, notifications for finished and failed downloads, and prevent sleep while downloading.
+- **Essentials:** the settings most people change: the download folder, sorting by type, how many downloads run at once, the speed limit, notifications, keeping ODM in the tray, and update checks. Each also lives in its own section below.
 - **Downloads:**
   - The download folder. New installs save to `%USERPROFILE%\Downloads\ODM`; if you already use ODM, your folder stays as it is.
   - Sort into folders by type.
   - When a file already exists: keep both (rename), replace it, or ask.
-  - When a download finishes: do nothing, open its folder, or open the file.
+  - When a download finishes: do nothing, open its folder, open the file, or ask (ODM comes forward and asks).
   - Start new downloads at once or paused. With paused, the New download window also has **Start now**.
   - How many downloads run at once.
   - Remove finished downloads from the list after a number of days. Only the list entry goes; the file stays.
-- **Speed:**
   - A total speed limit, optionally only at certain times (days and hours).
   - Connections per download.
   - **Run the queue at certain times:** queued downloads start at the start time and pause at the stop time. Outside those hours the list shows "Waiting for the schedule (starts 01:00)". To start one anyway, select it and press **Resume**, or choose **Start now** in the New download window. **Resume all** follows the schedule.
   - **When the queue is done:** do nothing, sleep, shut down, or quit ODM. ODM shows a notification and counts down 60 seconds first; press **Cancel** to stop it. A download that starts during the countdown also cancels it.
   - The speed chip in the status bar and the tray's speed menu set a quick limit.
 - **Browser:** take over downloads from the browser, ask where to save each one, a minimum file size, file types and sites to leave to the browser, and the browser connection check.
-- **Video:** get the video tools (FFmpeg, yt-dlp), the preferred quality (or audio only, as MP3), the format (MP4 or MKV), subtitles, and keeping yt-dlp up to date.
-- **Network:** the proxy (the Windows proxy settings, no proxy, or your own address, used for downloads, video tools and updates), timeouts and retries.
-- **Updates:** check automatically, and when an update is ready: ask me, or install when I quit ODM.
-- **Advanced:** a custom User-Agent (browser downloads keep the browser's), the paths to FFmpeg and yt-dlp, ODM's folders, and **Reset all settings**.
+- **Video:** get the video tools (FFmpeg, yt-dlp, Deno), the preferred quality (or audio only, as MP3), the format (MP4 or MKV) and subtitles. **Update video tools** appears only when a newer yt-dlp or Deno is out, or FFmpeg is over four months old.
+- **Torrents:** the listen port, router port opening (UPnP), uploading while downloading, and peers per torrent.
+- **Advanced:**
+  - Start ODM with Windows (it starts in the tray), start minimized, keep running in the tray when the window is closed, notifications for finished and failed downloads, and prevent sleep while downloading.
+  - The proxy (the Windows proxy settings, no proxy, or your own address, used for downloads, video tools and updates), timeouts and retries.
+  - Updates: check automatically, and when an update is ready: ask me, or install when I quit ODM.
+  - A custom User-Agent (browser downloads keep the browser's), the paths to FFmpeg and yt-dlp, ODM's folders, and **Reset all settings**.
 
 ## Updates
 
 ODM checks its GitHub releases 10 seconds after it starts and then every 6 hours, unless you turn that off in Settings → Updates. When a new version is out, a banner says so. **What's new** shows the changes, **Update** downloads and installs it and restarts ODM, and **Later** hides the banner until the next version. With "Install when I quit ODM", the update downloads in the background and installs when you quit (or press **Install now**).
+
+On Linux, from 0.4.3 on, the AppImage replaces itself and a `.deb` or `.rpm` install asks for your system password. A copy older than 0.4.3 needs the new package installed by hand once.
 
 Every update is signed. ODM checks the signature against the key built into it and refuses an update that does not match. Builds you make yourself without the key never check for updates.
 
@@ -89,18 +107,19 @@ Choose a password. This writes the private key to `%USERPROFILE%\.tauri\odm-upda
 
 **Each release:**
 
-1. Raise `version` in `app\src-tauri\tauri.conf.json` (and in `Cargo.toml` and `app\package.json`).
+1. Raise `version` in `app\src-tauri\tauri.conf.json`, `Cargo.toml` (then `cargo update --workspace --offline` for `Cargo.lock`), `app\package.json`, `extension\package.json` and both `extension\manifests\*.json`.
 2. In `CHANGELOG.md`, turn "Unreleased" into a section for that version, like `## [0.2.0] - 2026-10-20`. Its text becomes the "What's new" of the update.
 3. Build, in PowerShell:
 
        powershell -NoProfile -ExecutionPolicy Bypass -File scripts\sign-release.ps1
 
    It asks for the key password (hidden), checks it against the key in a few seconds (3 tries), and only then runs `node scripts\release.mjs --publish-ready` with the key and password set for that build alone. Setting `TAURI_SIGNING_PRIVATE_KEY_PATH` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` yourself and running `release.mjs --publish-ready` directly also works. The release script refuses to start without both variables or without the `.pub` file, runs every check and test first, and stops at the first failure. Then it builds the signed installer and writes `target\release-assets\`: `latest.json`, `ODM_<version>_x64-setup.exe`, its `.sig`, and `ODM-setup.exe` (the same installer under the stable name the website links to).
-4. Create the GitHub release `v<version>` and upload those four files. Installed copies read the `latest.json` of the latest release (the updater `endpoints` in `app/src-tauri/tauri.conf.json`), so the update reaches them once the release is published (not as a draft or a pre-release).
+4. Zip the extension: `extension/dist/chromium` and `extension/dist/firefox` with `extension/scripts/zip.mjs` (`odm-extension-chromium.zip`, `odm-extension-firefox.zip`), and the source with `git archive HEAD:extension` (`odm-extension-source.zip`). Write `SHA256SUMS.txt` for every file except the `.sig` files and `latest.json`.
+5. Create the GitHub release `v<version>` as a draft, upload this version's files from `target\release-assets\`, the Linux files below, the extension zips and `SHA256SUMS.txt`, then publish it. `target\release-assets\` also keeps older versions, so upload only this version's files. Installed copies read the `latest.json` of the latest release (the updater `endpoints` in `app/src-tauri/tauri.conf.json`), so the update reaches them once the release is published (not as a draft or a pre-release).
 
-**Linux packages** (`.deb`, `.rpm`, `.AppImage`), on Ubuntu, Kubuntu or Debian:
+**Linux packages** (`.deb`, `.rpm`, `.AppImage`), built on Ubuntu 22.04, Kubuntu or Debian, or in a Docker container of one (build them before the Windows build):
 
-1. Once per machine: `bash scripts/linux-setup.sh` (asks your password once, for `apt`; installs the build libraries, Rust, Node and pnpm for your user).
+1. Once per machine or image: `bash scripts/linux-setup.sh` (asks your password once, for `apt`; installs the build libraries, Rust, Node and pnpm for your user). In Docker, set `APPIMAGE_EXTRACT_AND_RUN=1` so the AppImage tools run without FUSE.
 2. In the repo: `node scripts/release.mjs --updater-pubkey app/src-tauri/odm-updater.pub`. It writes `target/release-assets-linux/`: `ODM-amd64.deb`, `ODM-x86_64.rpm` and `ODM-x86_64.AppImage` for the website, the same three as `ODM_<version>_amd64.AppImage`, `ODM_<version>_amd64.deb` and `ODM_<version>_x86_64.rpm` for the updater, with the update key compiled in so they can verify later updates. Nothing is signed on Linux; the private key stays on the Windows machine.
 3. Copy that folder to `target\release-assets-linux\` on the Windows machine **before** the signed Windows build. That build then signs the three versioned packages too, copies them and their `.sig` files into `target\release-assets\`, and lists them in `latest.json` (`linux-x86_64-appimage`, `-deb`, `-rpm`), so Linux copies update in the app: an AppImage replaces itself, a `.deb` or `.rpm` install asks for the system password. Without the folder, `latest.json` covers Windows only.
 4. Add all of the Linux files to the same GitHub release as the Windows files.
