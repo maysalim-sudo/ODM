@@ -30,8 +30,30 @@ fn cancelled() -> OdmError {
     OdmError::new(ErrorKind::Cancelled, "cancelled")
 }
 
+fn is_cookie(header: &(String, String)) -> bool {
+    header.0.eq_ignore_ascii_case("cookie")
+}
+
+/// A failed download that carried the browser's cookies is tried once more without them:
+/// yt-dlp can't read some sites' logged-in pages (Facebook reels: "Cannot parse data"),
+/// while the public page works, as when the link is pasted into ODM by hand.
+fn retry_without_cookies(headers: &[(String, String)], cancelled: bool) -> bool {
+    !cancelled && headers.iter().any(is_cookie)
+}
+
 pub async fn run_site(env: &DownloadEnv, id: &str, cancel: CancellationToken) -> Outcome {
-    match run_inner(env, id, &cancel).await {
+    let mut result = run_inner(env, id, &cancel, true).await;
+    if let Err(first) = result {
+        let headers = env.store.get_headers(id).await.unwrap_or_default();
+        result = if retry_without_cookies(&headers, cancel.is_cancelled()) {
+            tracing::info!(%id, "yt-dlp failed with the browser's cookies; trying without them");
+            // If that fails too, the first error says more about why.
+            run_inner(env, id, &cancel, false).await.map_err(|_| first)
+        } else {
+            Err(first)
+        };
+    }
+    match result {
         Ok(placed) => placed.into(),
         Err(_) if cancel.is_cancelled() => Outcome::Stopped,
         Err(e) => Outcome::Failed(e),
@@ -137,6 +159,7 @@ async fn run_inner(
     env: &DownloadEnv,
     id: &str,
     cancel: &CancellationToken,
+    with_cookies: bool,
 ) -> Result<Placed, OdmError> {
     let rec = env
         .store
@@ -146,7 +169,10 @@ async fn run_inner(
         .ok_or_else(|| other("download not found"))?;
     transition(env, id, DownloadState::Probing, None).await;
     let ytdlp = find_ytdlp(&env.config).ok_or_else(|| other(MISSING))?;
-    let headers = env.store.get_headers(id).await.map_err(store_err)?;
+    let mut headers = env.store.get_headers(id).await.map_err(store_err)?;
+    if !with_cookies {
+        headers.retain(|h| !is_cookie(h));
+    }
     let tmp = temp_dir(&rec);
     std::fs::create_dir_all(&tmp).map_err(io_err)?;
 
@@ -282,6 +308,18 @@ async fn run_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_download_with_cookies_is_retried_and_never_after_cancel() {
+        let h = |n: &str| (n.to_string(), "x".to_string());
+        assert!(retry_without_cookies(&[h("Referer"), h("Cookie")], false));
+        assert!(retry_without_cookies(&[h("cookie")], false));
+        assert!(!retry_without_cookies(
+            &[h("Referer"), h("User-Agent")],
+            false
+        ));
+        assert!(!retry_without_cookies(&[h("Cookie")], true));
+    }
 
     #[test]
     fn find_output_takes_mkv_and_mp3_too() {
