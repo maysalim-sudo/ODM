@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import Icon from "./Icon.svelte";
+  import Logo from "./Logo.svelte";
 
   let {
     children,
@@ -15,7 +16,7 @@
 </script>
 
 <header>
-  <span class="mark" aria-hidden="true"><Icon name="download" size={22} /></span>
+  <Logo size={32} />
   {@render children()}
   <button class="side" onclick={onbatch}><Icon name="add-many" /> Add several</button>
   <button class="side" onclick={onsettings}><Icon name="sliders" /> Settings</button>
@@ -27,16 +28,6 @@
     align-items: center;
     gap: 12px;
     padding: 12px 20px;
-  }
-  .mark {
-    display: grid;
-    place-items: center;
-    flex: none;
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius);
-    background: var(--accent);
-    color: var(--on-accent);
   }
   .side {
     display: inline-flex;

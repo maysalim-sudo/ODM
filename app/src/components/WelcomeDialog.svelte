@@ -5,7 +5,7 @@
   import { WELCOME_BROWSERS, browserConnected, extensionsPageFor, storeLinkFor } from "../lib/model";
   import { IS_LINUX } from "../lib/platform";
   import type { StoreLinks, ToolsStatus } from "../lib/types";
-  import Icon from "./Icon.svelte";
+  import Logo from "./Logo.svelte";
   import ToolsCard from "./ToolsCard.svelte";
 
   let { open, onclose }: { open: boolean; onclose: () => void } = $props();
@@ -91,18 +91,22 @@
 
 {#if open}
   <div class="welcome" role="dialog" aria-modal="true" aria-label="Welcome to ODM">
+    <div class="sky" aria-hidden="true"><div class="glow"></div><div class="sun"></div></div>
+
     <header>
-      <span class="mark" aria-hidden="true"><Icon name="download" size={18} /></span>
+      <Logo size={28} />
       <strong>ODM</strong>
       <button class="link skip" onclick={finish}>Skip setup</button>
     </header>
 
+    {#key step}
     <div class="step" bind:this={stepEl}>
       <div class="pips" aria-hidden="true">
         {#each [0, 1, 2] as i (i)}<span class:on={i <= step}></span>{/each}
       </div>
 
       {#if step === 0}
+        <p class="eyebrow">Welcome to ODM</p>
         <h1>Which browser do you use?</h1>
         <p class="lead">ODM connects to it, so downloads and videos go straight to ODM.</p>
         <div class="chips" role="radiogroup" aria-label="Your browser">
@@ -178,6 +182,7 @@
         {/if}
       {/if}
     </div>
+    {/key}
   </div>
 {/if}
 
@@ -190,21 +195,56 @@
     flex-direction: column;
     background: var(--bg);
     overflow-y: auto;
+    isolation: isolate;
+  }
+  /* The logo's sunset, large, rising from the foot of the window behind the steps. */
+  .sky {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .sun,
+  .glow {
+    position: absolute;
+    left: 50%;
+    width: min(680px, 100vw);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    translate: -50% 0;
+  }
+  .sun {
+    bottom: calc(min(680px, 100vw) * -0.66);
+    background: linear-gradient(var(--sun-top), var(--accent) 45%, var(--sun-bottom));
+    /* The stripes: gaps that thicken towards the horizon, as in the logo. */
+    -webkit-mask-image: linear-gradient(black 0 20%, transparent 20% 21.5%, black 21.5% 27%, transparent 27% 29.5%, black 29.5% 34%, transparent 34% 37.5%, black 37.5% 41%, transparent 41% 46%, black 46%);
+    mask-image: linear-gradient(black 0 20%, transparent 20% 21.5%, black 21.5% 27%, transparent 27% 29.5%, black 29.5% 34%, transparent 34% 37.5%, black 37.5% 41%, transparent 41% 46%, black 46%);
+    opacity: 0.85;
+    animation: rise 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .glow {
+    bottom: calc(min(680px, 100vw) * -0.5);
+    scale: 1.5;
+    background: radial-gradient(closest-side, var(--sun-glow), transparent);
+    animation: fade 2s ease-out both;
+  }
+  @keyframes rise {
+    from {
+      translate: -50% 18%;
+      opacity: 0;
+    }
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
   }
   header {
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 20px 24px;
-  }
-  .mark {
-    display: grid;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    border-radius: var(--radius);
-    background: var(--accent);
-    color: var(--on-accent);
   }
   .skip {
     margin-left: auto;
@@ -214,10 +254,30 @@
     flex-direction: column;
     align-items: center;
     gap: 16px;
-    width: min(620px, 100%);
-    margin: auto;
-    padding: 0 20px 48px;
+    width: min(620px, calc(100% - 40px));
+    box-sizing: border-box;
+    margin: auto auto 34vh;
+    padding: 32px 28px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background: color-mix(in srgb, var(--surface) 78%, transparent);
+    backdrop-filter: blur(18px);
     text-align: center;
+    animation: enter 0.35s ease-out both;
+  }
+  @keyframes enter {
+    from {
+      opacity: 0;
+      translate: 0 10px;
+    }
+  }
+  .eyebrow {
+    margin: 4px 0 -8px;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
   .pips {
     display: flex;
@@ -332,7 +392,10 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .live:not(.ok) .dot {
+    .live:not(.ok) .dot,
+    .sun,
+    .glow,
+    .step {
       animation: none;
     }
   }

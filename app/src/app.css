@@ -16,6 +16,10 @@
   --accent: #ffa31a;
   --accent-light: #ffb84d;
   --on-accent: #000000;
+  /* The welcome screen's sunset. */
+  --sun-top: #ffd166;
+  --sun-bottom: #ff5a1f;
+  --sun-glow: rgb(255 140 26 / 0.28);
   --error: #ff6b6b;
   --error-tint: #291111;
   --success: #34d399;

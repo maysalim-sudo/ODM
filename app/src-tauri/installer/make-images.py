@@ -35,17 +35,27 @@ def line(d, pts, width, fill):
         d.ellipse([x - r, y - r, x + r, y + r], fill=fill)
 
 
+TILE = (17, 17, 17)
+
+
 def icon(size):
-    """The ODM app icon at size x size (RGB, on black)."""
+    """The ODM app icon (the sunset) at size x size, on black."""
     s = size * SS
     img = Image.new("RGB", (s, s), BLACK)
     d = ImageDraw.Draw(img)
     k = s / 1024
-    d.rounded_rectangle([0, 0, s - 1, s - 1], radius=220 * k, fill=ORANGE)
-    w = round(84 * k)
-    line(d, [(512 * k, 232 * k), (512 * k, 620 * k)], w, BLACK)
-    line(d, [(344 * k, 468 * k), (512 * k, 636 * k), (680 * k, 468 * k)], w, BLACK)
-    line(d, [(288 * k, 772 * k), (736 * k, 772 * k)], w, BLACK)
+    d.rounded_rectangle([0, 0, s - 1, s - 1], radius=239 * k, fill=TILE)
+    # The sun, cut off at the horizon.
+    sun = Image.new("L", (s, s), 0)
+    ImageDraw.Draw(sun).ellipse([(512 - 341) * k, (597 - 341) * k, (512 + 341) * k, (597 + 341) * k], fill=255)
+    ImageDraw.Draw(sun).rectangle([0, 734 * k, s, s], fill=0)
+    img.paste(ORANGE, mask=sun)
+    for y, h in [(486, 17), (546, 26), (606, 34), (674, 43)]:
+        d.rectangle([136 * k, y * k, 888 * k, (y + h) * k], fill=TILE)
+    line(d, [(136 * k, 751 * k), (888 * k, 751 * k)], round(26 * k), ORANGE)
+    # The reflection narrows into a down arrow.
+    for pts in [[(256, 794), (768, 794), (708, 836), (316, 836)], [(358, 870), (666, 870), (615, 905), (410, 905)], [(452, 930), (572, 930), (512, 973)]]:
+        d.polygon([(x * k, y * k) for x, y in pts], fill=ORANGE)
     return img.resize((size, size), Image.LANCZOS)
 
 
@@ -70,6 +80,9 @@ def sidebar():
         w = d.textlength(text, font=f)
         d.text(((164 - w) / 2, y), text, font=f, fill=fill)
     d.rectangle([0, 0, 3, 313], fill=ORANGE)
+    # The logo's stripes, repeated at the foot: thin and dim at the top, thick and bright at the bottom.
+    for y, h, a in [(270, 1, 0.25), (280, 2, 0.45), (291, 3, 0.7), (303, 5, 1.0)]:
+        d.rectangle([4, y, 163, y + h - 1], fill=tuple(round(c * a) for c in ORANGE))
     return img
 
 
