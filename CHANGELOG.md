@@ -6,6 +6,20 @@ The top versioned section becomes the "What's new" text of an update, so write i
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-16
+
+A new look: ODM has a new logo, a sunset with a download arrow in its reflection, and a new welcome screen. ODM also opens at its earlier size again. Update the ODM browser extension along with this version: it carries the new logo.
+
+### Changed
+
+- A new logo, in the app, the taskbar, the tray, the browser extension and the installer.
+- The welcome screen shows its steps over a rising sunset.
+- ODM opens at its earlier size again, not 95% of the screen.
+
+### Fixed
+
+- A video sent from the browser that fails with your browser's login is tried once more without it. This helps on Facebook when its login page gets in the way.
+
 ## [0.4.3] - 2026-11-13
 
 An action bar and a right-click menu for many downloads at once, duplicates caught before they start, and Linux copies that update themselves from the next version on. Update the ODM browser extension along with this version.
